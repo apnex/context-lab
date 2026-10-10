@@ -26,6 +26,7 @@ They are not copied here; this register starts at the vision.
 | 0004 | 2026-10-10 | context-lab adopts the universal parts of mission-kit's standing-suite design, listed in its record, and none of its mission-kit-specific choices. | director | ratified | - |
 | 0005 | 2026-10-10 | A fourth hook point, the note generator, is added to the three of `0003`. | director | ratified | amends 0003 |
 | 0006 | 2026-10-10 | The target architecture in `docs/ARCHITECTURE-TARGET.md` is ratified, every section approved. | director | ratified | - |
+| 0007 | 2026-10-10 | Milestone M1, a core that runs one-phase experiments with isolation proven, is the first move, opened as context-lab's first delta. | director | ratified | - |
 
 ---
 
@@ -123,4 +124,16 @@ Ratifying with changes, or reading a section first - offered, not chosen.
 
 **Source.**\
 `[V, director ruling 2026-10-10]`
+
+### 0007
+
+**Ruling.**\
+M1 is selected from the board as the first move, and opens as the first delta.
+
+**Alternatives refuted.**\
+Starting with the session and compaction probes (M2.1) - not chosen; cheaper, but nothing would run end to end and the two copies would keep diverging.\
+Reordering the board - offered, not chosen.
+
+**Source.**\
+`[V, director selection 2026-10-10; docs/BOARD.md]`
 

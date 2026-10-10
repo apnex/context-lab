@@ -1,7 +1,7 @@
 # context-lab - board
 
 The live, triaged set of legal next moves, for the director to select from.\
-Draft for the director's selection; nothing on it is started.
+M1 is selected (`0007`); its delta is being drafted.
 
 ---
 
@@ -90,6 +90,5 @@ It carries mission-kit's comprehension and adherence suites as single-phase expe
 
 ## Decisions required
 
-| Question | Blocks |
-|---|---|
-| Is M1 the first move, opened as context-lab's first delta? | M1.1, and everything that depends on it |
+None open.\
+M1 was selected as the first move (`docs/DECISIONS.md` `0007`).
