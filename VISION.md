@@ -19,7 +19,21 @@ Chosen by the director on 2026-10-10 over three narrower and broader candidates:
 
 ## What this is, and what it is not
 
-To be drafted.
+**It is:**
+
+1. **An instrument for experiments on context.** Context is what varies; everything else is held fixed and proven fixed - isolation, the pinned revision, the model.
+2. **A shared method.** One set of rules for isolation, blinding, judging and invalid runs across projects, so results from two projects can be compared.
+3. **A durable record.** Experiments, the rules they set in advance, and their results are kept so anyone can re-run and compare them.
+
+**It is not:**
+
+4. **A benchmark of models.** A model is a factor in an experiment, never its subject.
+5. **A target to tune context against.** Scores are evidence about context, not goals; guidance rewritten to pass a scenario, rather than to help agents work, defeats the purpose.
+6. **The owner of any project's scenarios, keys or conclusions.** Each project owns those; this owns only the method.
+7. **Judgement by agents alone.** Where a human is the one the work is for, agent judges are checked against that human.
+8. **Tied to one harness or model vendor.** A harness or model is an adapter, and adding one does not change the method.
+
+All eight accepted by the director on 2026-10-10.
 
 ---
 
