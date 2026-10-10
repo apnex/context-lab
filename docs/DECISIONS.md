@@ -27,6 +27,7 @@ They are not copied here; this register starts at the vision.
 | 0005 | 2026-10-10 | A fourth hook point, the note generator, is added to the three of `0003`. | director | ratified | amends 0003 |
 | 0006 | 2026-10-10 | The target architecture in `docs/ARCHITECTURE-TARGET.md` is ratified, every section approved. | director | ratified | - |
 | 0007 | 2026-10-10 | Milestone M1, a core that runs one-phase experiments with isolation proven, is the first move, opened as context-lab's first delta. | director | ratified | - |
+| 0008 | 2026-10-10 | A suite - a named, saved selection of scenarios with the experiment that runs them, held in the pack - is an entity of the architecture, built in the first delta. | director | ratified | - |
 
 ---
 
@@ -136,4 +137,15 @@ Reordering the board - offered, not chosen.
 
 **Source.**\
 `[V, director selection 2026-10-10; docs/BOARD.md]`
+
+### 0008
+
+**Ruling.**\
+Suite is an entity: a named, saved selection of scenarios with the experiment that runs them, held in the pack, re-run by name.
+
+**Alternatives refuted.**\
+Projects keeping their own lists of scenario tags - refuted because a suite could not then be re-run by name across projects or over time, against the vision's repeatability.
+
+**Source.**\
+`[V, director ruling 2026-10-10, on whether a study of many designed applications could form a suite]`
 

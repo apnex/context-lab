@@ -85,7 +85,7 @@ Every result is attributable to the declared differences between conditions alon
 | P9 | **Evidence, not verdicts.** A comparison flags; the project's authority decides | `A13`; vision non-authority 2 |
 
 **Decisions.**\
-`0001` the vision; `0002` all four existing mechanisms are absorbed; `0003` packs may carry scripts at fixed hooks; `0004` the universal parts of mission-kit's standing-suite design are adopted, and `0005` a note-generator hook is added to `0003`'s three.
+`0001` the vision; `0002` all four existing mechanisms are absorbed; `0003` packs may carry scripts at fixed hooks; `0004` the universal parts of mission-kit's standing-suite design are adopted, and `0005` a note-generator hook is added to `0003`'s three; `0008` suites are an entity.
 
 **Model.**\
 Single-duty components (section 5), each serving a principle, driven by a project pack through fixed hooks, producing a run record the project keeps.
@@ -127,7 +127,7 @@ Each component has one duty and serves at least one principle.
 |---|---|---|---|---|
 | **Pack checker** | Validates a project pack | A pack; its declaration-check hook | Every defect, or a pass | P5 |
 | **Experiment register** | Fixes an experiment before it runs | An experiment from the pack; the changes a project declares its held-out outcomes informed | Its content hash; its status, result or exploration; for each held-out scenario, which changes its outcomes have informed | P4 |
-| **Selector** | Chooses scenarios by their declared tags | Tags requested; the pack's scenarios | A scenario set, with the generated entry-to-scenario view | North star, P5 |
+| **Selector** | Chooses scenarios by their declared tags | Tags requested; the pack's scenarios | A scenario set, a named suite resolved to its scenarios, and the generated entry-to-scenario view | North star, P5 |
 | **Variant builder** | Builds one context variant | A source and revision; the variant declaration; the pack's transform hook | A local, read-only copy, its addresses rewritten to itself, its canaries planted | P1, P5 |
 | **Arm composer** | Composes one arm, runtime-neutral | Variants; the arm declaration | An arm: what reaches the agent, and by which delivery - instruction, folder file, on request | P6 |
 | **Workspace builder** | Creates an isolated workspace | A fixture; the pack's forbidden paths; the rules-file names each adapter declares | A workspace with an opaque name, no rules file above it, its initial commit | P1 |
@@ -145,7 +145,7 @@ Each component has one duty and serves at least one principle.
 | **Threshold deriver** | Derives decision thresholds from A/A results | Results of a condition compared with itself | A threshold set per size, with its false-alarm rate | P4 |
 | **Comparator** | Compares two results under a declared rule | Two results; the rule - per-property tolerance, a property absent from the head counting as a drop; A/A threshold with extension; or improve-without-worsening across families | Flags, held-out scenarios reported apart, never a verdict | P9 |
 | **Candidate writer** | Writes candidate findings from results | Results; the pack's finding rules | Candidates with evidence, for the project to triage | P9 |
-| **Run conductor** | Conducts a run through its lifecycle | An experiment and its factors | The run record: configuration, method version, revisions, consent, events, outcomes, votes, mapping, results | P8 |
+| **Run conductor** | Conducts a run through its lifecycle | An experiment and its factors, or a suite by name | The run record: configuration, method version, revisions, consent, events, outcomes, votes, mapping, results | P8 |
 
 **Adapters.**\
 Each agent runtime has one, and one **external** adapter hands prompts out and takes answers back, for any harness context-lab does not drive.\
@@ -161,6 +161,7 @@ A comprehension run is one phase in which a reader answers probes, parsed by the
 | Entity | Holds |
 |---|---|
 | Pack | Everything project-specific, listed below |
+| Suite | A name, a selection of scenarios by tag, and the experiment that runs them - `0008` |
 | Experiment | Scenarios, factors and levels, runs per cell, rules, the variation it can detect and the default taken when nothing is detected - all stated before outcomes - status, hash |
 | Scenario | Tags, fixture, phases, trap pairs, probes, held-out flag |
 | Property | Key, type - adherence, precision, comprehension - guidance named, decided by code or judge, scale |
@@ -179,7 +180,7 @@ A comprehension run is one phase in which a reader answers probes, parsed by the
 | Run record | All of the above for one run |
 
 **The pack, exhaustively.**\
-Experiments; context sources and revisions; variant declarations; delivery declarations; the population and judge assignment; identifier patterns to mask; self-explanation markers; term and exclusion lists; canaries and leak probes; forbidden paths and addresses; reader and judge instructions, response formats and launcher wordings; decision rules and run sizes; finding rules; calibration policy; consent records; where the run record is kept; and its hooks.\
+Experiments and suites; context sources and revisions; variant declarations; delivery declarations; the population and judge assignment; identifier patterns to mask; self-explanation markers; term and exclusion lists; canaries and leak probes; forbidden paths and addresses; reader and judge instructions, response formats and launcher wordings; decision rules and run sizes; finding rules; calibration policy; consent records; where the run record is kept; and its hooks.\
 Nothing project-specific is read from anywhere else.
 
 **Hooks, by decision `0003`.**
