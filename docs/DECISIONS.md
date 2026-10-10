@@ -30,6 +30,7 @@ They are not copied here; this register starts at the vision.
 | 0008 | 2026-10-10 | A suite - a named, saved selection of scenarios with the experiment that runs them, held in the pack - is an entity of the architecture, built in the first delta. | director | ratified | - |
 | 0009 | 2026-10-10 | Delta-1 is ratified, revision 3, built in TypeScript following zorg's layout: npm workspaces, `tsc -b` under strict settings, `node --test`, Node 24 or later, development dependencies only. | director | ratified | - |
 | 0010 | 2026-10-10 | Delta-1's stage amendments are confirmed: E3's run-record clause is evaluated at stage 4, and E12 is completed across stages 1, 2 and 4. | director | ratified | - |
+| 0011 | 2026-10-10 | Delta-1's stage 2 amendment is confirmed: E13's run-record clause is evaluated at stage 4. | director | ratified | amends 0010 |
 
 ---
 
@@ -173,4 +174,15 @@ Keeping E3 and E12 at stage 1 - refuted because each needs a component a later s
 
 **Source.**\
 `[V, director confirmation 2026-10-10; docs/DELTAS/DELTA-1.md Record]`
+
+### 0011
+
+**Ruling.**\
+E13's clause that the run record names a variant's revision moves to stage 4; stage 2 proves the rest, and the variant's manifest records the revision meanwhile.
+
+**Alternatives refuted.**\
+Holding the clause at stage 2 - refuted because it needs the run record stage 4 builds.
+
+**Source.**\
+`[V, director confirmation 2026-10-10; docs/DELTAS/DELTA-1.md Record, stage 2]`
 

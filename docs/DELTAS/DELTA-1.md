@@ -1,7 +1,7 @@
 # Delta-1 - a core that runs one-phase experiments, proven isolated - a vertical slice
 
 ```yaml
-status:     ratified (docs/DECISIONS.md 0009) - revision 3, stage amendments confirmed (0010); stage 1 verified green, stage 2 open
+status:     ratified (docs/DECISIONS.md 0009) - revision 3, stage amendments confirmed (0010, 0011); stages 1 and 2 verified green, stage 3 open
 selected:   docs/DECISIONS.md 0007, board item M1 (M1.1, M1.2)
 from-state: docs/ARCHITECTURE-TARGET.md header - "Its current architecture is empty"
 to-state:   docs/ARCHITECTURE-TARGET.md (0006, 0008), the components fenced in section 1
@@ -202,7 +202,7 @@ Found while building, and done within the fence:
 
 - Each guided arm receives its variants' canary file as one more instruction, so the isolation prober can show the instructions arrived; it is a stated addition to the context, the same in every guided arm.
 - mission-kit's pack declares every published form of its address - the repository, its `blob/main` and `tree/main` paths, and raw files under `/main` - because rewriting the bare address alone would leave raw links pointing at a wrong path.
-- E13's second clause, that the run record names the revision, can only be shown once a run record exists; the variant's manifest records the revision now, and the run record carries it at stage 4 - a restaging like `0010`'s, for the director's confirmation.
+- E13's second clause, that the run record names the revision, can only be shown once a run record exists; the variant's manifest records the revision now, and the run record carries it at stage 4 - a restaging like `0010`'s, confirmed (`0011`).
 
 **Stage 2 verification.**\
 The same verifier found E13 and E12, for stage 2, green, and two major defects in the components: an `exclude` naming a path outside the source deleted a folder beside the output, and links escaped - a link in a source, in a transform hook's output, or in a fixture carried a read past every bound, in one case to the pack's own answer key.\
