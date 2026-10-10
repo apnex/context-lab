@@ -12,6 +12,8 @@ Any project can find out, by experiments anyone can repeat, how the context it g
 
 - **Context** - everything a project puts in front of an agent: instructions, documents, skills, and the manner, amount and moment of their arrival.
 - **What they understand and do** - both comprehension and behaviour; each is measured, and neither stands in for the other.
+- **Agent** - a language-model agent acting with tools, whether it codes, researches or operates.
+- **Anyone** - anyone holding the experiment's record; the project decides who that is.
 - **Project** - a body of work whose agents are given context, and whose owner holds authority over that context and its material.
 - **Experiment** - a comparison of agents given different context, or the same context under different conditions, with how it will be judged stated before its outcomes are seen.
 - **Repeat** - re-run from the experiment's record and reach a result within the variation the experiment stated in advance.
