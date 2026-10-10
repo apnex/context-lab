@@ -13,6 +13,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { runHook, type HookResult } from "./hook-runner.js";
+import { copyContained, isContainedRelative, isInside } from "./paths.js";
 import type { LoadedPack, Variant } from "./pack-schema.js";
 
 export const CANARY_FILE = "context-lab-canary.md";
@@ -80,39 +81,93 @@ export async function buildVariant(loaded: LoadedPack, variantId: string, revisi
 	const sourceDir = path.resolve(loaded.dir, source.path);
 	if (fs.existsSync(outDir) && fs.readdirSync(outDir).length > 0) throw new Error(`${outDir} is not empty`);
 
-	const staging = `${outDir}.export`;
-	fs.rmSync(staging, { recursive: true, force: true });
+	fs.mkdirSync(path.dirname(path.resolve(outDir)), { recursive: true });
+	const staging = fs.mkdtempSync(`${path.resolve(outDir)}.export-`);
 	let sha: string;
 	try {
 		sha = exportAt(sourceDir, revision, staging);
 	} catch (e) {
 		return { ok: false, variant: variantId, reason: `the source could not be exported at ${revision}: ${String(e).slice(0, 300)}` };
 	}
-	for (const ex of source.exclude ?? []) fs.rmSync(path.join(staging, ex), { recursive: true, force: true });
+	for (const ex of source.exclude ?? []) {
+		const target = path.resolve(staging, ex);
+		if (!isContainedRelative(ex) || !isInside(target, staging) || target === staging) {
+			fs.rmSync(staging, { recursive: true, force: true });
+			return { ok: false, variant: variantId, reason: `exclude ${ex} does not name a path inside the source` };
+		}
+		fs.rmSync(target, { recursive: true, force: true });
+	}
 	if (variant.include !== undefined) {
 		const keep = variant.include;
 		for (const f of filesUnder(staging)) if (!keep.some((g) => path.matchesGlob(path.relative(staging, f), g))) fs.rmSync(f);
+		removeEmptyDirs(staging);
 	}
 
-	fs.mkdirSync(outDir, { recursive: true });
 	if (variant.transform !== undefined) {
 		const hook = loaded.pack.hooks.find((h) => h.id === variant.transform);
 		if (!hook) throw new Error(`variant ${variantId} names no declared transform hook`);
-		const r = await runHook(loaded.dir, hook, { variant: variantId, from: staging, to: outDir }, { readable: [staging], writable: outDir });
+		// The hook writes into a scratch folder; its output is then copied in with every link
+		// resolved inside it, so a link the hook made cannot carry a read past the hook's bounds.
+		const hookOut = fs.mkdtempSync(`${path.resolve(outDir)}.hook-`);
+		const r = await runHook(loaded.dir, hook, { variant: variantId, from: staging, to: hookOut }, { readable: [staging], writable: hookOut });
 		fs.rmSync(staging, { recursive: true, force: true });
 		if (!r.ok) {
+			fs.rmSync(hookOut, { recursive: true, force: true });
 			fs.rmSync(outDir, { recursive: true, force: true });
 			return { ok: false, variant: variantId, reason: `its transform hook failed (${r.reason}): ${r.detail}`, hook: r };
 		}
+		try {
+			copyContained(hookOut, outDir);
+		} catch (e) {
+			fs.rmSync(outDir, { recursive: true, force: true });
+			return { ok: false, variant: variantId, reason: `its transform hook's output was refused: ${String(e)}` };
+		} finally {
+			fs.rmSync(hookOut, { recursive: true, force: true });
+		}
 	} else {
-		fs.cpSync(staging, outDir, { recursive: true });
-		fs.rmSync(staging, { recursive: true, force: true });
+		try {
+			copyContained(staging, outDir);
+		} catch (e) {
+			fs.rmSync(outDir, { recursive: true, force: true });
+			return { ok: false, variant: variantId, reason: `the source holds a link that leaves it: ${String(e)}` };
+		} finally {
+			fs.rmSync(staging, { recursive: true, force: true });
+		}
 	}
 
 	const rewritten = rewriteAddresses(outDir, source.addresses, outDir);
 	fs.writeFileSync(path.join(outDir, CANARY_FILE), variant.canaries.map((c) => `${c}\n`).join(""));
 	const manifest: VariantManifest = { variant: variantId, source: source.id, revision: sha, canaries: variant.canaries, rewritten };
 	fs.writeFileSync(path.join(outDir, VARIANT_MANIFEST), JSON.stringify(manifest, null, 2) + "\n");
-	for (const f of filesUnder(outDir)) fs.chmodSync(f, 0o444);
+	makeReadOnly(outDir);
 	return { ok: true, dir: outDir, manifest };
+}
+
+function removeEmptyDirs(dir: string): void {
+	for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+		if (!e.isDirectory()) continue;
+		const p = path.join(dir, e.name);
+		removeEmptyDirs(p);
+		if (fs.readdirSync(p).length === 0) fs.rmdirSync(p);
+	}
+}
+
+/** Files and folders alike, so nothing can be added, changed or removed without restoring write access. */
+export function makeReadOnly(dir: string): void {
+	for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+		const p = path.join(dir, e.name);
+		if (e.isDirectory()) makeReadOnly(p);
+		else fs.chmodSync(p, 0o444);
+	}
+	fs.chmodSync(dir, 0o555);
+}
+
+/** Restore write access to a read-only variant, so it can be removed. */
+export function makeWritable(dir: string): void {
+	fs.chmodSync(dir, 0o755);
+	for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+		const p = path.join(dir, e.name);
+		if (e.isDirectory()) makeWritable(p);
+		else fs.chmodSync(p, 0o644);
+	}
 }

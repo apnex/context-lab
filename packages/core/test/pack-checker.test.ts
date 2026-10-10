@@ -38,6 +38,13 @@ const defects: Record<CheckId, ((dir: string) => void)[]> = {
 		},
 	],
 	"source-path": [(d) => editJson(packJson(d), (j) => { j.sources[0].path = "no-such-dir"; })],
+	"contained-paths": [
+		(d) => editJson(packJson(d), (j) => { j.sources[0].exclude = ["../elsewhere"]; }),
+		(d) => editJson(packJson(d), (j) => { j.arms[1].deliver[0].file = "../GUIDE.md"; }),
+		(d) => editJson(packJson(d), (j) => { j.hooks[2].file = "../pack/hooks/count.mjs"; }),
+		(d) => editJson(path.join(d, "scenarios", "prune.json"), (j) => { j.fixture = { files: { "../escape.txt": "x" } }; }),
+		(d) => editJson(graft(d), (j) => { j.scoredFile = "/etc/passwd"; }),
+	],
 	"variant-source": [(d) => editJson(packJson(d), (j) => { j.variants[0].source = "ghost"; })],
 	"variant-transform": [(d) => editJson(packJson(d), (j) => { j.variants[0].transform = "count-words"; })],
 	"arm-variant": [(d) => editJson(packJson(d), (j) => { j.arms[1].deliver[0].variant = "ghost"; })],
@@ -51,6 +58,7 @@ const defects: Record<CheckId, ((dir: string) => void)[]> = {
 	"fixture-dir": [
 		(d) => editJson(graft(d), (j) => { j.fixture = "fixtures/no-such"; }),
 		(d) => fs.symlinkSync(path.join(d, "no-such-target.txt"), path.join(d, "fixtures", "graft", "BROKEN.txt")),
+		(d) => fs.symlinkSync(path.join(d, "scenarios", "graft.json"), path.join(d, "fixtures", "graft", "KEY.json")),
 	],
 	"probe-arms": [(d) => editJson(packJson(d), (j) => { j.isolation.leakProbes[0].arms = ["ghost"]; })],
 	"property-measure": [

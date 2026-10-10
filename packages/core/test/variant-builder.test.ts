@@ -7,6 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { buildVariant, checkPack, composeArm, CANARY_FILE, VARIANT_MANIFEST, type BuiltVariant, type LoadedPack } from "../src/index.js";
+import os from "node:os";
 import { commitAll, copyPack, editJson, scratch } from "./helpers.js";
 
 async function load(dir: string): Promise<LoadedPack> {
@@ -30,6 +31,7 @@ test("a built variant holds no declared address of its source, and records its r
 	const text = allText(out);
 	for (const a of loaded.pack.sources[0]!.addresses) assert.equal(text.includes(a), false, `${a} survived`);
 	assert.ok(text.includes(`${out}/GUIDE.md`), "the address was not rewritten to the copy");
+	assert.equal(text.includes(`${out}/raw/main`), false, "a longer address was rewritten by its shorter prefix");
 	assert.equal(v.manifest.revision, sha);
 	assert.equal(JSON.parse(fs.readFileSync(path.join(out, VARIANT_MANIFEST), "utf8")).revision, sha);
 	assert.deepEqual(fs.readFileSync(path.join(out, CANARY_FILE), "utf8").trim().split("\n"), loaded.pack.variants[0]!.canaries);
@@ -83,4 +85,45 @@ test("a variant whose transform hook fails is not built, and its arm is not comp
 	const arm = composeArm(loaded, "almanac", built);
 	assert.equal(arm.ok, false);
 	assert.equal(composeArm(loaded, "bare", built).ok, true, "an arm using no failed variant is still composed");
+});
+
+test("a variant's files and folders are read-only", async () => {
+	const dir = copyPack();
+	commitAll(dir);
+	const out = path.join(scratch(), "v");
+	assert.equal((await buildVariant(await load(dir), "almanac-full", "HEAD", out)).ok, true);
+	assert.equal(fs.statSync(out).mode & 0o222, 0, "the variant's folder is writable");
+	assert.equal(fs.statSync(path.join(out, "GUIDE.md")).mode & 0o222, 0, "a variant file is writable");
+});
+
+test("an exclude that leaves the source is refused by the builder, and deletes nothing", async () => {
+	const dir = copyPack();
+	commitAll(dir);
+	const loaded = await load(dir);
+	const parent = scratch();
+	const victim = path.join(parent, "victim");
+	fs.mkdirSync(victim);
+	loaded.pack.sources[0]!.exclude = ["../victim"];
+	const v = await buildVariant(loaded, "almanac-full", "HEAD", path.join(parent, "v"));
+	assert.equal(v.ok, false);
+	assert.equal(fs.existsSync(victim), true);
+});
+
+test("a source link that leaves the source is refused", async () => {
+	const dir = copyPack();
+	fs.symlinkSync(os.homedir(), path.join(dir, "source", "home"));
+	editJson(path.join(dir, "pack.json"), (j) => { delete j.variants[0].transform; });
+	commitAll(dir);
+	const v = await buildVariant(await load(dir), "almanac-full", "HEAD", path.join(scratch(), "v"));
+	assert.equal(v.ok, false);
+});
+
+test("a link a transform hook makes to outside its output is refused", async () => {
+	const dir = copyPack();
+	fs.writeFileSync(path.join(dir, "hooks", "trim.mjs"), 'import fs from "node:fs"; const i = JSON.parse(fs.readFileSync(0, "utf8")); fs.symlinkSync("/etc/hostname", i.to + "/host.txt"); console.log("{}");\n');
+	commitAll(dir);
+	const out = path.join(scratch(), "v");
+	const v = await buildVariant(await load(dir), "almanac-full", "HEAD", out);
+	assert.equal(v.ok, false);
+	assert.equal(fs.existsSync(out), false);
 });

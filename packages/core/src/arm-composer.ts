@@ -14,6 +14,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { BuiltVariant } from "./variant-builder.js";
 import { CANARY_FILE } from "./variant-builder.js";
+import { isInside } from "./paths.js";
 import type { LoadedPack } from "./pack-schema.js";
 
 export interface ComposedArm {
@@ -43,7 +44,7 @@ export function composeArm(loaded: LoadedPack, armId: string, built: Map<string,
 		if (v === undefined) return { ok: false, arm: armId, reason: `variant ${d.variant} was not built` };
 		if (!v.ok) return { ok: false, arm: armId, reason: `variant ${d.variant} could not be built: ${v.reason}` };
 		const p = path.resolve(v.dir, d.file);
-		if (!p.startsWith(v.dir) || !fs.existsSync(p)) return { ok: false, arm: armId, reason: `${d.file} is not in variant ${d.variant}` };
+		if (!isInside(p, v.dir) || !fs.existsSync(p) || !isInside(fs.realpathSync(p), fs.realpathSync(v.dir))) return { ok: false, arm: armId, reason: `${d.file} is not in variant ${d.variant}` };
 		used.add(d.variant);
 		out.revisions[d.variant] = v.manifest.revision;
 		if (d.as === "instruction") out.instructions.push({ variant: d.variant, file: d.file, path: p });

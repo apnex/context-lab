@@ -8,6 +8,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { runHook } from "./hook-runner.js";
+import { isContainedRelative, isInside } from "./paths.js";
 import {
 	DECIDERS, DELIVERY_KINDS, EXERCISES_TAG, HOOK_KINDS, PACK_FILE, PACK_SCHEMA, PROPERTY_TYPES, STATUSES,
 	type Experiment, type LoadedPack, type Pack, type Scenario,
@@ -20,6 +21,7 @@ export const PACK_CHECKS = {
 	"slug-ids": "every id is a lowercase slug",
 	"unique-ids": "ids are unique within each collection, and scenario ids across the pack",
 	"source-path": "every source path is a directory",
+	"contained-paths": "every path the pack names inside a source, variant, fixture or the pack itself is relative and cannot leave it",
 	"variant-source": "every variant names a declared source",
 	"variant-transform": "a variant's transform names a variant-transform hook",
 	"arm-variant": "every delivery names a declared variant",
@@ -139,19 +141,20 @@ function readJson(file: string): { ok: true; value: unknown } | { ok: false; mes
 
 const SLUG = /^[a-z0-9][a-z0-9.-]*$/;
 
-/** Entries under a fixture that cannot be followed to a file or directory. */
-function unreadable(dir: string): string[] {
+/** Entries under a fixture that cannot be followed, or that link outside the fixture. */
+function unreadable(dir: string, root: string = dir): string[] {
 	const out: string[] = [];
 	for (const e of fs.readdirSync(dir)) {
 		const p = path.join(dir, e);
-		let st: fs.Stats;
+		let real: string;
 		try {
-			st = fs.statSync(p);
+			real = fs.realpathSync(p);
 		} catch {
 			out.push(p);
 			continue;
 		}
-		if (st.isDirectory()) out.push(...unreadable(p));
+		if (!isInside(real, fs.realpathSync(root))) { out.push(p); continue; }
+		if (fs.statSync(real).isDirectory() && real.startsWith(fs.realpathSync(root))) out.push(...unreadable(p, root));
 	}
 	return out;
 }
@@ -237,6 +240,17 @@ export async function checkPack(packDir: string): Promise<CheckResult> {
 		const p = path.resolve(dir, s.path);
 		if (!fs.existsSync(p) || !fs.statSync(p).isDirectory()) defects.push({ check: "source-path", where: `sources.${s.id}`, message: `${s.path} is not a directory` });
 	}
+	const contained = (p: string, where: string): void => {
+		if (!isContainedRelative(p)) defects.push({ check: "contained-paths", where, message: `${p} is absolute or leaves its directory` });
+	};
+	for (const s of pack.sources) for (const ex of s.exclude ?? []) contained(ex, `sources.${s.id}.exclude`);
+	for (const a of pack.arms) for (const d of a.deliver) contained(d.file, `arms.${a.id}`);
+	for (const h of pack.hooks) contained(h.file, `hooks.${h.id}`);
+	for (const [, { scenarios }] of experiments) for (const [sid, { scenario }] of scenarios) {
+		if (typeof scenario.fixture === "string") contained(scenario.fixture, `scenarios.${sid}.fixture`);
+		else if (scenario.fixture !== null) for (const f of Object.keys(scenario.fixture.files)) contained(f, `scenarios.${sid}.fixture`);
+		if (scenario.scoredFile !== undefined) contained(scenario.scoredFile, `scenarios.${sid}.scoredFile`);
+	}
 	const hooks = new Map(pack.hooks.map((h) => [h.id, h]));
 	for (const v of pack.variants) {
 		if (!pack.sources.some((s) => s.id === v.source)) defects.push({ check: "variant-source", where: `variants.${v.id}`, message: `names undeclared source ${v.source}` });
@@ -255,7 +269,7 @@ export async function checkPack(packDir: string): Promise<CheckResult> {
 			if (typeof scenario.fixture === "string") {
 				const f = path.resolve(dir, scenario.fixture);
 				if (!fs.existsSync(f) || !fs.statSync(f).isDirectory()) defects.push({ check: "fixture-dir", where: `scenarios.${sid}`, message: `${scenario.fixture} is not a directory` });
-				else for (const bad of unreadable(f)) defects.push({ check: "fixture-dir", where: `scenarios.${sid}`, message: `${path.relative(dir, bad)} cannot be read: a broken or looping link` });
+				else for (const bad of unreadable(f)) defects.push({ check: "fixture-dir", where: `scenarios.${sid}`, message: `${path.relative(dir, bad)} is a link that is broken, loops, or leaves the fixture` });
 			}
 			for (const p of scenario.properties) {
 				const where = `scenarios.${sid}.${p.id}`;

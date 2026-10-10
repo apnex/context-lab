@@ -51,7 +51,9 @@ for (const [what, change] of Object.entries(changes)) {
 
 test("changing a fixture file behind a symbolic link after recording makes the run exploration", async () => {
 	const dir = copyPack();
-	const real = path.join(dir, "linked.txt");
+	// A link may only point inside its fixture (the pack check refuses one that leaves it).
+	const real = path.join(dir, "fixtures", "graft", "sub", "linked.txt");
+	fs.mkdirSync(path.dirname(real));
 	fs.writeFileSync(real, "first\n");
 	fs.symlinkSync(real, path.join(dir, "fixtures", "graft", "LINK.txt"));
 	recordExperiment(await load(dir), "orchard");

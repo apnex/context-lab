@@ -30,14 +30,16 @@ export interface Source {
 	id: string;
 	/** A local directory holding the source, relative to the pack or absolute. */
 	path: string;
-	/** Every address under which the source is published; rewritten in variants, forbidden to agents. */
+	/** Every address under which the source is published; rewritten in variants, longest first. */
 	addresses: string[];
+	/** Paths, relative to the source and inside it, removed from every variant: a folder or a file, literally. */
 	exclude?: string[];
 }
 
 export interface Variant {
 	id: string;
 	source: string;
+	/** Glob patterns matched against each file's path relative to the source; "*" stays within a folder, "**" crosses folders. */
 	include?: string[];
 	/** The id of a variant-transform hook. */
 	transform?: string;

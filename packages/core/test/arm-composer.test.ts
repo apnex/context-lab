@@ -2,6 +2,7 @@
 // and lists other variants' canaries as ones the arm must not be able to quote.
 
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { buildVariant, checkPack, composeArm, CANARY_FILE, type BuiltVariant, type LoadedPack } from "../src/index.js";
@@ -50,4 +51,25 @@ test("an arm naming a file its variant does not hold is not composed", async () 
 	const loaded = await load(dir);
 	const built = new Map<string, BuiltVariant>([["almanac-full", await buildVariant(loaded, "almanac-full", "HEAD", path.join(scratch(), "v"))]]);
 	assert.equal(composeArm(loaded, "almanac", built).ok, false);
+});
+
+test("a delivery reaching a sibling folder that shares the variant's name prefix is refused", async () => {
+	const dir = copyPack();
+	commitAll(dir);
+	const r = await checkPack(dir);
+	if (!r.ok) throw new Error("pack");
+	const parent = scratch();
+	const v = await buildVariant(r.loaded, "almanac-full", "HEAD", path.join(parent, "v"));
+	fs.mkdirSync(path.join(parent, "v-other"));
+	fs.writeFileSync(path.join(parent, "v-other", "SECRET.md"), "secret\n");
+	r.loaded.pack.arms[1]!.deliver[0]!.file = "../v-other/SECRET.md";
+	assert.equal(composeArm(r.loaded, "almanac", new Map([["almanac-full", v]])).ok, false);
+});
+
+test("an arm whose variant was never built is not composed", async () => {
+	const dir = copyPack();
+	commitAll(dir);
+	const r = await checkPack(dir);
+	if (!r.ok) throw new Error("pack");
+	assert.equal(composeArm(r.loaded, "almanac", new Map()).ok, false);
 });

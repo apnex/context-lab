@@ -62,9 +62,9 @@ Built in TypeScript, following the convention of the organisation's TypeScript c
 Each stage lands with its own tests, and its criteria are green, before the next depends on it.
 
 1. **Pack and record.** The workspace; pack schema; both packs written statically; pack checker; hook runner; experiment register; selector and suites. Criteria E1, E2, E3 except its run-record clause, E12 for its bounds and the declaration-check failure result, E16.
-2. **Context.** Variant builder, arm composer, workspace builder. Criteria E13, and E12's variant-transform failure result as far as the arm not being built.
+2. **Context.** Variant builder, arm composer, workspace builder. Criteria E13 except its run-record clause, and E12's variant-transform failure result as far as the arm not being built.
 3. **Runtimes.** The three adapters and their conformance suite, accepted by the verifier before the adapters are built; isolation prober; validity classifier. Criteria E5, E6.
-4. **One-phase runs.** Phase driver, run conductor, answer parser, code measurer. Criteria E7, E14, E3's run-record clause, and the rest of E12: an unbuilt arm not run, the outcome-measure failure result, and the synthetic pack's transform and measure hooks run on their success paths.
+4. **One-phase runs.** Phase driver, run conductor, answer parser, code measurer. Criteria E7, E14, the run-record clauses of E3 and E13, and the rest of E12: an unbuilt arm not run, the outcome-measure failure result, and the synthetic pack's transform and measure hooks run on their success paths.
 5. **Judging.** Blinder, judge panel, tally. Criterion E15.
 6. **Parity.** Legacy-record readers; the tally against two past runs. Criteria E8, E9.
 7. **mission-kit's pack, live.** Criteria E4, E10, E11.
@@ -197,12 +197,16 @@ Re-recording an experiment after seeing outcomes restores its declared status; s
 
 **Stage 2.**\
 Built: the variant builder, exporting through git at a pinned revision, applying excludes, includes and the transform hook, rewriting declared addresses longest first, planting canaries, and writing a manifest with the revision; the arm composer; the workspace builder.\
-Run against mission-kit's corpus at `13c4879`: seven addresses rewritten, none left, `docs/` excluded, and the always-on arm composed to eighteen instruction files.\
+Run against mission-kit's pack at `5e48932`, whose corpus outside `docs/` is the same as at `13c4879`: seven addresses rewritten, none left, `docs/` excluded, and the always-on arm composed to eighteen instruction files.\
 Found while building, and done within the fence:
 
 - Each guided arm receives its variants' canary file as one more instruction, so the isolation prober can show the instructions arrived; it is a stated addition to the context, the same in every guided arm.
 - mission-kit's pack declares every published form of its address - the repository, its `blob/main` and `tree/main` paths, and raw files under `/main` - because rewriting the bare address alone would leave raw links pointing at a wrong path.
 - E13's second clause, that the run record names the revision, can only be shown once a run record exists; the variant's manifest records the revision now, and the run record carries it at stage 4 - a restaging like `0010`'s, for the director's confirmation.
+
+**Stage 2 verification.**\
+The same verifier found E13 and E12, for stage 2, green, and two major defects in the components: an `exclude` naming a path outside the source deleted a folder beside the output, and links escaped - a link in a source, in a transform hook's output, or in a fixture carried a read past every bound, in one case to the pack's own answer key.\
+Fixed: every path a pack names inside a source, variant, fixture or itself must be relative and stay inside, a new check; a link is followed only if it stays inside the folder it was found in, and is otherwise refused, in variants, hook output and fixtures; containment is compared on path separators, not string prefixes; workspace bases are judged on their real paths; variant folders are read-only as well as their files; staging folders have unique names; the workspace's commit runs none of the operator's git hooks or templates; include and exclude semantics are documented; the untested refusals and the longest-first rewriting each have a test.
 
 ---
 

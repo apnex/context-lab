@@ -60,3 +60,43 @@ test("an inline fixture file that escapes the workspace is refused", async () =>
 	const s = { ...scenario(loaded, "prune"), fixture: { files: { "../escape.txt": "x" } } };
 	assert.throws(() => createWorkspace(loaded, s, arm, { base: scratch(), rulesFiles: RULES }), /escapes/);
 });
+
+test("a folder file that escapes the workspace is refused", async () => {
+	const { loaded, arm } = await setup();
+	const bad = { ...arm, folderFiles: [{ ...arm.folderFiles[0]!, file: "../escape.md" }] };
+	assert.throws(() => createWorkspace(loaded, scenario(loaded, "graft"), bad, { base: scratch(), rulesFiles: RULES }), /escapes/);
+});
+
+test("a base reached through a link is judged where it really is", async () => {
+	const { loaded, arm } = await setup();
+	const parent = scratch();
+	fs.writeFileSync(path.join(parent, "AGENTS.md"), "rules\n");
+	fs.mkdirSync(path.join(parent, "real"));
+	const link = path.join(scratch(), "link");
+	fs.symlinkSync(path.join(parent, "real"), link);
+	assert.throws(() => createWorkspace(loaded, scenario(loaded, "graft"), arm, { base: link, rulesFiles: RULES }), /rules file/);
+});
+
+test("a fixture link to the pack's own key is refused", async () => {
+	const { loaded, arm, dir } = await setup();
+	fs.symlinkSync(path.join(dir, "scenarios", "graft.json"), path.join(dir, "fixtures", "graft", "KEY.json"));
+	assert.throws(() => createWorkspace(loaded, scenario(loaded, "graft"), arm, { base: scratch(), rulesFiles: RULES }), /links outside/);
+});
+
+test("the workspace's commit runs none of the operator's git hooks", async () => {
+	const { loaded, arm } = await setup();
+	const home = scratch();
+	const hooks = path.join(home, "hooks");
+	fs.mkdirSync(hooks);
+	const marker = path.join(home, "hook-ran");
+	fs.writeFileSync(path.join(hooks, "post-commit"), `#!/bin/sh\ntouch ${marker}\n`, { mode: 0o755 });
+	fs.writeFileSync(path.join(home, ".gitconfig"), `[core]\n\thooksPath = ${hooks}\n`);
+	const saved = process.env["HOME"];
+	process.env["HOME"] = home;
+	try {
+		createWorkspace(loaded, scenario(loaded, "graft"), arm, { base: scratch(), rulesFiles: RULES });
+	} finally {
+		process.env["HOME"] = saved;
+	}
+	assert.equal(fs.existsSync(marker), false);
+});

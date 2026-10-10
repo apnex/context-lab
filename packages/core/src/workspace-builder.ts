@@ -11,6 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { ComposedArm } from "./arm-composer.js";
 import type { LoadedPack, Scenario } from "./pack-schema.js";
+import { copyContained, isInside, realPathOf } from "./paths.js";
 
 export interface Workspace {
 	dir: string;
@@ -25,8 +26,9 @@ export interface WorkspaceOptions {
 	rulesFiles: string[];
 }
 
+// The workspace's own commit must not run the operator's git hooks or templates.
 const git = (cwd: string, ...args: string[]): string =>
-	execFileSync("git", ["-c", "user.name=context-lab", "-c", "user.email=fixture@context-lab.invalid", ...args], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+	execFileSync("git", ["-c", "user.name=context-lab", "-c", "user.email=fixture@context-lab.invalid", "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", ...args], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 
 /** Every rules file at or above a directory. */
 export function rulesFilesAbove(dir: string, names: string[]): string[] {
@@ -43,33 +45,34 @@ export function forbiddenPaths(loaded: LoadedPack): string[] {
 }
 
 export function createWorkspace(loaded: LoadedPack, scenario: Scenario, arm: ComposedArm, opts: WorkspaceOptions): Workspace {
-	const base = path.resolve(opts.base);
+	// Checked on real paths, so a base reached through a link is judged where it really is.
+	const base = realPathOf(opts.base);
 	const above = rulesFilesAbove(base, opts.rulesFiles);
 	if (above.length) throw new Error(`a rules file is above the workspace base: ${above.join(", ")}`);
 	for (const f of forbiddenPaths(loaded)) {
-		if (base === f || base.startsWith(f + path.sep)) throw new Error(`the workspace base ${base} is inside a forbidden path ${f}`);
+		if (isInside(base, realPathOf(f))) throw new Error(`the workspace base ${base} is inside a forbidden path ${f}`);
 	}
 	fs.mkdirSync(base, { recursive: true });
 	const dir = fs.mkdtempSync(path.join(base, "w-"));
 
 	if (typeof scenario.fixture === "string") {
-		fs.cpSync(path.resolve(loaded.dir, scenario.fixture), dir, { recursive: true, dereference: true });
+		copyContained(path.resolve(loaded.dir, scenario.fixture), dir);
 	} else if (scenario.fixture !== null) {
 		for (const [rel, body] of Object.entries(scenario.fixture.files)) {
 			const p = path.resolve(dir, rel);
-			if (!p.startsWith(dir + path.sep)) throw new Error(`fixture file ${rel} escapes the workspace`);
+			if (!isInside(p, dir) || p === dir) throw new Error(`fixture file ${rel} escapes the workspace`);
 			fs.mkdirSync(path.dirname(p), { recursive: true });
 			fs.writeFileSync(p, body);
 		}
 	}
 	for (const f of arm.folderFiles) {
 		const p = path.resolve(dir, f.file);
-		if (!p.startsWith(dir + path.sep)) throw new Error(`folder file ${f.file} escapes the workspace`);
+		if (!isInside(p, dir) || p === dir) throw new Error(`folder file ${f.file} escapes the workspace`);
 		fs.mkdirSync(path.dirname(p), { recursive: true });
 		fs.copyFileSync(f.path, p);
 		fs.chmodSync(p, 0o644);
 	}
-	git(dir, "init", "-q");
+	git(dir, "init", "-q", "--template=");
 	git(dir, "add", "-A");
 	git(dir, "commit", "-q", "--allow-empty", "-m", "initial");
 	return { dir, init: git(dir, "rev-parse", "HEAD") };
