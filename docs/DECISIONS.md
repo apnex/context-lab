@@ -21,6 +21,8 @@ They are not copied here; this register starts at the vision.
 | id | date | ruling | authority | status | lineage |
 |---|---|---|---|---|---|
 | 0001 | 2026-10-10 | The vision in `VISION.md` is ratified. | director | ratified | - |
+| 0002 | 2026-10-10 | context-lab absorbs every existing evaluation mechanism of its first users: comprehension runs, adherence runs, human preference judging, and classify-then-verify judging chains. | director | ratified | - |
+| 0003 | 2026-10-10 | A project pack holds data and, at a few fixed points each with a stated contract, project scripts: measuring outcomes, building context variants, and checking declarations. | director | ratified | - |
 
 ---
 
@@ -38,3 +40,30 @@ Ratifying after further changes, or deferring - offered, not chosen.
 
 **Source.**\
 `[V, director ruling 2026-10-10]`
+
+### 0002
+
+**Ruling.**\
+context-lab is the home of all four mechanisms its first users run today.
+
+**Alternatives refuted.**\
+Comprehension and adherence only, leaving human preference and classify-then-verify judging in their projects - refuted because the vision requires that judgement not made by a person is checked against theirs, and classify-then-verify is a judging method any project can use.\
+Adherence only - refuted because the vision measures comprehension and behaviour each in its own right.
+
+**Source.**\
+`[V, director ruling 2026-10-10, after an independent audit of the first architecture draft]`
+
+### 0003
+
+**Ruling.**\
+A project pack may carry scripts at fixed hook points with stated contracts.
+
+**Alternatives refuted.**\
+Data only, with anything code-like first generalised into the core - refuted because both first users already hold project-specific code of exactly these kinds, and the core would grow with, and wait on, every project's needs.
+
+**Consequence.**\
+The core runs project code, so each hook's inputs, outputs and access are bounded by its contract.
+
+**Source.**\
+`[V, director ruling 2026-10-10]`
+
