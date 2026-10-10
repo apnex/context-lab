@@ -87,6 +87,7 @@ export async function buildVariant(loaded: LoadedPack, variantId: string, revisi
 	try {
 		sha = exportAt(sourceDir, revision, staging);
 	} catch (e) {
+		fs.rmSync(staging, { recursive: true, force: true });
 		return { ok: false, variant: variantId, reason: `the source could not be exported at ${revision}: ${String(e).slice(0, 300)}` };
 	}
 	for (const ex of source.exclude ?? []) {
@@ -153,9 +154,13 @@ function removeEmptyDirs(dir: string): void {
 }
 
 /** Files and folders alike, so nothing can be added, changed or removed without restoring write access. */
+// Neither function follows a symbolic link: chmod on a link changes what it points to, which may be
+// anywhere. A variant holds no links once built, but these are exported and must be safe on any tree.
 export function makeReadOnly(dir: string): void {
+	if (fs.lstatSync(dir).isSymbolicLink()) return;
 	for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
 		const p = path.join(dir, e.name);
+		if (e.isSymbolicLink()) continue;
 		if (e.isDirectory()) makeReadOnly(p);
 		else fs.chmodSync(p, 0o444);
 	}
@@ -164,9 +169,11 @@ export function makeReadOnly(dir: string): void {
 
 /** Restore write access to a read-only variant, so it can be removed. */
 export function makeWritable(dir: string): void {
+	if (fs.lstatSync(dir).isSymbolicLink()) return;
 	fs.chmodSync(dir, 0o755);
 	for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
 		const p = path.join(dir, e.name);
+		if (e.isSymbolicLink()) continue;
 		if (e.isDirectory()) makeWritable(p);
 		else fs.chmodSync(p, 0o644);
 	}

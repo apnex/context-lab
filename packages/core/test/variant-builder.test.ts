@@ -7,7 +7,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { buildVariant, checkPack, composeArm, CANARY_FILE, VARIANT_MANIFEST, type BuiltVariant, type LoadedPack } from "../src/index.js";
-import os from "node:os";
 import { commitAll, copyPack, editJson, scratch } from "./helpers.js";
 
 async function load(dir: string): Promise<LoadedPack> {
@@ -111,7 +110,11 @@ test("an exclude that leaves the source is refused by the builder, and deletes n
 
 test("a source link that leaves the source is refused", async () => {
 	const dir = copyPack();
-	fs.symlinkSync(os.homedir(), path.join(dir, "source", "home"));
+	// The link points at a scratch folder, never at a real one: a test that links to a real folder
+	// lets a mutated builder act on it, and one such mutant once changed the home folder's mode.
+	const outside = scratch();
+	fs.writeFileSync(path.join(outside, "outside.txt"), "outside\n");
+	fs.symlinkSync(outside, path.join(dir, "source", "outside"));
 	editJson(path.join(dir, "pack.json"), (j) => { delete j.variants[0].transform; });
 	commitAll(dir);
 	const v = await buildVariant(await load(dir), "almanac-full", "HEAD", path.join(scratch(), "v"));
@@ -120,10 +123,59 @@ test("a source link that leaves the source is refused", async () => {
 
 test("a link a transform hook makes to outside its output is refused", async () => {
 	const dir = copyPack();
-	fs.writeFileSync(path.join(dir, "hooks", "trim.mjs"), 'import fs from "node:fs"; const i = JSON.parse(fs.readFileSync(0, "utf8")); fs.symlinkSync("/etc/hostname", i.to + "/host.txt"); console.log("{}");\n');
+	const outside = path.join(scratch(), "outside.txt");
+	fs.writeFileSync(outside, "outside\n");
+	fs.writeFileSync(path.join(dir, "hooks", "trim.mjs"), `import fs from "node:fs"; const i = JSON.parse(fs.readFileSync(0, "utf8")); fs.symlinkSync(${JSON.stringify(outside)}, i.to + "/host.txt"); console.log("{}");\n`);
 	commitAll(dir);
 	const out = path.join(scratch(), "v");
 	const v = await buildVariant(await load(dir), "almanac-full", "HEAD", out);
 	assert.equal(v.ok, false);
 	assert.equal(fs.existsSync(out), false);
+});
+
+test("a source folder that links back to its parent is refused, not copied without end", async () => {
+	const dir = copyPack();
+	fs.mkdirSync(path.join(dir, "source", "sub"));
+	fs.symlinkSync("..", path.join(dir, "source", "sub", "up"));
+	editJson(path.join(dir, "pack.json"), (j) => { delete j.variants[0].transform; });
+	commitAll(dir);
+	const v = await buildVariant(await load(dir), "almanac-full", "HEAD", path.join(scratch(), "v"));
+	assert.equal(v.ok, false);
+	if (!v.ok) assert.match(v.reason, /links back/);
+});
+
+test("makeReadOnly and makeWritable leave a link's target alone", async () => {
+	const { makeReadOnly, makeWritable } = await import("../src/index.js");
+	const target = scratch();
+	const tree = scratch();
+	fs.symlinkSync(target, path.join(tree, "link"));
+	const before = fs.statSync(target).mode;
+	makeReadOnly(tree);
+	assert.equal(fs.statSync(target).mode, before);
+	makeWritable(tree);
+	assert.equal(fs.statSync(target).mode, before);
+	makeReadOnly(path.join(tree, "link"));
+	assert.equal(fs.statSync(target).mode, before);
+});
+
+test("a failed export leaves no staging folder, and an existing one beside the output is untouched", async () => {
+	const dir = copyPack();
+	commitAll(dir);
+	const loaded = await load(dir);
+	const parent = scratch();
+	fs.mkdirSync(path.join(parent, "v.export"));
+	const v = await buildVariant(loaded, "almanac-full", "no-such-revision", path.join(parent, "v"));
+	assert.equal(v.ok, false);
+	assert.deepEqual(fs.readdirSync(parent), ["v.export"]);
+});
+
+test("include leaves no empty folders behind", async () => {
+	const dir = copyPack();
+	fs.mkdirSync(path.join(dir, "source", "sub"));
+	fs.writeFileSync(path.join(dir, "source", "sub", "a.txt"), "a\n");
+	editJson(path.join(dir, "pack.json"), (j) => { delete j.variants[0].transform; j.variants[0].include = ["*.md"]; });
+	commitAll(dir);
+	const out = path.join(scratch(), "v");
+	assert.equal((await buildVariant(await load(dir), "almanac-full", "HEAD", out)).ok, true);
+	assert.equal(fs.existsSync(path.join(out, "sub")), false);
 });

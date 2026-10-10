@@ -208,6 +208,12 @@ Found while building, and done within the fence:
 The same verifier found E13 and E12, for stage 2, green, and two major defects in the components: an `exclude` naming a path outside the source deleted a folder beside the output, and links escaped - a link in a source, in a transform hook's output, or in a fixture carried a read past every bound, in one case to the pack's own answer key.\
 Fixed: every path a pack names inside a source, variant, fixture or itself must be relative and stay inside, a new check; a link is followed only if it stays inside the folder it was found in, and is otherwise refused, in variants, hook output and fixtures; containment is compared on path separators, not string prefixes; workspace bases are judged on their real paths; variant folders are read-only as well as their files; staging folders have unique names; the workspace's commit runs none of the operator's git hooks or templates; include and exclude semantics are documented; the untested refusals and the longest-first rewriting each have a test.
 
+**Stage 2 re-verification, and an incident.**\
+The verifier re-ran its probes: every stage 2 defect fixed and E13 and E12 still green.\
+One of its mutation runs changed the permissions of the operator's home folder: a test linked a source folder to the real home folder, the mutant kept the link, and `makeReadOnly` changed what the link pointed to; the verifier restored the owner's write access, and the original group and other bits are not known.\
+The cause was in the build, not the verifier: a test that pointed a link at a real folder, and two exported functions that followed links.\
+Fixed: tests point links only at scratch folders; `makeReadOnly` and `makeWritable` never follow a link; a source or fixture folder linking back to its parent is refused instead of copied without end, and the pack check reports it instead of failing; a failed export leaves no staging folder; an exclude of the whole source is a defect; scratch folders are removed when tests finish; and the protections the verifier found untested each have a test.
+
 ---
 
 ## Adversarial review

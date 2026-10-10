@@ -142,8 +142,11 @@ function readJson(file: string): { ok: true; value: unknown } | { ok: false; mes
 const SLUG = /^[a-z0-9][a-z0-9.-]*$/;
 
 /** Entries under a fixture that cannot be followed, or that link outside the fixture. */
-function unreadable(dir: string, root: string = dir): string[] {
+function unreadable(dir: string, root: string = dir, visiting: Set<string> = new Set()): string[] {
 	const out: string[] = [];
+	const realDir = fs.realpathSync(dir);
+	if (visiting.has(realDir)) return [dir];
+	visiting.add(realDir);
 	for (const e of fs.readdirSync(dir)) {
 		const p = path.join(dir, e);
 		let real: string;
@@ -154,8 +157,9 @@ function unreadable(dir: string, root: string = dir): string[] {
 			continue;
 		}
 		if (!isInside(real, fs.realpathSync(root))) { out.push(p); continue; }
-		if (fs.statSync(real).isDirectory() && real.startsWith(fs.realpathSync(root))) out.push(...unreadable(p, root));
+		if (fs.statSync(real).isDirectory()) out.push(...unreadable(p, root, visiting));
 	}
+	visiting.delete(realDir);
 	return out;
 }
 
@@ -240,10 +244,13 @@ export async function checkPack(packDir: string): Promise<CheckResult> {
 		const p = path.resolve(dir, s.path);
 		if (!fs.existsSync(p) || !fs.statSync(p).isDirectory()) defects.push({ check: "source-path", where: `sources.${s.id}`, message: `${s.path} is not a directory` });
 	}
-	const contained = (p: string, where: string): void => {
-		if (!isContainedRelative(p)) defects.push({ check: "contained-paths", where, message: `${p} is absolute or leaves its directory` });
+	const contained = (p: string, where: string): boolean => {
+		if (!isContainedRelative(p)) { defects.push({ check: "contained-paths", where, message: `${p} is absolute or leaves its directory` }); return false; }
+		return true;
 	};
-	for (const s of pack.sources) for (const ex of s.exclude ?? []) contained(ex, `sources.${s.id}.exclude`);
+	for (const s of pack.sources) for (const ex of s.exclude ?? []) {
+		if (contained(ex, `sources.${s.id}.exclude`) && path.normalize(ex || ".") === ".") defects.push({ check: "contained-paths", where: `sources.${s.id}.exclude`, message: "excludes the whole source" });
+	}
 	for (const a of pack.arms) for (const d of a.deliver) contained(d.file, `arms.${a.id}`);
 	for (const h of pack.hooks) contained(h.file, `hooks.${h.id}`);
 	for (const [, { scenarios }] of experiments) for (const [sid, { scenario }] of scenarios) {
@@ -266,7 +273,7 @@ export async function checkPack(packDir: string): Promise<CheckResult> {
 		for (const a of experiment.factors.arms) if (!pack.arms.some((x) => x.id === a)) defects.push({ check: "experiment-refs", where: `experiments.${eid}`, message: `names undeclared arm ${a}` });
 		for (const m of experiment.factors.population) if (!pack.population.some((x) => x.id === m)) defects.push({ check: "experiment-refs", where: `experiments.${eid}`, message: `names undeclared population member ${m}` });
 		for (const [sid, { scenario }] of scenarios) {
-			if (typeof scenario.fixture === "string") {
+			if (typeof scenario.fixture === "string" && isContainedRelative(scenario.fixture)) {
 				const f = path.resolve(dir, scenario.fixture);
 				if (!fs.existsSync(f) || !fs.statSync(f).isDirectory()) defects.push({ check: "fixture-dir", where: `scenarios.${sid}`, message: `${scenario.fixture} is not a directory` });
 				else for (const bad of unreadable(f)) defects.push({ check: "fixture-dir", where: `scenarios.${sid}`, message: `${path.relative(dir, bad)} is a link that is broken, loops, or leaves the fixture` });

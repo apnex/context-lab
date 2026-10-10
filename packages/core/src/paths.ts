@@ -30,8 +30,12 @@ export function realPathOf(p: string): string {
  * Copy a directory, replacing every symbolic link with a copy of what it points to, provided that
  * lies inside root; a link that points outside root, or cannot be followed, is refused.
  */
-export function copyContained(from: string, to: string, root: string = from): void {
+export function copyContained(from: string, to: string, root: string = from, visiting: Set<string> = new Set()): void {
 	const realRoot = fs.realpathSync(root);
+	// A link back to a folder already being copied would recurse without end.
+	const realFrom = fs.realpathSync(from);
+	if (visiting.has(realFrom)) throw new Error(`${from} links back to a folder that contains it`);
+	visiting.add(realFrom);
 	fs.mkdirSync(to, { recursive: true });
 	for (const e of fs.readdirSync(from, { withFileTypes: true })) {
 		const src = path.join(from, e.name);
@@ -44,7 +48,8 @@ export function copyContained(from: string, to: string, root: string = from): vo
 		}
 		if (!isInside(real, realRoot)) throw new Error(`${src} links outside ${root}, to ${real}`);
 		const st = fs.statSync(real);
-		if (st.isDirectory()) copyContained(real, dst, root);
+		if (st.isDirectory()) copyContained(real, dst, root, visiting);
 		else if (st.isFile()) fs.copyFileSync(real, dst);
 	}
+	visiting.delete(realFrom);
 }

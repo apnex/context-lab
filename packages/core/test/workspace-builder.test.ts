@@ -49,6 +49,14 @@ test("a base with a rules file above it is refused", async () => {
 	assert.throws(() => createWorkspace(loaded, scenario(loaded, "graft"), arm, { base: path.join(parent, "inner"), rulesFiles: RULES }), /rules file/);
 });
 
+test("a base inside a forbidden path declared as a link is refused", async () => {
+	const real = scratch();
+	const link = path.join(scratch(), "forbidden-link");
+	fs.symlinkSync(real, link);
+	const { loaded, arm } = await setup((j) => { j.isolation.forbidden.paths = [link]; });
+	assert.throws(() => createWorkspace(loaded, scenario(loaded, "graft"), arm, { base: path.join(real, "ws"), rulesFiles: RULES }), /forbidden/);
+});
+
 test("a base inside a forbidden path is refused", async () => {
 	const forbidden = scratch();
 	const { loaded, arm } = await setup((j) => { j.isolation.forbidden.paths = [forbidden]; });
@@ -90,7 +98,10 @@ test("the workspace's commit runs none of the operator's git hooks", async () =>
 	fs.mkdirSync(hooks);
 	const marker = path.join(home, "hook-ran");
 	fs.writeFileSync(path.join(hooks, "post-commit"), `#!/bin/sh\ntouch ${marker}\n`, { mode: 0o755 });
-	fs.writeFileSync(path.join(home, ".gitconfig"), `[core]\n\thooksPath = ${hooks}\n`);
+	const template = path.join(home, "template");
+	fs.mkdirSync(path.join(template, "hooks"), { recursive: true });
+	fs.writeFileSync(path.join(template, "hooks", "post-commit"), `#!/bin/sh\ntouch ${marker}\n`, { mode: 0o755 });
+	fs.writeFileSync(path.join(home, ".gitconfig"), `[core]\n\thooksPath = ${hooks}\n[init]\n\ttemplateDir = ${template}\n`);
 	const saved = process.env["HOME"];
 	process.env["HOME"] = home;
 	try {
