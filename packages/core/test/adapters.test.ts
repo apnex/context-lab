@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
 import {
-	Refused, codexAdapter, externalAdapter, opencodeAdapter,
+	CODEX_FEATURES_OFF, Refused, codexAdapter, externalAdapter, opencodeAdapter,
 	type Adapter, type ComposedArm, type DeliveryMode, type Invocation, type Member, type Outcome,
 } from "../src/index.js";
 import { packageRoot, scratch } from "./helpers.js";
@@ -144,7 +144,7 @@ test("Codex: instructions, on-request folder, isolation and network as declared"
 	await a.invoke(invocation(e, "codex"));
 	const tomlText = fs.readFileSync(path.join(e.work, "codex-home", "config.toml"), "utf8");
 	const dev = "<file name=\"ONE.md\">\nfirst instruction\n</file>\n\n<file name=\"TWO.md\">\nsecond \"instruction\"\n</file>";
-	assert.equal(tomlText, ['approval_policy = "never"', 'web_search = "disabled"', "project_doc_fallback_filenames = []", `developer_instructions = ${JSON.stringify(dev)}`, ""].join("\n"));
+	assert.equal(tomlText, ['approval_policy = "never"', 'web_search = "disabled"', "project_doc_fallback_filenames = []", `developer_instructions = ${JSON.stringify(dev)}`, "", "[features]", ...CODEX_FEATURES_OFF.map((f) => `${f} = false`), ""].join("\n"));
 	assert.equal(a.network, "denied");
 	const r = readRecord(e.workspace);
 	assert.deepEqual([...r.env.keys()].filter((k) => !["SHLVL", "_", "OLDPWD"].includes(k)).sort(), ["CODEX_HOME", "HOME", "PATH", "PWD"]);

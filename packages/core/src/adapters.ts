@@ -191,6 +191,9 @@ function codexVendor(env: NodeJS.ProcessEnv): string {
 
 const toml = (s: string): string => JSON.stringify(s);
 
+/** Codex features that reach outside the sandbox or start other agents, each disabled. */
+export const CODEX_FEATURES_OFF = ["apps", "browser_use", "browser_use_external", "browser_use_full_cdp_access", "computer_use", "in_app_browser", "image_generation", "plugins", "remote_plugin", "multi_agent"];
+
 export function codexAdapter(opts: CodexOptions = {}): Adapter {
 	const env = opts.env ?? process.env;
 	const auth = opts.auth ?? path.join(os.homedir(), ".codex", "auth.json");
@@ -227,6 +230,9 @@ export function codexAdapter(opts: CodexOptions = {}): Adapter {
 			if (dev) lines.push(`developer_instructions = ${toml(dev)}`);
 			const effort = inv.member.settings?.["reasoningEffort"];
 			if (effort !== undefined) lines.push(`model_reasoning_effort = ${toml(String(effort))}`);
+			// Hosted tools reach the web outside the sandbox: a live check found Codex opening a page
+			// through its apps connector with web search disabled. Each is switched off by name.
+			lines.push("", "[features]", ...CODEX_FEATURES_OFF.map((f) => `${f} = false`));
 			fs.writeFileSync(path.join(codexHome, "config.toml"), lines.join("\n") + "\n");
 			const vendor = opts.vendor ?? codexVendor(env);
 			const binary = opts.binary ?? path.join(vendor, "bin", "codex");
