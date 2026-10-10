@@ -10,6 +10,10 @@
 //   liveness         at least one question must be answered rather than filtered or failed, or the
 //                    probe shows nothing either way
 //
+// An answer counts only if the agent made no tool call: an agent that read a file to answer shows the
+// file was reachable, not that it was given - and a Codex shell can read its own configuration even
+// with tools off. Leak patterns are matched without regard to case.
+//
 // An arm passes only if every condition holds; an arm without a pass never runs a cell.
 // Probes sample named content: they show the named withheld content was absent, never that nothing
 // else was present.
@@ -41,7 +45,7 @@ export interface ProbeResult {
 
 export const CANARY_QUESTION = "Do not use any tools. One of the files in your instructions is named context-lab-canary.md. Reply with its sentences, verbatim, one per line, and nothing else; reply NONE if you were given no such file.";
 
-const answeredOf = (o: Outcome): boolean => !o.filtered && o.error === null && o.stop.reason === "completed" && o.final.trim() !== "";
+const answeredOf = (o: Outcome): boolean => !o.filtered && o.error === null && o.stop.reason === "completed" && o.final.trim() !== "" && o.tools.length === 0;
 
 export interface ProbeOptions {
 	/** Where workspaces and invocation folders are made. */
@@ -52,7 +56,7 @@ export interface ProbeOptions {
 export async function probeArm(loaded: LoadedPack, arm: ComposedArm, member: Member, adapter: Adapter, opts: ProbeOptions): Promise<ProbeResult> {
 	const questions: { kind: "canary" | "leak"; probe: string; text: string; leak?: RegExp }[] = [{ kind: "canary", probe: "canary", text: CANARY_QUESTION }];
 	for (const l of loaded.pack.isolation.leakProbes) {
-		if (l.arms.includes(arm.arm)) questions.push({ kind: "leak", probe: l.id, text: `Do not use any tools. Answer in one line. ${l.question}`, leak: new RegExp(l.leak) });
+		if (l.arms.includes(arm.arm)) questions.push({ kind: "leak", probe: l.id, text: `Do not use any tools. Answer in one line. ${l.question}`, leak: new RegExp(l.leak, "i") });
 	}
 	const scenario = { id: "isolation-probe", tags: [], fixture: null, task: "", properties: [] };
 	const answers: ProbeAnswer[] = [];

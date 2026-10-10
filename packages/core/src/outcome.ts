@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 
 export type StopReason = "completed" | "timeout" | "error";
-export type InFlight = "model" | "tool" | "none";
+export type InFlight = "model" | "tool" | "none" | "unknown";
 export type ToolStatus = "completed" | "error" | "declined" | "running";
 export type ErrorCause = "filter" | "provider" | "overflow" | "unknown";
 export type TraceKind = "model-start" | "model-end" | "text" | "tool-start" | "tool-end" | "error";

@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""derive_expected - the expected outcome of each conformance stream, written independently of the
-adapters, from the mapping in CASES.md, in another language, by different means: paths are found by
-splitting the input into shell words, not by the adapters' patterns. Where the two disagree, a case
-fails and the disagreement is resolved by reading CASES.md, not by copying either side.
+"""derive_expected - the expected outcome of each conformance stream, from the mapping in CASES.md.
+
+Written by the same author as the adapters, in another language, but sharing their patterns - the
+address, word-split, error-cause and declined patterns are the same characters - so it is a second
+implementation of one reading, not an independent check: the same family. Its values were checked
+by the verifier's own reading of CASES.md for the recorded and tool streams. Where it and the
+adapters disagree, a case fails and the disagreement is resolved by reading CASES.md.
 
 Run-dependent fields - seconds, each trace event's time, the events path - are left out; the
 workspace and home an invocation will have are written as ${WORKSPACE} and ${HOME}.
@@ -118,7 +121,7 @@ def opencode(evs):
             trace.append({"kind": "error", "cause": c, "name": name})
     return {
         "final": texts[order[-1]] if order else "",
-        "inFlight": "model" if open_model else "none",
+        "inFlight": "unknown" if open_model else "none",
         "tokens": [tin, tcache, tout] if saw else [None, None, None],
         "tools": tools, "filtered": filtered, "error": error, "session": session, "trace": trace,
     }

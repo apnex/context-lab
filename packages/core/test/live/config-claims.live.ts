@@ -57,8 +57,10 @@ for (const [a, model] of [[opencodeAdapter(), ocModel], [codexAdapter(), cxModel
 	// Judged on the effect - whether the page's content reached the agent - not on which tool names
 	// were used: a first version of this check passed while Codex opened the page through a tool
 	// it did not name.
+	// And the tool is shown absent, not only unused: an agent that abstained proves nothing.
 	const reached = /Example Domain|documentation examples/i.test(r.o.final + fs.readFileSync(r.o.events, "utf8"));
-	record(`${rt}: no tool reaches the web`, !reached, r.o);
+	const webTool = r.o.tools.some((t) => ["webfetch", "websearch", "web_search", "mcp_tool_call"].includes(t.name));
+	record(`${rt}: no tool reaches the web`, !reached && !webTool, r.o);
 	if (rt === "codex") {
 		r = await run(a, model, `${rt}-shell-network`, "Run this shell command and reply with its output: curl -sS -m 5 https://example.com | head -c 200");
 		record(`${rt}: the shell cannot reach the network`, !/Example Domain/i.test(r.o.final), r.o);
@@ -69,5 +71,7 @@ for (const [a, model] of [[opencodeAdapter(), ocModel], [codexAdapter(), cxModel
 
 for (const r of results) console.log(`${r.ok ? "PASS" : "FAIL"}  ${r.check}  -  ${r.detail}`);
 const versions = [`opencode ${execFileSync("opencode", ["--version"], { encoding: "utf8" }).trim()}`, execFileSync("codex", ["--version"], { encoding: "utf8" }).trim()];
-console.log(`versions: ${versions.join("; ")}; models: ${ocModel}, ${cxModel}; records under ${base}`);
+console.log(`versions: ${versions.join("; ")}; models: ${ocModel}, ${cxModel}`);
+// The records are removed: they hold copies of the operator's configuration.
+fs.rmSync(base, { recursive: true, force: true });
 process.exit(results.every((r) => r.ok) ? 0 : 1);

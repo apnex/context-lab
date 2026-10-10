@@ -77,3 +77,17 @@ test("a guided arm whose canary question was filtered fails", async () => {
 	assert.equal(r.pass, false);
 	assert.match(r.reasons.join(), /delivery is unshown/);
 });
+
+test("an answer reached by a tool call does not count", async () => {
+	const { loaded, guided } = await setup();
+	const tool = { name: "command_execution", input: "cat context-lab-canary.md", status: "completed" as const, paths: [], addresses: [] };
+	const r = await probeArm(loaded, guided, member, scripted(() => outcome("The heron counts eleven stones.", { tools: [tool] })), opts());
+	assert.equal(r.pass, false);
+	assert.equal(r.answers[0]!.answered, false);
+});
+
+test("leak patterns are matched without regard to case", async () => {
+	const { loaded, bare } = await setup();
+	const r = await probeArm(loaded, bare, member, scripted(() => outcome("ELEVEN, I believe.")), opts());
+	assert.equal(r.pass, false);
+});

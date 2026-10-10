@@ -2,7 +2,9 @@
 
 Delta-1 stage 3 builds three runtime adapters - opencode, Codex, and the external adapter - and criterion E6 requires each to pass every case below.\
 By the delta's build order these cases are accepted by the verifier before any adapter is written against them.\
-Status: revision 5 - revision 4 accepted by the verifier after three reviews; revision 5 adds the Codex features table after a live check, not yet re-reviewed.
+Status: revision 6.\
+Revision 4 was accepted by the verifier after three reviews.\
+Changed since, each disclosed here and reviewed at stage 3's verification unless marked: the path rule, restated as the word rule both the adapters and the derivation follow, after they disagreed on a `sed` expression; the Codex `[features]` table, after a live check found a hosted connector reaching the web; and, after stage 3's verification, more features switched off, opencode's open step reported as `unknown`, and the login copy removed after each Codex invocation - not yet re-reviewed.
 
 ---
 
@@ -34,7 +36,7 @@ Every adapter, whatever its runtime, returns one `Outcome` per invocation:
 | `exit` | number or null | The runtime's exit status; null when killed |
 | `signal` | string or null | The signal that ended it, if any |
 | `stop.reason` | `completed`, `timeout`, `error` | How the invocation ended |
-| `stop.inFlight` | `model`, `tool`, `none` | What was open when it ended: a model call begun and not finished, a tool call begun and not finished, or nothing. opencode reports a tool call only when it ends, so for opencode `inFlight` is never `tool`, a stated limit |
+| `stop.inFlight` | `model`, `tool`, `none`, `unknown` | What was open when it ended: a model call begun and not finished, a tool call begun and not finished, nothing, or - where the stream cannot say which - one or the other. opencode runs tools inside a step and reports a tool only when it ends, so an open opencode step is `unknown` |
 | `cost.seconds` | number | Wall time of the invocation |
 | `cost.inputTokens` | number or null | All input tokens, cached or not; null if the runtime reports none |
 | `cost.cachedInputTokens` | number or null | The part of input read from cache |
@@ -67,13 +69,15 @@ Every adapter, whatever its runtime, returns one `Outcome` per invocation:
 | | opencode | Codex |
 |---|---|---|
 | command | `opencode run --format json -m <model>`, and the prompt as its own final argument, after any `--file` options | `codex exec --json --ephemeral --skip-git-repo-check --strict-config --ignore-rules -m <model> -C <workspace>`, and the prompt as its final argument, or `-`; its configuration is read, and checked strictly, from the fresh `CODEX_HOME`, which holds nothing of the operator's |
-| configuration | a fresh folder per invocation, named by `XDG_CONFIG_HOME`, holding only the operator's provider block, `plugin: []`, the permissions below and the arm's instruction files; fresh data, state and cache folders by `XDG_DATA_HOME`, `XDG_STATE_HOME`, `XDG_CACHE_HOME`, the cache copied from the operator's opencode cache, which holds provider packages, the operator's plugin packages - not loaded, since `plugin` is empty, an inference - a search binary and a model list | a fresh folder per invocation, outside `/tmp`, named by `CODEX_HOME`, holding only a copy of the operator's login and a `config.toml` with the arm's instructions in `developer_instructions`, `web_search = "disabled"`, `project_doc_fallback_filenames = []`, and a `[features]` table switching off every hosted tool that reaches outside the sandbox or starts another agent - `apps`, `browser_use`, `browser_use_external`, `browser_use_full_cdp_access`, `computer_use`, `in_app_browser`, `image_generation`, `plugins`, `remote_plugin`, `multi_agent` - after a live check found Codex opening a web page through its apps connector with web search disabled |
+| configuration | a fresh folder per invocation, named by `XDG_CONFIG_HOME`, holding only the operator's provider block, `plugin: []`, the permissions below and the arm's instruction files; fresh data, state and cache folders by `XDG_DATA_HOME`, `XDG_STATE_HOME`, `XDG_CACHE_HOME`, the cache copied from the operator's opencode cache, which holds provider packages, the operator's plugin packages - not loaded, since `plugin` is empty, an inference - a search binary and a model list | a fresh folder per invocation, outside `/tmp`, named by `CODEX_HOME`, holding only a copy of the operator's login and a `config.toml` with the arm's instructions in `developer_instructions`, `web_search = "disabled"`, `project_doc_fallback_filenames = []`, and a `[features]` table switching off every hosted tool that reaches outside the sandbox or starts another agent - `apps`, `browser_annotation_api`, `browser_use`, `browser_use_external`, `browser_use_full_cdp_access`, `computer_use`, `daemon_auto_start`, `image_generation`, `in_app_browser`, `multi_agent`, `plugin_sharing`, `plugins`, `remote_plugin`, `skill_mcp_dependency_install`, `tool_suggest` - after a live check found Codex opening a web page through its apps connector with web search disabled |
 | permissions with tools on | `edit`, `bash`, `read` allowed; `webfetch`, `websearch`, `task` denied; `external_directory` allowed for the arm's on-request folders only, denied otherwise | sandbox `workspace-write`, its network off; `web_search` disabled; approval `never` |
-| tools off | every tool disabled and every permission denied | sandbox `read-only`, `web_search` disabled, and the filesystem sandbox holding an empty workspace - the shell remains, and sees nothing but the system |
+| tools off | every tool disabled and every permission denied | sandbox `read-only`, `web_search` disabled, and the filesystem sandbox holding an empty workspace - the shell remains, and sees the system and the invocation's own folder: its configuration and login |
 | environment | an allowlist: `PATH`, `PWD` (the workspace), the `XDG_*` folders above, `HOME` (the sandbox's empty home), `OPENCODE_DISABLE_CLAUDE_CODE=1`, and the provider credential variables the provider block names | an allowlist: `PATH`, `PWD`, `HOME`, `CODEX_HOME` |
 
 **Stated additions and exposures.**\
-Codex installs its bundled skills into a fresh `CODEX_HOME` on first run; they are the same in every arm, control included, and are a stated part of every Codex agent's context.\
+Codex installs its bundled skills into a fresh `CODEX_HOME` on first run - among them `imagegen` and `skill-installer` - and its prompt still carries a multi-agent role block with `multi_agent` off; both are the same in every arm, control included, and are a stated part of every Codex agent's context.\
+A Codex agent's shell can read its own configuration, the arm's instructions included, even with tools off; the isolation prober therefore counts an answer only if the agent made no tool call.\
+After each Codex invocation the login copy and Codex's own databases are removed from its folder.\
 An agent can read the credentials its runtime needs - the provider key in its environment, the login file in `CODEX_HOME` - so the adapter removes every known credential value from the raw events and the trace before writing either.\
 Inside the sandbox there is no git identity, so a task asking the agent to commit would need one given to it.
 
@@ -114,7 +118,7 @@ Each case runs for each adapter unless it says otherwise.
 | C14 | **Timeout** | A stub that starts one child in its own process group and one with `setsid`, then never exits, is stopped at the time limit: `stop.reason` `timeout`, and the stub and both children are gone within two seconds of the limit |
 | C15 | **Refusing a setting** | Before anything runs, the adapter refuses, naming it: opencode, a `reasoningEffort` not among the model's `variants` in the provider block - today every model's list is empty, so every effort is refused; Codex, a `reasoningEffort` not among the efforts Codex's own model metadata lists for that model; external, any setting |
 | C16 | **Session** | The session id in the stream is returned in `session`; continuation itself is probed at board item M2.1 |
-| C17 | **What was in flight** | For a synthetic stream ending after a model call began, `stop.inFlight` is `model`; for Codex only, after a tool call began, `tool`; after both ended, `none` |
+| C17 | **What was in flight** | For a synthetic stream ending after a model call began, `stop.inFlight` is `model` for Codex and `unknown` for opencode; for Codex, after a tool call began, `tool`; after both ended, `none` |
 | C18 | **Trace** | The trace holds one normalised event per runtime event the mapping names, in arrival order, each with an `at` that never decreases |
 | C19 | **Credentials removed** | For a synthetic stream in which a tool's output prints the provider key, neither the raw events written nor the trace contain the key |
 

@@ -75,8 +75,9 @@ export function parseOpencode(lines: Line[], ctx: ParseContext): Outcome {
 		final: messages.length ? messages[messages.length - 1]! : "",
 		exit: ctx.exit,
 		signal: ctx.signal,
-		// opencode reports a tool call only when it ends, so a tool is never seen in flight.
-		stop: { reason, inFlight: openModel ? "model" : "none" },
+		// opencode reports a tool call only when it ends, and runs tools inside a step, so an open step
+		// is a model call or a tool, and the stream cannot say which.
+		stop: { reason, inFlight: openModel ? "unknown" : "none" },
 		cost: { seconds: ctx.seconds, inputTokens: sawTokens ? input : null, cachedInputTokens: sawTokens ? cached : null, outputTokens: sawTokens ? output : null, toolCalls: tools.length },
 		tools,
 		filtered,

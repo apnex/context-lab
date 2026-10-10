@@ -15,6 +15,8 @@ import { packageRoot, scratch } from "./helpers.js";
 import { codexStub, opencodeStub, readRecord, type StubOptions } from "./conformance/stub.js";
 
 const STREAMS = path.join(packageRoot, "test", "conformance", "streams");
+// Written out here, not read from the adapter, so dropping a name from the adapter fails the test.
+const FEATURES_OFF = ["apps", "browser_annotation_api", "browser_use", "browser_use_external", "browser_use_full_cdp_access", "computer_use", "daemon_auto_start", "image_generation", "in_app_browser", "multi_agent", "plugin_sharing", "plugins", "remote_plugin", "skill_mcp_dependency_install", "tool_suggest"];
 const KEY = "cl-test-credential-0123456789abcdef";
 const AUTH_TOKEN = "cl-test-auth-token-abcdefghijklmnopqrstuvwxyz";
 
@@ -82,7 +84,7 @@ function comparable(o: Outcome): unknown {
 
 function expectedFor(file: string, e: Env, home: string): unknown {
 	const raw = fs.readFileSync(path.join(STREAMS, file.replace(/\.jsonl$/, ".expected.json")), "utf8")
-		.split("${WORKSPACE}").join(e.workspace).split("${HOME}").join(home).split(KEY).join("[credential removed]");
+		.split("${WORKSPACE}").join(e.workspace).split("${HOME}").join(home).split(KEY).join("[credential removed]").split(AUTH_TOKEN).join("[credential removed]");
 	const x = JSON.parse(raw) as { tools: { paths: string[] }[] };
 	for (const t of x.tools) t.paths = t.paths.map((p) => path.normalize(p));
 	return x;
@@ -144,7 +146,10 @@ test("Codex: instructions, on-request folder, isolation and network as declared"
 	await a.invoke(invocation(e, "codex"));
 	const tomlText = fs.readFileSync(path.join(e.work, "codex-home", "config.toml"), "utf8");
 	const dev = "<file name=\"ONE.md\">\nfirst instruction\n</file>\n\n<file name=\"TWO.md\">\nsecond \"instruction\"\n</file>";
-	assert.equal(tomlText, ['approval_policy = "never"', 'web_search = "disabled"', "project_doc_fallback_filenames = []", `developer_instructions = ${JSON.stringify(dev)}`, "", "[features]", ...CODEX_FEATURES_OFF.map((f) => `${f} = false`), ""].join("\n"));
+	assert.equal(tomlText, ['approval_policy = "never"', 'web_search = "disabled"', "project_doc_fallback_filenames = []", `developer_instructions = ${JSON.stringify(dev)}`, "", "[features]", ...FEATURES_OFF.map((f) => `${f} = false`), ""].join("\n"));
+	assert.deepEqual([...CODEX_FEATURES_OFF].sort(), [...FEATURES_OFF].sort());
+	assert.equal(fs.existsSync(path.join(e.work, "codex-home", "auth.json")), false, "the login copy was left behind");
+	assert.equal(fs.existsSync(path.join(e.work, "instructions")), false, "a second copy of the instructions was made");
 	assert.equal(a.network, "denied");
 	const r = readRecord(e.workspace);
 	assert.deepEqual([...r.env.keys()].filter((k) => !["SHLVL", "_", "OLDPWD"].includes(k)).sort(), ["CODEX_HOME", "HOME", "PATH", "PWD"]);

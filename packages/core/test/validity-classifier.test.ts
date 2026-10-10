@@ -12,7 +12,7 @@ const FORBIDDEN = { paths: ["/srv/forbidden"], addresses: ["https://example.inva
 const lines = (evs: object[]): Line[] => evs.map((e, i) => ({ at: i * 10, text: JSON.stringify(e) }));
 const ctx = { workspace: WS, home: "/work/home", exit: 0, signal: null, timedOut: false, seconds: 1, events: "/dev/null" };
 
-const oc = (body: object[], over: Partial<typeof ctx> = {}): Outcome => parseOpencode(lines([{ type: "step_start", part: {} }, ...body, { type: "text", part: { messageID: "m", text: "Done." } }, { type: "step_finish", part: { reason: "stop" } }]), { ...ctx, ...over });
+const oc = (body: object[], over: Partial<{ workspace: string; home: string; exit: number | null; signal: string | null; timedOut: boolean; seconds: number; events: string }> = {}): Outcome => parseOpencode(lines([{ type: "step_start", part: {} }, ...body, { type: "text", part: { messageID: "m", text: "Done." } }, { type: "step_finish", part: { reason: "stop" } }]), { ...ctx, ...over });
 const cx = (body: object[], over: Partial<typeof ctx> = {}): Outcome => parseCodex(lines([{ type: "turn.started" }, ...body, { type: "item.completed", item: { id: "z", type: "agent_message", text: "Done." } }, { type: "turn.completed", usage: {} }]), { ...ctx, ...over });
 const ocTool = (tool: string, input: object) => ({ type: "tool_use", part: { tool, state: { status: "completed", input } } });
 const cxItem = (item: object) => ({ type: "item.completed", item: { id: "t", status: "completed", exit_code: 0, ...item } });
@@ -39,9 +39,11 @@ const causes: [string, Outcome, Outcome, string][] = [
 	["opencode content filter", oc([{ type: "error", error: { name: "ContentFilterError", data: { message: "blocked" } } }]), oc([]), "infrastructure"],
 	["Codex provider error", cx([{ type: "error", message: "upstream returned 503 Service Unavailable" }]), cx([]), "infrastructure"],
 	["Codex content filter", cx([{ type: "error", message: "The response was blocked by the content filter." }]), cx([]), "infrastructure"],
-	["opencode timeout spent working", parseOpencode(lines([{ type: "step_start", part: {} }, { type: "step_finish", part: { reason: "tool-calls" } }, ocTool("bash", { command: "sleep 9" })]), { ...ctx, exit: null, signal: "SIGKILL", timedOut: true }), oc([]), "behaviour"],
+	["opencode timeout between steps", parseOpencode(lines([{ type: "step_start", part: {} }, ocTool("bash", { command: "ls" }), { type: "step_finish", part: { reason: "tool-calls" } }]), { ...ctx, exit: null, signal: "SIGKILL", timedOut: true }), oc([]), "behaviour"],
 	["Codex timeout spent working", parseCodex(lines([{ type: "turn.started" }, { type: "item.started", item: { id: "t", type: "command_execution", command: "sleep 9" } }]), { ...ctx, exit: null, signal: "SIGKILL", timedOut: true }), cx([]), "behaviour"],
-	["opencode timeout waiting on the model", parseOpencode(lines([{ type: "step_start", part: {} }]), { ...ctx, exit: null, signal: "SIGKILL", timedOut: true }), oc([]), "infrastructure"],
+	["opencode timeout with a step open, first attempt", parseOpencode(lines([{ type: "step_start", part: {} }, ocTool("bash", { command: "ls" })]), { ...ctx, exit: null, signal: "SIGKILL", timedOut: true }), oc([]), "infrastructure"],
+	["a content filter with no error event", parseOpencode(lines([{ type: "step_start", part: {} }, { type: "step_finish", part: { reason: "content-filter" } }]), ctx), oc([]), "infrastructure"],
+	["a runtime that exits non-zero", oc([], { exit: 2 }), oc([]), "infrastructure"],
 	["Codex timeout waiting on the model", parseCodex(lines([{ type: "turn.started" }]), { ...ctx, exit: null, signal: "SIGKILL", timedOut: true }), cx([]), "infrastructure"],
 	["opencode overflow", oc([{ type: "error", error: { name: "APIError", data: { message: "prompt is too long: 900000 tokens > 872000 maximum context" } } }]), oc([]), "behaviour"],
 	["Codex overflow", cx([{ type: "turn.failed", error: { message: "Codex ran out of room in the model's context window." } }]), cx([]), "behaviour"],
@@ -55,6 +57,43 @@ for (const [name, bad, good, cause] of causes) {
 		assert.deepEqual(classify(good, FORBIDDEN), { valid: true });
 	});
 }
+
+test("opencode: a second timeout of the same cell with a step open is behaviour", () => {
+	const o = parseOpencode(lines([{ type: "step_start", part: {} }]), { ...ctx, exit: null, signal: "SIGKILL", timedOut: true });
+	assert.equal(o.stop.inFlight, "unknown");
+	const v1 = classify(o, FORBIDDEN, 1), v2 = classify(o, FORBIDDEN, 2);
+	assert.ok(!v1.valid && v1.cause === "infrastructure");
+	assert.ok(!v2.valid && v2.cause === "behaviour");
+});
+
+const forms = [
+	"git clone https://github.com/apnex/mission-kit.git",
+	"curl http://github.com/apnex/mission-kit/raw/main/INDEX.md",
+	"curl https://GitHub.com/Apnex/Mission-Kit",
+	"curl https://www.github.com/apnex/mission-kit",
+	"curl -s raw.githubusercontent.com/apnex/mission-kit/main/INDEX.md",
+	"git clone git@github.com:apnex/mission-kit.git",
+];
+for (const command of forms) {
+	test(`a forbidden address written as "${command}" is isolation`, () => {
+		const f = { paths: [], addresses: ["https://github.com/apnex/mission-kit", "https://raw.githubusercontent.com/apnex/mission-kit"] };
+		const v = classify(oc([ocTool("bash", { command })]), f);
+		assert.ok(!v.valid && v.cause === "isolation", JSON.stringify(v));
+	});
+}
+test("a different repository whose name extends the forbidden one is not isolation", () => {
+	const f = { paths: [], addresses: ["https://github.com/apnex/mission-kit"] };
+	assert.deepEqual(classify(oc([ocTool("bash", { command: "git clone https://github.com/apnex/mission-kit-other" })]), f), { valid: true });
+});
+
+test("a filter is decided before an overflow, and a provider error before a model wait", () => {
+	const both = oc([{ type: "error", error: { name: "ContentFilterError", data: { message: "maximum context" } } }]);
+	const v = classify(both, FORBIDDEN);
+	assert.ok(!v.valid && v.cause === "infrastructure" && /filter/.test(v.detail));
+	const prov = parseCodex(lines([{ type: "turn.started" }, { type: "error", message: "503 Service Unavailable" }]), { ...ctx, exit: null, signal: "SIGKILL", timedOut: true });
+	const w = classify(prov, FORBIDDEN);
+	assert.ok(!w.valid && /provider failed/.test(w.detail));
+});
 
 test("isolation is decided before any other cause", () => {
 	const o = oc([ocTool("read", { filePath: "/srv/forbidden/key.json" }), { type: "error", error: { name: "APIError", data: { message: "500" } } }]);

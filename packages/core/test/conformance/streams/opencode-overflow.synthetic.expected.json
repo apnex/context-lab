@@ -4,7 +4,7 @@
   "signal": null,
   "stop": {
     "reason": "error",
-    "inFlight": "model"
+    "inFlight": "unknown"
   },
   "cost": {
     "inputTokens": null,

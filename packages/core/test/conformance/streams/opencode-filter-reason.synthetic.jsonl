@@ -1,0 +1,2 @@
+{"type": "step_start", "sessionID": "ses_s9", "part": {}}
+{"type": "step_finish", "sessionID": "ses_s9", "part": {"reason": "content-filter", "tokens": {"total": 1, "input": 1, "output": 0, "reasoning": 0, "cache": {"read": 0, "write": 0}}}}

@@ -192,7 +192,11 @@ function codexVendor(env: NodeJS.ProcessEnv): string {
 const toml = (s: string): string => JSON.stringify(s);
 
 /** Codex features that reach outside the sandbox or start other agents, each disabled. */
-export const CODEX_FEATURES_OFF = ["apps", "browser_use", "browser_use_external", "browser_use_full_cdp_access", "computer_use", "in_app_browser", "image_generation", "plugins", "remote_plugin", "multi_agent"];
+export const CODEX_FEATURES_OFF = [
+	"apps", "browser_annotation_api", "browser_use", "browser_use_external", "browser_use_full_cdp_access", "computer_use",
+	"daemon_auto_start", "image_generation", "in_app_browser", "multi_agent", "plugin_sharing", "plugins", "remote_plugin",
+	"skill_mcp_dependency_install", "tool_suggest",
+];
 
 export function codexAdapter(opts: CodexOptions = {}): Adapter {
 	const env = opts.env ?? process.env;
@@ -224,8 +228,9 @@ export function codexAdapter(opts: CodexOptions = {}): Adapter {
 			fs.mkdirSync(codexHome);
 			fs.copyFileSync(auth, path.join(codexHome, "auth.json"));
 			fs.chmodSync(path.join(codexHome, "auth.json"), 0o600);
-			const files = copyInstructions(inv.arm, instr);
-			const dev = files.map((f) => `<file name="${f.name}">\n${fs.readFileSync(f.path, "utf8")}</file>`).join("\n\n");
+			// The instructions go only into config.toml, which Codex itself must read; no second copy is made.
+			fs.rmdirSync(instr);
+			const dev = inv.arm.instructions.map((f) => `<file name="${path.basename(f.file)}">\n${fs.readFileSync(f.path, "utf8")}</file>`).join("\n\n");
 			const lines = ['approval_policy = "never"', 'web_search = "disabled"', "project_doc_fallback_filenames = []"];
 			if (dev) lines.push(`developer_instructions = ${toml(dev)}`);
 			const effort = inv.member.settings?.["reasoningEffort"];
@@ -246,6 +251,9 @@ export function codexAdapter(opts: CodexOptions = {}): Adapter {
 				install: vendor, writable: inv.tools === "off" ? [inv.work] : [inv.work, inv.workspace], readOnly: inv.arm.onRequest.map((o) => o.path), home, cwd: workspace,
 				command: [binary, ...args], env: { PATH: "/usr/bin:/bin", PWD: workspace, HOME: home, CODEX_HOME: codexHome }, stdin: inv.mode === "stdin" ? inv.prompt : null, timeLimitSeconds: inv.timeLimitSeconds,
 			});
+			// The login copy and Codex's own databases are removed, so no run record carries them.
+			fs.rmSync(path.join(codexHome, "auth.json"), { force: true });
+			for (const f of fs.readdirSync(codexHome)) if (/\.sqlite(-shm|-wal)?$/.test(f)) fs.rmSync(path.join(codexHome, f), { force: true });
 			const events = writeEvents(inv, r, secrets);
 			return scrubOutcome(parseCodex(r.lines, { workspace, home, exit: r.exit, signal: r.signal, timedOut: r.timedOut, seconds: r.seconds, events }), secrets);
 		},

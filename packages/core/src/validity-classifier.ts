@@ -13,7 +13,14 @@
 // "Waiting on a model call" is read from the trace: a timeout with a model call begun and not ended
 // is infrastructure, a timeout during a tool call or between calls is behaviour. A slow model and a
 // stalled provider look the same from outside, and both are counted against the provider, so a
-// slower family is not scored as a weaker agent.
+// slower family is not scored as a weaker agent. Where the trace cannot tell a model call from a
+// tool - opencode runs tools inside a step and reports them only when they end - a first timeout is
+// infrastructure and a second timeout of the same cell is behaviour.
+//
+// A forbidden address is found in any string of a tool's input, not only in what parses as an
+// address: with or without a scheme, http or https, any case, an optional www., and a host followed
+// by / or : - which covers git's user@host:path form. An address assembled at run time from
+// variables, or reached through a program that names it some other way, is not found.
 
 import { isInside } from "./paths.js";
 import type { Outcome } from "./outcome.js";
@@ -28,20 +35,48 @@ export interface Forbidden {
 
 export const RERUN: Record<Cause, boolean> = { isolation: true, infrastructure: true, behaviour: false };
 
-export function classify(o: Outcome, forbidden: Forbidden): Validity {
+function stringsIn(v: unknown): string[] {
+	if (typeof v === "string") return [v];
+	if (Array.isArray(v)) return v.flatMap(stringsIn);
+	if (typeof v === "object" && v !== null) return Object.values(v).flatMap(stringsIn);
+	return [];
+}
+
+const escape = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** A pattern matching every common written form of a forbidden address. */
+export function addressPattern(address: string): RegExp {
+	const u = new URL(address);
+	const host = u.hostname.replace(/^www\./, "");
+	const rest = u.pathname.replace(/\/+$/, "");
+	return new RegExp(`(?:https?://)?(?:[\\w.-]+@)?(?:www\\.)?${escape(host)}[/:]${escape(rest.replace(/^\//, ""))}(?![\\w-])`, "i");
+}
+
+export function classify(o: Outcome, forbidden: Forbidden, attempt = 1): Validity {
+	const patterns = forbidden.addresses.map((a) => ({ a, re: addressPattern(a) }));
 	for (const t of o.tools) {
 		for (const p of t.paths) {
 			const hit = forbidden.paths.find((f) => isInside(p, f));
 			if (hit !== undefined) return { valid: false, cause: "isolation", detail: `${t.name} touched ${p}, inside forbidden ${hit}` };
 		}
-		for (const a of t.addresses) {
-			const hit = forbidden.addresses.find((f) => a === f || a.startsWith(f.endsWith("/") ? f : `${f}/`) || a.startsWith(`${f}?`) || a.startsWith(`${f}#`));
-			if (hit !== undefined) return { valid: false, cause: "isolation", detail: `${t.name} reached ${a}, a forbidden address` };
+		for (const text of [...t.addresses, ...stringsIn(t.input)]) {
+			for (const { a, re } of patterns) {
+				const m = re.exec(text);
+				if (m !== null) {
+					const full = t.addresses.find((x) => re.test(x)) ?? m[0];
+					return { valid: false, cause: "isolation", detail: `${t.name} reached ${full}, forbidden as ${a}` };
+				}
+			}
 		}
 	}
 	if (o.filtered || o.error?.cause === "filter") return { valid: false, cause: "infrastructure", detail: "the provider's content filter blocked a response" };
 	if (o.error?.cause === "provider") return { valid: false, cause: "infrastructure", detail: `the provider failed: ${o.error.message.slice(0, 200)}` };
 	if (o.stop.reason === "timeout" && o.stop.inFlight === "model") return { valid: false, cause: "infrastructure", detail: "stopped at its time limit while waiting on a model call" };
+	if (o.stop.reason === "timeout" && o.stop.inFlight === "unknown") {
+		return attempt <= 1
+			? { valid: false, cause: "infrastructure", detail: "stopped at its time limit with a model call or a tool open, which the trace cannot tell apart; a first timeout counts against the provider" }
+			: { valid: false, cause: "behaviour", detail: "stopped at its time limit again on a re-run" };
+	}
 	if (o.error?.cause === "overflow") return { valid: false, cause: "behaviour", detail: "the agent's context overflowed" };
 	if (o.stop.reason === "timeout") return { valid: false, cause: "behaviour", detail: `stopped at its time limit while ${o.stop.inFlight === "tool" ? "a tool ran" : "working"}` };
 	if (o.error !== null) return { valid: false, cause: "infrastructure", detail: `the runtime reported an error: ${o.error.message.slice(0, 200)}` };
