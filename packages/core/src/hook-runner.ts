@@ -32,8 +32,9 @@ export const HOOK_FAILURE_RESULT: Record<HookKind, string> = {
 	"outcome-measure": "the hook's properties are incomplete",
 };
 
+// Only the Node binary itself is bound, not its installation directory, which could be the home
+// directory when Node is installed there.
 const nodeBinary = (): string => fs.realpathSync(process.execPath);
-const nodeInstall = (): string => path.dirname(path.dirname(nodeBinary()));
 
 /** The bubblewrap arguments that bound a hook. Exported so the bounds can be inspected in tests. */
 export function sandboxArgs(hookFile: string, run: HookRun): string[] {
@@ -44,7 +45,7 @@ export function sandboxArgs(hookFile: string, run: HookRun): string[] {
 		"--symlink", "usr/lib", "/lib",
 		"--symlink", "usr/bin", "/bin",
 		"--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp",
-		"--ro-bind", nodeInstall(), nodeInstall(),
+		"--ro-bind", nodeBinary(), nodeBinary(),
 		"--ro-bind", hookFile, hookFile,
 	];
 	for (const p of run.readable ?? []) args.push("--ro-bind", p, p);

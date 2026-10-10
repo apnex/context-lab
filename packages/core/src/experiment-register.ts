@@ -24,8 +24,10 @@ function filesUnder(dir: string): string[] {
 	const walk = (d: string): void => {
 		for (const e of fs.readdirSync(d, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
 			const p = path.join(d, e.name);
-			if (e.isDirectory()) walk(p);
-			else if (e.isFile()) out.push(p);
+			// A symbolic link is followed, so the content it points to is what is hashed.
+			const st = fs.statSync(p);
+			if (st.isDirectory()) walk(p);
+			else if (st.isFile()) out.push(p);
 		}
 	};
 	walk(dir);
@@ -63,13 +65,20 @@ export function hashedParts(loaded: LoadedPack, experimentId: string): Map<strin
 	const variantIds = new Set(arms.flatMap((a) => a.deliver.map((d) => d.variant)));
 	const variants = pack.variants.filter((v) => variantIds.has(v.id));
 	for (const v of variants) if (v.transform !== undefined) hookIds.add(v.transform);
-	for (const h of pack.hooks) if (hookIds.has(h.id)) parts.set(`hook:${h.file}`, read(h.file));
+	// The declaration-check hook decides whether the pack is valid at all, so it is always covered.
+	for (const h of pack.hooks) if (h.kind === "declaration-check") hookIds.add(h.id);
+	const hooks = pack.hooks.filter((h) => hookIds.has(h.id));
+	for (const h of hooks) parts.set(`hook:${h.file}`, read(h.file));
+	const sourceIds = new Set(variants.map((v) => v.source));
 	parts.set("rules", canonical({
 		arms,
 		variants,
+		sources: pack.sources.filter((s) => sourceIds.has(s.id)),
+		hooks,
 		population: pack.population.filter((m) => e.experiment.factors.population.includes(m.id)),
 		masks: pack.masks,
 		isolation: pack.isolation,
+		suites: pack.suites.filter((s) => s.experiment === experimentId),
 	}));
 	return parts;
 }

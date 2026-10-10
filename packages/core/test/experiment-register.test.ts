@@ -32,6 +32,10 @@ const changes: Record<string, (d: string) => void> = {
 	"a fixture file": (d) => fs.appendFileSync(path.join(d, "fixtures", "graft", "NOTES.txt"), "Scion: pear.\n"),
 	"a rule": (d) => editJson(path.join(d, "pack.json"), (j) => { j.masks.identifiers.push("\\bORC-\\d+\\b"); }),
 	"a hook file": (d) => fs.appendFileSync(path.join(d, "hooks", "count.mjs"), "// changed\n"),
+	"the declaration-check hook file": (d) => fs.appendFileSync(path.join(d, "hooks", "check.mjs"), "// changed\n"),
+	"a hook's time limit": (d) => editJson(path.join(d, "pack.json"), (j) => { j.hooks[2].timeLimitSeconds = 30; }),
+	"the source declaration": (d) => editJson(path.join(d, "pack.json"), (j) => { j.sources[0].exclude = ["drafts/"]; }),
+	"a suite's selection": (d) => editJson(path.join(d, "pack.json"), (j) => { j.suites[0].select = { scenarios: ["graft"] }; }),
 };
 
 for (const [what, change] of Object.entries(changes)) {
@@ -44,3 +48,13 @@ for (const [what, change] of Object.entries(changes)) {
 		assert.match(after.reason, /changed/);
 	});
 }
+
+test("changing a fixture file behind a symbolic link after recording makes the run exploration", async () => {
+	const dir = copyPack();
+	const real = path.join(dir, "linked.txt");
+	fs.writeFileSync(real, "first\n");
+	fs.symlinkSync(real, path.join(dir, "fixtures", "graft", "LINK.txt"));
+	recordExperiment(await load(dir), "orchard");
+	fs.writeFileSync(real, "second\n");
+	assert.equal(runStatus(await load(dir), "orchard").status, "exploration");
+});

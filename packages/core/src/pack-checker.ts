@@ -34,6 +34,7 @@ export const PACK_CHECKS = {
 	"suite-experiment": "every suite names a declared experiment",
 	"suite-nonempty": "every suite selects at least one scenario",
 	"regex": "every mask and leak pattern is a valid regular expression",
+	"one-declaration-check": "a pack declares at most one declaration-check hook",
 	"declaration-check": "the pack's declaration-check hook, if any, reports no defect",
 } as const;
 export type CheckId = keyof typeof PACK_CHECKS;
@@ -257,7 +258,9 @@ export async function checkPack(packDir: string): Promise<CheckResult> {
 		for (const a of l.arms) if (!pack.arms.some((x) => x.id === a)) defects.push({ check: "probe-arms", where: `isolation.leakProbes.${l.id}`, message: `names undeclared arm ${a}` });
 	}
 
-	const declCheck = pack.hooks.find((h) => h.kind === "declaration-check");
+	const declChecks = pack.hooks.filter((h) => h.kind === "declaration-check");
+	if (declChecks.length > 1) defects.push({ check: "one-declaration-check", where: "hooks", message: `declares ${declChecks.length} declaration-check hooks: ${declChecks.map((h) => h.id).join(", ")}` });
+	const declCheck = declChecks[0];
 	if (declCheck && defects.length === 0) {
 		const r = await runHook(dir, declCheck, { pack, packDir: dir }, { readable: [dir] });
 		if (!r.ok) defects.push({ check: "declaration-check", where: `hooks.${declCheck.id}`, message: `failed (${r.reason}): ${r.detail}` });
@@ -281,7 +284,8 @@ export function entryView(loaded: LoadedPack): Map<string, string[]> {
 			for (const t of scenario.tags) {
 				if (!t.startsWith(EXERCISES_TAG)) continue;
 				const entry = t.slice(EXERCISES_TAG.length);
-				view.set(entry, [...(view.get(entry) ?? []), scenario.id]);
+				const list = view.get(entry) ?? [];
+				if (!list.includes(scenario.id)) view.set(entry, [...list, scenario.id]);
 			}
 		}
 	}

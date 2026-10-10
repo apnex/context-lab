@@ -61,10 +61,10 @@ Built in TypeScript, following the convention of the organisation's TypeScript c
 
 Each stage lands with its own tests, and its criteria are green, before the next depends on it.
 
-1. **Pack and record.** The workspace; pack schema; both packs written statically; pack checker; hook runner; experiment register; selector and suites. Criteria E1, E2, E3, E12, E16.
-2. **Context.** Variant builder, arm composer, workspace builder. Criterion E13.
+1. **Pack and record.** The workspace; pack schema; both packs written statically; pack checker; hook runner; experiment register; selector and suites. Criteria E1, E2, E3 except its run-record clause, E12 for its bounds and the declaration-check failure result, E16.
+2. **Context.** Variant builder, arm composer, workspace builder. Criteria E13, and E12's variant-transform failure result.
 3. **Runtimes.** The three adapters and their conformance suite, accepted by the verifier before the adapters are built; isolation prober; validity classifier. Criteria E5, E6.
-4. **One-phase runs.** Phase driver, run conductor, answer parser, code measurer. Criteria E7, E14.
+4. **One-phase runs.** Phase driver, run conductor, answer parser, code measurer. Criteria E7, E14, E3's run-record clause, and E12's outcome-measure failure result and success paths.
 5. **Judging.** Blinder, judge panel, tally. Criterion E15.
 6. **Parity.** Legacy-record readers; the tally against two past runs. Criteria E8, E9.
 7. **mission-kit's pack, live.** Criteria E4, E10, E11.
@@ -114,7 +114,7 @@ Evaluated by an agent that built none of the code the criterion exercises, holdi
 |---|---|---|
 | E1 | 1 | For each check listed in the pack schema, and for one defect returned by a declaration-check hook, a fixture pack with exactly that defect is rejected with the defect named; mission-kit's pack at a recorded revision, and the synthetic pack, are accepted; removing any one check makes its fixture's test fail. |
 | E2 | 1 | A run is recorded as exploration, whatever status it declares, when its experiment is unrecorded or its content hash differs from the recorded hash; a test changes the declaration, a scenario, a key, a fixture file, a rule and a hook file in turn, and the status flips each time. |
-| E3 | 1 | Resolving a saved suite by name twice against an unchanged pack yields identical scenario-id lists, recorded in the run record; for each change in a fixture set - the suite's selection, a scenario's tags, a scenario added, a scenario removed - the list changes exactly as the selection rule predicts; the generated entry-to-scenario view lists every scenario under every entry its tags name. |
+| E3 | 1, 4 | Resolving a saved suite by name twice against an unchanged pack yields identical scenario-id lists, recorded in the run record; for each change in a fixture set - the suite's selection, a scenario's tags, a scenario added, a scenario removed - the list changes exactly as the selection rule predicts; the generated entry-to-scenario view lists every scenario under every entry its tags name. |
 | E4 | 7 | In the E10 and E11 runs, the isolation record shows, for every arm and every judge setup on every driven runtime: every canary planted in that arm quoted; no negative canary declared for it quoted; no leak probe matching its leak pattern; at least one probe answered rather than filtered; and a fixture test shows an arm failing any one of these runs no cell and is reported. |
 | E5 | 3 | For each driven adapter, recorded or synthetic event traces are classified: one reaching an address on the pack's forbidden list, by fetch tool, shell command or file read, as invalid for isolation, naming the address; one ending in a provider error or content filter as infrastructure; one ending in a timeout spent working, or a context overflow, as behaviour; and each trace with the cause removed as valid. |
 | E6 | 3 | Each adapter passes every case of the conformance suite, which covers the common event form, the final message, cost, tool paths and fetches, the content-filter flag, the rules-file names it declares, each delivery mode it declares, a timeout, and refusing a setting its runtime cannot apply. |
@@ -123,7 +123,7 @@ Evaluated by an agent that built none of the code the criterion exercises, holdi
 | E9 | 6 | A reader that converts formats and does no arithmetic turns mission-kit's adherence run `adherence-03` - `sealed/manifest.json`, `scores/*.json`, the suite's key ids, `run.json` - into core votes, and the core's tally reproduces with strict equality, for every trap and property, `byArm` and `byArmFam` `mean`, `of` and `incomplete`, `agreement`, and per trap `guess.right`, `guess.all` and `guess.guided`. |
 | E10 | 7 | A live run of mission-kit's adherence suite, started by suite name, five traps by three arms by three families by three runs, reaches tallied; every isolation probe for arms and judges passed before any cell ran; all 135 cells are valid or invalid with a cause; each cell invalid for infrastructure or isolation was re-run at most once, both attempts recorded and counted per arm; every valid outcome holds two votes from families other than its own; and the run record re-tallies to its result. |
 | E11 | 7 | A live run of mission-kit's `explain` suite on both driven runtimes, readers from three families and judges from the other two, reaches tallied; every reader-probe pair holds two validated votes or a recorded absence scored 0; and no judge prompt contains text that followed the self-explanation marker. |
-| E12 | 1 | For each of the three hooks, in contract tests and in the synthetic pack, a hook that attempts the network, reads outside its inputs, writes outside its folder or exceeds its time limit is stopped and gives its failure result - the pack failed; the arm not built and not run; the properties incomplete - and each hook's success path is used in the E7 tests. |
+| E12 | 1, 2, 4 | For each of the three hooks, in contract tests and in the synthetic pack, a hook that attempts the network, reads outside its inputs, writes outside its folder or exceeds its time limit is stopped and gives its failure result - the pack failed; the arm not built and not run; the properties incomplete - and each hook's success path is used in the E7 tests. |
 | E13 | 2 | A built variant contains no occurrence of any address the pack declares for its source, and the run record names the source revision the variant was built from. |
 | E14 | 4 | In the run record, every code score carries a time earlier than the blinding of its outcome. |
 | E15 | 5 | The judge panel refuses to assign a judge of an outcome's own family, and its test fails when that refusal is removed. |
@@ -174,6 +174,23 @@ Found while building, and done within the fence:
 - E12's failure results are staged: the declaration-check failure is enacted at stage 1; the variant-transform and outcome-measure failures are enacted by the components that call them, at stages 2 and 4, and E12 is evaluated in full at stage 4.
 - Wording held in mission-kit's tool code - the reader prompt and default scorer text of `eval.mjs`, the response schema and chunking of `adherence.mjs` - is transcribed into the pack at stages 4 and 5, when the phase driver and judge panel define where it goes.
 - E7's literal list was frozen from mission-kit's pack as the criterion lists it; an experiment id, `adherence`, was left out because it is also one of the core's own property types.
+- mission-kit's pack was accepted by the checker at mission-kit revision `4883a4a`, and unchanged at `50980da`.
+
+**Stage 1 verification.**\
+An agent that built none of the code evaluated stage 1, mutation-testing every check: E1, E2 and E16 green; E3 and E12 red.\
+E3's clause "recorded in the run record" cannot be met before a run record exists, and E12's tests for the network and the time limit passed even with those bounds removed - the network test failed on name lookup, not the closed namespace, and the time-limit test checked a flag, not that the hook stopped.
+
+**Amendments after verification, by the executor, for the director's confirmation.**
+
+- The stage column of E3 and E12 now states the stages that complete them, as stage 1's own text already did for E12; the stage list says which part of each is evaluated where.
+- The network test connects to an address on the internet and to a listener on the host; the time-limit test asserts the hook stopped within two seconds of its limit and that a process it started did not outlive it, with a test timeout so a hook never stopped fails rather than hangs. Each was mutation-tested: removing the network namespace, or the kill, fails it.
+- The content hash now also covers each source declaration, every hook's declaration including its time limit, the declaration-check hook file, the experiment's suites, and fixture files behind symbolic links.
+- Every part of a multi-part check has its own fixture; a declaration-check hook's defect is asserted as written; a pack may declare one declaration-check hook only, a new check; the entry view lists a scenario once; the sandbox binds the Node binary, not its installation directory.
+- The test that only asserted a failure result was stated was removed: the results are enacted at stages 2 and 4.
+
+**Limits found, not fixed.**\
+A hook that catches its own denied attempts still returns success: the sandbox prevents what a hook may not do, and does not detect that it tried.\
+Re-recording an experiment after seeing outcomes restores its declared status; stage 4 compares a record's time with its outcomes' (`B13`).
 
 ---
 
