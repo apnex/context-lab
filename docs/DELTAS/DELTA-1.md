@@ -1,7 +1,7 @@
 # Delta-1 - a core that runs one-phase experiments, proven isolated - a vertical slice
 
 ```yaml
-status:     ratified (docs/DECISIONS.md 0009) - revision 3, with stage amendments awaiting the director's confirmation; stage 1 verified green
+status:     ratified (docs/DECISIONS.md 0009) - revision 3, stage amendments confirmed (0010); stage 1 verified green, stage 2 open
 selected:   docs/DECISIONS.md 0007, board item M1 (M1.1, M1.2)
 from-state: docs/ARCHITECTURE-TARGET.md header - "Its current architecture is empty"
 to-state:   docs/ARCHITECTURE-TARGET.md (0006, 0008), the components fenced in section 1
@@ -180,7 +180,7 @@ Found while building, and done within the fence:
 An agent that built none of the code evaluated stage 1, mutation-testing every check: E1, E2 and E16 green; E3 and E12 red.\
 E3's clause "recorded in the run record" cannot be met before a run record exists, and E12's tests for the network and the time limit passed even with those bounds removed - the network test failed on name lookup, not the closed namespace, and the time-limit test checked a flag, not that the hook stopped.
 
-**Amendments after verification, by the executor, for the director's confirmation.**
+**Amendments after verification, by the executor, confirmed by the director (`0010`).**
 
 - The stage column of E3 and E12 now states the stages that complete them, as stage 1's own text already did for E12; the stage list says which part of each is evaluated where.
 - The network test connects to an address on the internet and to a listener on the host; the time-limit test asserts the hook stopped within two seconds of its limit and that a process it started did not outlive it, with a test timeout so each such test fails rather than waits; a run whose hooks are never stopped still leaves their processes running, so the whole run needs an outer limit. Each was mutation-tested: removing the network namespace, or the kill, fails it.

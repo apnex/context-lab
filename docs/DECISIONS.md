@@ -29,6 +29,7 @@ They are not copied here; this register starts at the vision.
 | 0007 | 2026-10-10 | Milestone M1, a core that runs one-phase experiments with isolation proven, is the first move, opened as context-lab's first delta. | director | ratified | - |
 | 0008 | 2026-10-10 | A suite - a named, saved selection of scenarios with the experiment that runs them, held in the pack - is an entity of the architecture, built in the first delta. | director | ratified | - |
 | 0009 | 2026-10-10 | Delta-1 is ratified, revision 3, built in TypeScript following zorg's layout: npm workspaces, `tsc -b` under strict settings, `node --test`, Node 24 or later, development dependencies only. | director | ratified | - |
+| 0010 | 2026-10-10 | Delta-1's stage amendments are confirmed: E3's run-record clause is evaluated at stage 4, and E12 is completed across stages 1, 2 and 4. | director | ratified | - |
 
 ---
 
@@ -161,4 +162,15 @@ Plain JavaScript, as first drafted after mission-kit's own tools - refuted becau
 
 **Source.**\
 `[V, director rulings 2026-10-10; zorg package.json and tsconfig.json; agp, entity-api, entity-store tsconfig.json]`
+
+### 0010
+
+**Ruling.**\
+The executor's amendments to Delta-1's stage assignments, made after stage 1's verification, are confirmed.
+
+**Alternatives refuted.**\
+Keeping E3 and E12 at stage 1 - refuted because each needs a component a later stage builds, so stage 1 could not close without building part of stage 4 first.
+
+**Source.**\
+`[V, director confirmation 2026-10-10; docs/DELTAS/DELTA-1.md Record]`
 
