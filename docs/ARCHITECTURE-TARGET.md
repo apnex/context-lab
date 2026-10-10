@@ -31,7 +31,7 @@ Authored by the architect, ratified by the director per section; approval is agg
 |---|---|
 | Programme purpose | [`VISION.md`](../VISION.md) - cited, never restated |
 | Rulings | [`docs/DECISIONS.md`](DECISIONS.md) |
-| Provenance | mission-kit `docs/evals/standing/DESIGN.md` and rulings `0083`-`0089`, which are about mission-kit; this system rests on its own rulings, of which `0004` adopts the universal parts of that design |
+| Provenance | mission-kit `docs/evals/standing/DESIGN.md` and rulings `0083`-`0089`, which are about mission-kit; this system rests on its own rulings, of which `0004`, proposed with this document, adopts the universal parts of that design |
 
 ---
 
@@ -84,7 +84,7 @@ Every result is attributable to the declared differences between conditions alon
 | P9 | **Evidence, not verdicts.** A comparison flags; the project's authority decides | `A13`; vision non-authority 2 |
 
 **Decisions.**\
-`0001` the vision; `0002` all four existing mechanisms are absorbed; `0003` packs may carry scripts at fixed hooks; `0004` the universal parts of mission-kit's standing-suite design are adopted.
+`0001` the vision; `0002` all four existing mechanisms are absorbed; `0003` packs may carry scripts at fixed hooks; and, proposed for ratification with this document, `0004` the universal parts of mission-kit's standing-suite design are adopted, and `0005` a note-generator hook is added to `0003`'s three.
 
 **Model.**\
 Single-duty components (section 5), each serving a principle, driven by a project pack through fixed hooks, producing a run record the project keeps.
@@ -108,7 +108,7 @@ Not declarative.
 | `A5` | Probes show what each agent received (P1) | Deliberate: judges see masked outcomes, not what the agent saw |
 | `A6` | Actors hand over through declared records - outcomes, notes, votes | Open: repetition for independence - two judges, a verifier re-reading a classifier - is friction bought for `A8` |
 | `A7` | Failures classified by cause (P7) | Open: re-running infrastructure and isolation failures once selects which attempts count; bounded by once-only and reported per arm |
-| `A8` | Sealing order: variants probed before cells run, outcomes blinded before judging, rules fixed before outcomes | Open: blinding to arm was not achieved on one trap in the first measured run; tested per property |
+| `A8` | Sealing order: variants probed before cells run, outcomes blinded before judging, rules fixed before outcomes | Open: blinding to arm was not achieved on one trap in one run, mission-kit's `adherence-03`; tested per property |
 | `A9` | - | Open: no failure injection exercises the validity classifier |
 | `A10` | - | Open: no loop files context-lab's own invalid-cell causes and audit findings as its defects |
 | `A11` | Code before judges (P2) | Irreducible: judging prose is cognitive work |
@@ -125,23 +125,24 @@ Each component has one duty and serves at least one principle.
 | Component | Duty | Consumes | Exposes | Serves |
 |---|---|---|---|---|
 | **Pack checker** | Validates a project pack | A pack; its declaration-check hook | Every defect, or a pass | P5 |
-| **Experiment register** | Fixes an experiment before it runs | An experiment from the pack | Its content hash and status - result or exploration, held out or not | P4 |
-| **Selector** | Chooses scenarios by their declared tags | Tags requested; the pack's scenarios | A scenario set, with the generated entry-to-scenario view | P5 |
+| **Experiment register** | Fixes an experiment before it runs | An experiment from the pack; the changes a project declares its held-out outcomes informed | Its content hash; its status, result or exploration; for each held-out scenario, which changes its outcomes have informed | P4 |
+| **Selector** | Chooses scenarios by their declared tags | Tags requested; the pack's scenarios | A scenario set, with the generated entry-to-scenario view | North star, P5 |
 | **Variant builder** | Builds one context variant | A source and revision; the variant declaration; the pack's transform hook | A local, read-only copy, its addresses rewritten to itself, its canaries planted | P1, P5 |
 | **Arm composer** | Composes one arm, runtime-neutral | Variants; the arm declaration | An arm: what reaches the agent, and by which delivery - instruction, folder file, on request | P6 |
-| **Workspace builder** | Creates an isolated workspace | A fixture; the pack's forbidden paths | A workspace with an opaque name, no rules file above it, its initial commit | P1 |
+| **Workspace builder** | Creates an isolated workspace | A fixture; the pack's forbidden paths; the rules-file names each adapter declares | A workspace with an opaque name, no rules file above it, its initial commit | P1 |
 | **Runtime adapter** | Runs one agent invocation on its runtime | An arm, a workspace, a prompt, a delivery mode, a session, settings | Events, final message, cost, tool paths and fetches, filter flags, in the common form | P6 |
-| **Isolation prober** | Probes what an arm received | An arm on an adapter; the pack's canaries and leak probes | Per arm and runtime: received, withheld-absent, or inconclusive when filtered | P1 |
-| **Phase driver** | Executes a scenario's declared phases | A scenario, an arm, a population member | Phase outcomes, notes, branch outcomes | P4 |
+| **Isolation prober** | Probes what an arm received | An arm on an adapter; the pack's canaries and leak probes | Per arm and runtime: a pass only if every canary was quoted, no probe showed a leak, and at least one probe was answered rather than filtered | P1 |
+| **Phase driver** | Executes a scenario's declared phases | A scenario, an arm, a population member; the pack's note-generator hook | Phase outcomes, notes, branch outcomes | North star |
 | **Answer parser** | Splits a reader's answer into answers per probe | An answer; the self-explanation marker | Answers per probe, the self-explanation removed | P2 |
 | **Validity classifier** | Classifies a cell by cause | A cell's normalised events and paths; forbidden paths and addresses | Valid, or invalid: infrastructure, behaviour or isolation | P7 |
-| **Code measurer** | Scores what a check can decide | Unmasked outcomes; term and exclusion lists; measure hooks | Code scores, routing traces, restated-guidance flags | P2 |
+| **Code measurer** | Scores what a check can decide | Unmasked outcomes; term and exclusion lists; measure hooks | Code scores; routing traces, diagnostic and never scored; restated-guidance flags | P2 |
 | **Blinder** | Blinds outcomes for judging | Valid outcomes; identifier patterns; fixture paths | Masked outcomes under opaque ids, with their sealed mapping | P3 |
 | **Judge panel** | Obtains validated votes on blinded outcomes | Masked outcomes; the declared judging - judges, families, chains, order, response schema | Votes, each validated, with arm guesses; unparseable replies retried, then incomplete | P3 |
-| **Human panel** | Obtains a person's picks on paired outcomes | Pairs, chosen by the declared rule - preference pairs, or calibration pairs from one scenario and arm that judges scored apart | Picks, fault tags | P3 |
-| **Tally** | Computes results per factor | Votes, code scores, picks, the sealed mapping | Pass rates, agreement, arm-guess rates, the comprehension-behaviour link, judge-person agreement, the smallest detectable difference | P8 |
+| **Pair chooser** | Chooses outcome pairs for a person | Outcomes, votes, the declared rule - preference pairs, or calibration pairs from one scenario and arm that judges scored apart, over-sampled where judges scored high | Pairs | P3 |
+| **Human panel** | Obtains a person's picks on paired outcomes | Pairs | Picks, fault tags | P3 |
+| **Tally** | Computes results per factor | Votes, code scores, picks, the sealed mapping, the experiment's stated variation | Pass rates, held-out scenarios reported apart, agreement, arm-guess rates, the comprehension-behaviour link, judge-person agreement, the variation achieved against the variation stated | P8 |
 | **Threshold deriver** | Derives decision thresholds from A/A results | Results of a condition compared with itself | A threshold set per size, with its false-alarm rate | P4 |
-| **Comparator** | Compares two results under a declared rule | Two results; the rule - per-property tolerance, A/A threshold with extension, or improve-without-worsening across families | Flags, never a verdict | P9 |
+| **Comparator** | Compares two results under a declared rule | Two results; the rule - per-property tolerance, a property absent from the head counting as a drop; A/A threshold with extension; or improve-without-worsening across families | Flags, held-out scenarios reported apart, never a verdict | P9 |
 | **Candidate writer** | Writes candidate findings from results | Results; the pack's finding rules | Candidates with evidence, for the project to triage | P9 |
 | **Run conductor** | Conducts a run through its lifecycle | An experiment and its factors | The run record: configuration, method version, revisions, consent, events, outcomes, votes, mapping, results | P8 |
 
@@ -159,7 +160,7 @@ A comprehension run is one phase in which a reader answers probes, parsed by the
 | Entity | Holds |
 |---|---|
 | Pack | Everything project-specific, listed below |
-| Experiment | Scenarios, factors and levels, runs per cell, rules, status, hash |
+| Experiment | Scenarios, factors and levels, runs per cell, rules, the variation it can detect and the default taken when nothing is detected - all stated before outcomes - status, hash |
 | Scenario | Tags, fixture, phases, trap pairs, probes, held-out flag |
 | Property | Key, type - adherence, precision, comprehension - guidance named, decided by code or judge, scale |
 | Population member | Model, family, tier, runtime, settings such as reasoning effort |
@@ -187,9 +188,10 @@ Nothing project-specific is read from anywhere else.
 | declaration check | Pack checker | Reads the pack; returns defects |
 | variant transform | Variant builder | Reads a source copy; writes a variant into a given folder |
 | outcome measure | Code measurer | Reads one unmasked outcome; returns named scores |
-| note generator | Phase driver | Reads the fixture and a phase's diff; returns a note |
+| note generator | Phase driver | Reads the fixture and a phase's diff; returns a note - added by `0005` |
 
-A hook receives its inputs as one JSON document, returns one, runs with no network, reads only what it is given, writes only where told, and is stopped at a time limit; a hook that fails makes its properties incomplete, not the run invalid.
+A hook receives its inputs as one JSON document, returns one, runs with no network, reads only what it is given, writes only where told, and is stopped at a time limit.\
+If it fails: a declaration check fails the pack; a variant transform leaves its arm unbuilt, and the arm does not run; an outcome measure leaves its properties incomplete; a note generator leaves its branch incomplete.
 
 **Interfaces.**\
 Pack to core: a directory, validated before anything runs.\
@@ -204,17 +206,22 @@ Core to project: the run record and the result, written where the pack says; the
 
 **A run** moves through:
 
-1. **recorded** - the experiment register fixes it; a run of an unrecorded or changed experiment is exploration, whatever it was declared;
-2. **built** - every variant and arm composed;
-3. **probed** - every arm on every runtime; an arm that fails is never run, an inconclusive probe is recorded;
-4. **executed** - every cell to an outcome;
-5. **measured** - code scores on unmasked outcomes;
-6. **blinded**, **judged**, **tallied**;
-7. optionally **compared**, and **candidates written**.
+1. **validated** - the pack passes its checker;
+2. **recorded** - the experiment register fixes it; a run of an unrecorded or changed experiment is exploration, whatever it was declared;
+3. **built** - every variant and arm composed;
+4. **probed** - every arm on every runtime; an arm without a pass never runs, and is reported;
+5. **executed** - every cell to an outcome;
+6. **measured** - code scores on unmasked outcomes, against term lists frozen for the run;
+7. **blinded**, **judged**;
+8. **picked** - where the experiment declares a person judges or calibrates;
+9. **tallied**;
+10. optionally **compared**, and **candidates written**.
+
+A run of a condition against itself ends at tallied, and the threshold deriver turns its results into a threshold set.
 
 **A cell** is valid, or invalid for one cause: infrastructure, including a content filter (re-run once); agent behaviour, judged from the event trace (not re-run; unreached properties score 0; cost counted); or isolation (re-run once).
 
-**An episode** is the scenario's declared phases and branches, each starting in the same session or a fresh one, from the workspace and, if declared, a note.\
+**An episode** is the scenario's declared phases and branches, each starting in the same session or a fresh one, from the workspace and, if declared, a note; a phase that fails ends its episode.\
 Each trap pair is met once per episode, its version and position rotated across runs and population as the experiment declares.
 
 **A comparison** applies its declared rule; an A/A-calibrated rule extends a flagged property by its declared runs and reports a flag that persists at the larger size.

@@ -24,6 +24,7 @@ They are not copied here; this register starts at the vision.
 | 0002 | 2026-10-10 | context-lab absorbs every existing evaluation mechanism of its first users: comprehension runs, adherence runs, human preference judging, and classify-then-verify judging chains. | director | ratified | - |
 | 0003 | 2026-10-10 | A project pack holds data and, at a few fixed points each with a stated contract, project scripts: measuring outcomes, building context variants, and checking declarations. | director | ratified | - |
 | 0004 | 2026-10-10 | context-lab adopts the universal parts of mission-kit's standing-suite design, listed in its record, and none of its mission-kit-specific choices. | director | proposed | - |
+| 0005 | 2026-10-10 | A fourth hook point, the note generator, is added to the three of `0003`. | director | proposed | amends 0003 |
 
 ---
 
@@ -69,19 +70,22 @@ The core runs project code, so each hook's inputs, outputs and access are bounde
 
 ### 0004
 
-**Ruling, proposed.** context-lab adopts from mission-kit's standing-suite design (`docs/evals/standing/DESIGN.md`, mission-kit `0086`) these universal parts:
+**Ruling, proposed.** context-lab adopts from mission-kit's standing-suite design (`docs/evals/standing/DESIGN.md`, mission-kit `0086`) its universal parts, including:
 
-- pinned, local delivery of each context variant, with canaries proving it was read, and network fetches of the source treated as isolation failures;
-- isolation probed for every arm and runtime before any cell runs;
-- judging by the model families that did not produce an outcome, and by code wherever a check can decide;
+- pinned, local delivery of each context variant, every address of the source rewritten to the local copy, canaries proving it was read and a negative canary proving a variant was not, and network fetches of the source treated as isolation failures;
+- isolation probed for every arm and runtime before any cell runs, judges included;
+- judging by the model families that did not produce an outcome, and by code wherever a check can decide, run on unmasked outcomes before blinding;
+- blinding tested per property by judges' guesses at the arm;
 - invalid cells classified by cause, with behaviour failures scored and costed rather than re-run;
 - comparison rules calibrated by A/A runs, flagging rather than deciding;
-- multi-phase episodes with fresh sessions and branches, as a declarable scenario shape;
+- multi-phase episodes with fresh sessions and branches, notes generated from the workspace, as a declarable scenario shape;
 - trap pairs met once per episode, rotated across positions;
-- held-out scenarios and exploration status fixed before outcomes;
+- the comprehension-behaviour link, restated-guidance flags, and the variation an experiment can detect stated before its outcomes;
 - calibration of agent judges against a person, by pairs from one scenario and arm;
 - candidate findings written for a project to triage;
 - scenarios tagged by what they exercise, with the reverse view generated.
+
+It also adopts two parts the design does not hold, from the vision (is-not 5 and succeeding 5), zorg's held-out flag and mission-kit's calibration flag in `tools/adherence.mjs`: held-out scenarios, and exploration status for an experiment changed after its outcomes were seen.
 
 It adopts none of the design's mission-kit-specific choices - its four arms, its population, its run sizes and cadence, its thresholds, its digest and its misreading register - which a project declares in its pack.
 
@@ -89,5 +93,18 @@ It adopts none of the design's mission-kit-specific choices - its four arms, its
 Proposed with the target architecture, for ratification with it.
 
 **Source.**\
-`[V, mission-kit docs/evals/standing/DESIGN.md; independent audit of the first architecture draft, finding the decisions layer rested on mission-kit's project rulings]`
+`[V, mission-kit docs/evals/standing/DESIGN.md; independent audit and re-check of the architecture drafts]`
 
+### 0005
+
+**Ruling, proposed.**\
+Amends `0003`: a fourth hook, the note generator, lets a project generate the note a phase starts from.
+
+**Why.**\
+A phase starting from a note needs one that matches the workspace the earlier phase left, which a fixed note cannot, and how to summarise a project's work is project-specific.
+
+**Status.**\
+Proposed with the target architecture, for ratification with it.
+
+**Source.**\
+`[V, re-check of the architecture redraft, which found four hooks against 0003's three]`
