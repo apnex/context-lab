@@ -1,0 +1,33 @@
+{
+  "final": "",
+  "exit": 0,
+  "signal": null,
+  "stop": {
+    "reason": "error",
+    "inFlight": "model"
+  },
+  "cost": {
+    "inputTokens": null,
+    "cachedInputTokens": null,
+    "outputTokens": null,
+    "toolCalls": 0
+  },
+  "tools": [],
+  "filtered": false,
+  "error": {
+    "cause": "overflow",
+    "name": "APIError",
+    "message": "prompt is too long: 900000 tokens > 872000 maximum context"
+  },
+  "session": "ses_synthetic1",
+  "trace": [
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "error",
+      "cause": "overflow",
+      "name": "APIError"
+    }
+  ]
+}

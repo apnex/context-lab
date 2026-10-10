@@ -1,0 +1,2 @@
+{"type": "step_start", "sessionID": "ses_synthetic1", "part": {}}
+{"type": "text", "sessionID": "ses_synthetic1", "part": {"messageID": "m1", "text": "Working."}}

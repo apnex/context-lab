@@ -1,0 +1,94 @@
+{
+  "final": "",
+  "exit": 0,
+  "signal": null,
+  "stop": {
+    "reason": "completed",
+    "inFlight": "none"
+  },
+  "cost": {
+    "inputTokens": 1,
+    "cachedInputTokens": 0,
+    "outputTokens": 1,
+    "toolCalls": 4
+  },
+  "tools": [
+    {
+      "name": "read",
+      "input": {
+        "filePath": "/abs/file.txt"
+      },
+      "status": "completed",
+      "paths": [
+        "/abs/file.txt"
+      ],
+      "addresses": []
+    },
+    {
+      "name": "bash",
+      "input": {
+        "command": "cat ~/notes.txt && cat ../sibling/x.md"
+      },
+      "status": "completed",
+      "paths": [
+        "${HOME}/notes.txt",
+        "${WORKSPACE}/../sibling/x.md"
+      ],
+      "addresses": []
+    },
+    {
+      "name": "bash",
+      "input": {
+        "command": "curl -fsSL https://raw.githubusercontent.com/apnex/mission-kit/main/INDEX.md"
+      },
+      "status": "declined",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/INDEX.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://example.invalid/page"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://example.invalid/page"
+      ]
+    }
+  ],
+  "filtered": false,
+  "error": null,
+  "session": "ses_synthetic1",
+  "trace": [
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "read",
+      "status": "completed"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "bash",
+      "status": "completed"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "bash",
+      "status": "declined"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "stop"
+    }
+  ]
+}

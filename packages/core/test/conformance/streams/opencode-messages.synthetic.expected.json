@@ -1,0 +1,75 @@
+{
+  "final": "Third, in two parts.",
+  "exit": 0,
+  "signal": null,
+  "stop": {
+    "reason": "completed",
+    "inFlight": "none"
+  },
+  "cost": {
+    "inputTokens": 323,
+    "cachedInputTokens": 210,
+    "outputTokens": 13,
+    "toolCalls": 1
+  },
+  "tools": [
+    {
+      "name": "bash",
+      "input": {
+        "command": "cat /etc/hostname"
+      },
+      "status": "completed",
+      "paths": [
+        "/etc/hostname"
+      ],
+      "addresses": []
+    }
+  ],
+  "filtered": false,
+  "error": null,
+  "session": "ses_synthetic1",
+  "trace": [
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "m1"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "m2"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "bash",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "m3"
+    },
+    {
+      "kind": "text",
+      "message": "m3"
+    },
+    {
+      "kind": "model-end",
+      "reason": "stop"
+    }
+  ]
+}

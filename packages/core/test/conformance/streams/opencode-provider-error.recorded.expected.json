@@ -1,0 +1,2797 @@
+{
+  "final": "",
+  "exit": 0,
+  "signal": null,
+  "stop": {
+    "reason": "error",
+    "inFlight": "model"
+  },
+  "cost": {
+    "inputTokens": 8409060,
+    "cachedInputTokens": 7819914,
+    "outputTokens": 5014,
+    "toolCalls": 104
+  },
+  "tools": [
+    {
+      "name": "glob",
+      "input": {
+        "pattern": "**/*"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": []
+    },
+    {
+      "name": "read",
+      "input": {
+        "filePath": "/home/apnex/adherence-eval-work/repo-841brq/GOVERNANCE.md"
+      },
+      "status": "completed",
+      "paths": [
+        "/home/apnex/adherence-eval-work/repo-841brq/GOVERNANCE.md"
+      ],
+      "addresses": []
+    },
+    {
+      "name": "read",
+      "input": {
+        "filePath": "/home/apnex/adherence-eval-work/repo-841brq/README.md"
+      },
+      "status": "completed",
+      "paths": [
+        "/home/apnex/adherence-eval-work/repo-841brq/README.md"
+      ],
+      "addresses": []
+    },
+    {
+      "name": "read",
+      "input": {
+        "filePath": "/home/apnex/adherence-eval-work/repo-841brq/notes/rename-options.md"
+      },
+      "status": "completed",
+      "paths": [
+        "/home/apnex/adherence-eval-work/repo-841brq/notes/rename-options.md"
+      ],
+      "addresses": []
+    },
+    {
+      "name": "read",
+      "input": {
+        "filePath": "/home/apnex/adherence-eval-work/repo-841brq/api/routes.js"
+      },
+      "status": "completed",
+      "paths": [
+        "/home/apnex/adherence-eval-work/repo-841brq/api/routes.js"
+      ],
+      "addresses": []
+    },
+    {
+      "name": "read",
+      "input": {
+        "filePath": "/home/apnex/adherence-eval-work/repo-841brq/api/handlers.js"
+      },
+      "status": "completed",
+      "paths": [
+        "/home/apnex/adherence-eval-work/repo-841brq/api/handlers.js"
+      ],
+      "addresses": []
+    },
+    {
+      "name": "read",
+      "input": {
+        "filePath": "/home/apnex/adherence-eval-work/repo-841brq/api/handlers.test.js"
+      },
+      "status": "completed",
+      "paths": [
+        "/home/apnex/adherence-eval-work/repo-841brq/api/handlers.test.js"
+      ],
+      "addresses": []
+    },
+    {
+      "name": "grep",
+      "input": {
+        "pattern": "brief|director|amplify|option",
+        "path": "/home/apnex/adherence-eval-work/cfg-oAqDRe/instr"
+      },
+      "status": "declined",
+      "paths": [
+        "/home/apnex/adherence-eval-work/cfg-oAqDRe/instr"
+      ],
+      "addresses": []
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/axioms/A13-director-intent-amplification.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/axioms/A13-director-intent-amplification.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/style/S15-message-to-a-human.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/style/S15-message-to-a-human.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/roles/R4-director.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/roles/R4-director.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/methods/M10-guided-dialogue.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/methods/M10-guided-dialogue.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/artifacts/README.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/artifacts/README.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/roles/R2-engineer.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/roles/R2-engineer.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/roles/R1-architect.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/roles/R1-architect.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/roles/R0-README.md"
+      },
+      "status": "error",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/roles/R0-README.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/roles/README.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/roles/README.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/work-types/W23-capture-decision-and-ratify.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/work-types/W23-capture-decision-and-ratify.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/work-types/W14-design-a-contract-or-invariant.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/work-types/W14-design-a-contract-or-invariant.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/work-types/W24-director-walkthrough.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/work-types/W24-director-walkthrough.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/work-types/W1-build-a-slice.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/work-types/W1-build-a-slice.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/work-types/W4-validate-locally.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/work-types/W4-validate-locally.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/work-types/W5-author-guard-or-falsifier-tests.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/work-types/W5-author-guard-or-falsifier-tests.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/entities/E1-sovereign-hierarchy.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/entities/E1-sovereign-hierarchy.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/artifacts/AR4-decision-record.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/artifacts/AR4-decision-record.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/skills/K5-survey.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/skills/K5-survey.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/skills/survey/SKILL.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/skills/survey/SKILL.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/skills/K0-README.md"
+      },
+      "status": "error",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/skills/K0-README.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/skills/README.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/skills/README.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/sets/ST1-explain.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/sets/ST1-explain.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/work-types/README.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/work-types/README.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/entities/E7-gate.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/entities/E7-gate.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/entities/E8-evidence.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/entities/E8-evidence.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/style/S10-horizontal-rule-between-h2-sections.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/style/S10-horizontal-rule-between-h2-sections.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/style/S6-one-sentence-per-line.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/style/S6-one-sentence-per-line.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/style/S11-technical-identifiers-use-backticks.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/style/S11-technical-identifiers-use-backticks.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/style/S13-plain-ascii-in-markdown.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/style/S13-plain-ascii-in-markdown.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/style/S12-code-block-introducer-own-paragraph.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/style/S12-code-block-introducer-own-paragraph.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/style/S0-README.md"
+      },
+      "status": "error",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/style/S0-README.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/style/README.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/style/README.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/rules/RU0-README.md"
+      },
+      "status": "error",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/rules/RU0-README.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/rules/README.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/rules/README.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/practices/README.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/practices/README.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/methods/README.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/methods/README.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/rules/RU1-default-reject-honest-yield.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/rules/RU1-default-reject-honest-yield.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/rules/RU2-frozen-history-rule.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/rules/RU2-frozen-history-rule.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/rules/RU3-anti-amnesia-deferral.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/rules/RU3-anti-amnesia-deferral.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/rules/RU4-publishing-rewritten-history.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/rules/RU4-publishing-rewritten-history.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/practices/PC1-author-from-exemplar.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/practices/PC1-author-from-exemplar.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/axioms/A0-README.md"
+      },
+      "status": "error",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/axioms/A0-README.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/axioms/README.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/axioms/README.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/traits/T4-autonomous.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/traits/T4-autonomous.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/traits/T3-multi-agent.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/traits/T3-multi-agent.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/traits/README.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/traits/README.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/traits/T5-llm-in-the-loop.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/traits/T5-llm-in-the-loop.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/traits/T2-declarative.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/traits/T2-declarative.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/traits/T1-stateful.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/traits/T1-stateful.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/axioms/A1-sovereign-state-transparency.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/axioms/A1-sovereign-state-transparency.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/axioms/A2-isomorphic-specification.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/axioms/A2-isomorphic-specification.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/axioms/A3-sovereign-composition.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/axioms/A3-sovereign-composition.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/axioms/A4-zero-loss-knowledge.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/axioms/A4-zero-loss-knowledge.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/axioms/A5-perceptual-parity.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/axioms/A5-perceptual-parity.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/axioms/A6-frictionless-agentic-collaboration.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/axioms/A6-frictionless-agentic-collaboration.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/axioms/A7-resilient-agentic-operations.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/axioms/A7-resilient-agentic-operations.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/axioms/A8-gated-recursive-integrity.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/axioms/A8-gated-recursive-integrity.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/axioms/A10-autopoietic-evolution.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/axioms/A10-autopoietic-evolution.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/axioms/A11-cognitive-minimalism.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/axioms/A11-cognitive-minimalism.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/axioms/A12-precision-context-engineering.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/axioms/A12-precision-context-engineering.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/axioms/A14-compounding-learning.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/axioms/A14-compounding-learning.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/axioms/A9-chaos-validated-deployment.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/axioms/A9-chaos-validated-deployment.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/domains/README.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/domains/README.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/domains/D1-delivery-code.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/domains/D1-delivery-code.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/domains/D4-authority-governance.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/domains/D4-authority-governance.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/domains/D6-knowledge-methodology.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/domains/D6-knowledge-methodology.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/skills/K27-write-discoverable-code.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/skills/K27-write-discoverable-code.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/skills/write-discoverable-code/SKILL.md"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/skills/write-discoverable-code/SKILL.md"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/check-standing-context.sh"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/check-standing-context.sh"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/generate-index.mjs"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/generate-index.mjs"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/check-all.sh"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/check-all.sh"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/s6-one-sentence-per-line.mjs"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/s6-one-sentence-per-line.mjs"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/s13-plain-ascii.sh"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/s13-plain-ascii.sh"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/s10-section-rules.sh"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/s10-section-rules.sh"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/s12-code-block-introducer.sh"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/s12-code-block-introducer.sh"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/s8-code-block-comments.sh"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/s8-code-block-comments.sh"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/s14-hydration-triggers.sh"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/s14-hydration-triggers.sh"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/check-standing-context.sh"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/check-standing-context.sh"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/check-decisions.mjs"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/check-decisions.mjs"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/check-entry-body.sh"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/check-entry-body.sh"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/schemas/entry-body/v1alpha1/entry-body.json"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/schemas/entry-body/v1alpha1/entry-body.json"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/check-guidance-placement.sh"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/check-guidance-placement.sh"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/lib/style-common.sh"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/lib/style-common.sh"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/check-tool-docs.sh"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/check-tool-docs.sh"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/check-enforcers.sh"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/check-enforcers.sh"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/check-structure.sh"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/check-structure.sh"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/check-traits.mjs"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/check-traits.mjs"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/check-board.mjs"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/check-board.mjs"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/check-id-reuse.mjs"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/check-id-reuse.mjs"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/generate-architecture.mjs"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/generate-architecture.mjs"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/skill-graph.mjs"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/skill-graph.mjs"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/check-standing-context.sh"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/tools/check-standing-context.sh"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/schemas/catalog-entry/v1alpha1/catalog-entry.schema.json"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/schemas/catalog-entry/v1alpha1/catalog-entry.schema.json"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/schemas/standing-context/v1alpha1/standing-context.schema.json"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/schemas/standing-context/v1alpha1/standing-context.schema.json"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/schemas/skill/v1alpha1/skill.schema.json"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/schemas/skill/v1alpha1/skill.schema.json"
+      ]
+    },
+    {
+      "name": "webfetch",
+      "input": {
+        "url": "https://raw.githubusercontent.com/apnex/mission-kit/main/schemas/entry-body/v1alpha1/entry-body.schema.json"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/schemas/entry-body/v1alpha1/entry-body.schema.json"
+      ]
+    }
+  ],
+  "filtered": false,
+  "error": {
+    "cause": "provider",
+    "name": "UnknownError",
+    "message": "Type validation failed: Value: {\"error\":{\"message\":\"litellm.BadRequestError: Vertex_ai_betaException BadRequestError - b'{\\\\n  \\\"error\\\": {\\\\n    \\\"code\\\": 400,\\\\n    \\\"message\\\": \\\"The referenced name `urn:mission-kit:schemas:common:resource-metadata:v1alpha1` in function_response.response does not match to a display_name in the function_response.parts.\\\",\\\\n    \\\"status\\\": \\\"INVALID_ARGUMENT\\\"\\\\n  }\\\\n}\\\\n'\",\"type\":null,\"param\":null,\"code\":\"400\"}}.\nError message: [\n  {\n    \"code\": \"invalid_union\",\n    \"errors\": [],\n    \"note\": \"No matching discriminator\",\n    \"discriminator\": \"type\",\n    \"path\": [\n      \"type\"\n    ],\n    \"message\": \"Invalid input\"\n  }\n]"
+  },
+  "session": "ses_edf9f0cedffeIoRdYOYB9i4YYM",
+  "trace": [
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_120610004001c2b1jxYHcpdVDb"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "glob",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_120612782001cO8HEqKEqp8y0c"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "read",
+      "status": "completed"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "read",
+      "status": "completed"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "read",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_1206134bf001FXCKHDw54G7BMg"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "read",
+      "status": "completed"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "read",
+      "status": "completed"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "read",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12061405f0019TGKf9bF9S6x3u"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "grep",
+      "status": "declined"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_1206149fe001T3vkNxWxwLt8LR"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_1206154da001OyMWcybkv7Afjq"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_120616192001xoVkKf1gpJEqRs"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_120616cfc001AL2Eivslha6C8Q"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_120617a82001HaYY4am5nT1AGp"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_120618759001cmGzcxoiSVdkqJ"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_1206194b7001UewrXWlz12bfp2"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12061a330001vr5CFnXeYfPYfs"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "error"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12061b219001NvtdW0cOSgbED1"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12061c437001OJuiXj2JcnuuLd"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12061cfa3001ZXzLgXPbDGCwxU"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12061dc08001YnMpFKx8CFFdje"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12061e93f001zlnD5ac0er4WvO"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12061f58c001nThh2b9UMtgQBr"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_1206202a7001eyO4H6OvJeQSyO"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_120620f81001gpoH2S89NrXN2s"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_120621d7b001XUONk25RshFQaB"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12062284d001Vrp12bgUxOUJde"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_1206233b4001OK7uexWB0GMZtk"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_120623f160012hwbQO305JkrYa"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "error"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_120624d53001M1425ZtF7n7wRP"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_1206258680016KQKZQl5pueVrr"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_1206264f6001w4AO3m5fTNfoVM"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_1206270c7001qCmWbh2ABcxeub"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_120627c55001UWL2Y3d2C4Ryua"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_120628a0d001ggl7HuQeBswxbw"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_1206295b3001GxgmCEGzk1hWDO"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12062f0d1001josUNR3uqea3pJ"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12062fbd4001517U29Q6qHm7N6"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_1206306ff001I53fysmgiNf0Ux"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_1206314a50019g0DCWpGDkbPUr"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "error"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_1206322c100154dqBBwMkGhxYN"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_120632f610019wJHTehD0QFo9q"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "error"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_120633b8b001d9eoQ3O9GUojbS"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_1206347ba001VZKNmnV4Grx6Ne"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_120635b2f001lmsW21m9Ngh4W5"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_120636698001wbfRsnPZDUjdCG"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_120637249001S4p448Wa5rwXse"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_120637e210014PuuAu2tGYvoNN"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_1206389ae001gvAi4TYiVWiJOq"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_1206395d300131FeJAkal7M3w4"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12063a574001syEsxEQMJkm6CS"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "error"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12063b2dc001MSuXUdipDefkb0"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12063bfa0001r1d3elzVaq8Jeb"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12063cc64001i7SylAM3H7eBTF"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12063d9b0001u4qTmXi6kWKiX3"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12063e61f0019h7OjOtnAvw63z"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12063f13f001MOP5m09yYZ9RR1"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12063fcda001vljONUYVRQdtBN"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_120640963001KvRe75C1GGuuOB"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_1206416510014azq2hex3EluAB"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12064254a001MAzeVV9WbGQ1GW"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_120643268001x0QakcfG5zaoD4"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_120643fbd001V3yMVNepI38DOJ"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_120644cf9001HDco9sSv8GoE0B"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_120645c6d001sHCbH4G1ErAkvQ"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_120646933001hSChs2IMyjzJmF"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_1206476cf0014KlYhbrtFshvzn"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12064852f0017FbjcevM3EAHRQ"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_1206495cd0015FOFJRzrZdG8d0"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12064a8a3001IhJ4dGBywYFeCw"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12064bb3f0016W4RTNYrSlCk0U"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12064da4b001ZulirI6W2cn2LD"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12064ecfa001UYEdbzB2UDHoLM"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12064ffd1001BHgK2gZGTwUVUP"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_120651140001PGl3lCXGLpFiaq"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_1206525aa001rIzPg8QXhqHT3o"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_1206540cb0018b5SSPn6npKU0u"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_1206563410015ZQCrb31SILbvQ"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_120657d4b001OINjFlDDnNii3p"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12065963a001kmvjQu9wuuX3VH"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12065aa42001fODZUgduye9M77"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12065bb1b001q2dyeJ07W9AqDj"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12065caba001wHxbtptQJcgs0K"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12065dbbf001ArLYZw8XZi0zTx"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12065ec34001AEbtUMzo2Q21t5"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12065fc760017pBvMVKCwlov5v"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_120660ab1001gXJdaZ2LTWOcKr"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_120661d6e001lcrb48wGJIwHwC"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12066394c001EMxoKIUfm4fN3l"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_1206648b2001mL127kbmBjhNkj"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_120665a990011kwbytjEvFxV2u"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_120666c22001EKYtuXNluMTEAb"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_120667c0e00165tPgVgHBQTntY"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_120668b0d001U7h2WUSyVxXn0H"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_120669b07001JNUPd7guqi5ffT"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12066aeb9001h2W6cHDTp2AaNC"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12066c4c3001qO8ofnMKZpYt3Q"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12066d546001NSu2u6FGgSO8P9"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12066e776001F7ga2Lf7yGDqWw"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12066f7fd001uEBPrkrVJ9ziop"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_120670848001dk23QksZEFDn6V"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_120671b33001N3MWNVDGVZWoxJ"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_1206891b2001c4PTSK0pd8Xf6w"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12068a2a1001cK4xZDiJuGiuAp"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "text",
+      "message": "msg_12068c767001CtLmG1Cza1shUc"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "webfetch",
+      "status": "completed"
+    },
+    {
+      "kind": "model-end",
+      "reason": "tool-calls"
+    },
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "error",
+      "cause": "provider",
+      "name": "UnknownError"
+    }
+  ]
+}

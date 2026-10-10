@@ -1,0 +1,37 @@
+{
+  "final": "",
+  "exit": 0,
+  "signal": null,
+  "stop": {
+    "reason": "error",
+    "inFlight": "none"
+  },
+  "cost": {
+    "inputTokens": 2755,
+    "cachedInputTokens": 0,
+    "outputTokens": 0,
+    "toolCalls": 0
+  },
+  "tools": [],
+  "filtered": true,
+  "error": {
+    "cause": "filter",
+    "name": "ContentFilterError",
+    "message": "The response was blocked by the provider's content filter"
+  },
+  "session": "ses_ee59fc39cffeKLr0eq4Q2S1KpT",
+  "trace": [
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "model-end",
+      "reason": "content-filter"
+    },
+    {
+      "kind": "error",
+      "cause": "filter",
+      "name": "ContentFilterError"
+    }
+  ]
+}

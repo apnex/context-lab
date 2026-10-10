@@ -1,0 +1,89 @@
+{
+  "final": "",
+  "exit": 0,
+  "signal": null,
+  "stop": {
+    "reason": "completed",
+    "inFlight": "tool"
+  },
+  "cost": {
+    "inputTokens": null,
+    "cachedInputTokens": null,
+    "outputTokens": null,
+    "toolCalls": 4
+  },
+  "tools": [
+    {
+      "name": "command_execution",
+      "input": "/bin/bash -lc 'cat /abs/file.txt ~/notes.txt ../sibling/x.md'",
+      "status": "completed",
+      "paths": [
+        "/bin/bash",
+        "/abs/file.txt",
+        "${HOME}/notes.txt",
+        "${WORKSPACE}/../sibling/x.md"
+      ],
+      "addresses": []
+    },
+    {
+      "name": "web_search",
+      "input": {
+        "query": "pear grafting",
+        "url": "https://example.invalid/page"
+      },
+      "status": "completed",
+      "paths": [],
+      "addresses": [
+        "https://example.invalid/page"
+      ]
+    },
+    {
+      "name": "file_change",
+      "input": [
+        "/abs/out.txt"
+      ],
+      "status": "completed",
+      "paths": [
+        "/abs/out.txt"
+      ],
+      "addresses": []
+    },
+    {
+      "name": "command_execution",
+      "input": "curl -fsSL https://raw.githubusercontent.com/apnex/mission-kit/main/INDEX.md",
+      "status": "running",
+      "paths": [],
+      "addresses": [
+        "https://raw.githubusercontent.com/apnex/mission-kit/main/INDEX.md"
+      ]
+    }
+  ],
+  "filtered": false,
+  "error": null,
+  "session": "thr_synthetic2",
+  "trace": [
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "command_execution",
+      "status": "completed"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "web_search",
+      "status": "completed"
+    },
+    {
+      "kind": "tool-end",
+      "tool": "file_change",
+      "status": "completed"
+    },
+    {
+      "kind": "tool-start",
+      "tool": "command_execution",
+      "status": "running"
+    }
+  ]
+}

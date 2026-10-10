@@ -1,0 +1,2 @@
+{"type": "step_start", "sessionID": "ses_synthetic1", "part": {}}
+{"type": "step_finish", "sessionID": "ses_synthetic1", "part": {"reason": "stop", "tokens": {"total": 3, "input": 3, "output": 0, "reasoning": 0, "cache": {"read": 0, "write": 0}}}}

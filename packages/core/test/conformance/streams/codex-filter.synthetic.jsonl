@@ -1,0 +1,4 @@
+{"type": "thread.started", "thread_id": "thr_synthetic3"}
+{"type": "turn.started"}
+{"type": "error", "message": "The response was blocked by the content filter."}
+{"type": "turn.failed", "error": {"message": "The response was blocked by the content filter."}}

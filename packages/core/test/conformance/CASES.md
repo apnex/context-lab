@@ -40,7 +40,7 @@ Every adapter, whatever its runtime, returns one `Outcome` per invocation:
 | `cost.cachedInputTokens` | number or null | The part of input read from cache |
 | `cost.outputTokens` | number or null | Output tokens, reasoning included |
 | `cost.toolCalls` | number | Tool calls the agent made, whatever their status |
-| `tools` | list | One entry per tool call: `name`; `input` as given; `status` - `completed`, `error`, `declined` or `running`; `paths` - every absolute path in the input, `~/` expanded, and every relative path containing `..` resolved against the workspace; `addresses` - every `http(s)` address in the input |
+| `tools` | list | One entry per tool call: `name`; `input` as given; `status` - `completed`, `error`, `declined` or `running`; `paths` - every word of the input's strings, split on whitespace, quotes and the characters `; | & < > ( ) \` , =` with addresses removed first, that begins with `/`, or with `~/` (expanded against the agent's home), or with `../` or holds `/../` (resolved against the workspace) - a rule that over-counts words inside quoted expressions, such as a `sed` substitution, and never misses a word that is a path; `addresses` - every `http(s)` address in the input |
 | `filtered` | boolean | True if the provider's content filter blocked a response |
 | `error` | object or null | The first error the runtime reported: `cause` - `filter`, `provider`, `overflow` or `unknown` - with the runtime's own `name` and `message` |
 | `session` | string or null | The runtime's session id |

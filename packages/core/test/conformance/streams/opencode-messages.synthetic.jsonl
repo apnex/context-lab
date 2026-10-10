@@ -1,0 +1,11 @@
+{"type": "step_start", "sessionID": "ses_synthetic1", "part": {"messageID": "m1"}}
+{"type": "text", "sessionID": "ses_synthetic1", "part": {"messageID": "m1", "text": "First."}}
+{"type": "step_finish", "sessionID": "ses_synthetic1", "part": {"reason": "tool-calls", "tokens": {"total": 116, "input": 10, "output": 5, "reasoning": 1, "cache": {"read": 0, "write": 100}}}}
+{"type": "step_start", "sessionID": "ses_synthetic1", "part": {"messageID": "m2"}}
+{"type": "text", "sessionID": "ses_synthetic1", "part": {"messageID": "m2", "text": "Second."}}
+{"type": "tool_use", "sessionID": "ses_synthetic1", "part": {"tool": "bash", "state": {"status": "completed", "input": {"command": "cat /etc/hostname"}, "output": "host"}}}
+{"type": "step_finish", "sessionID": "ses_synthetic1", "part": {"reason": "tool-calls", "tokens": {"total": 105, "input": 2, "output": 3, "reasoning": 0, "cache": {"read": 100, "write": 0}}}}
+{"type": "step_start", "sessionID": "ses_synthetic1", "part": {"messageID": "m3"}}
+{"type": "text", "sessionID": "ses_synthetic1", "part": {"messageID": "m3", "text": "Third, "}}
+{"type": "text", "sessionID": "ses_synthetic1", "part": {"messageID": "m3", "text": "in two parts."}}
+{"type": "step_finish", "sessionID": "ses_synthetic1", "part": {"reason": "stop", "tokens": {"total": 115, "input": 1, "output": 4, "reasoning": 0, "cache": {"read": 110, "write": 0}}}}

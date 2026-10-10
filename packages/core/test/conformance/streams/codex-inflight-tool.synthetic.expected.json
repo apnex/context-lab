@@ -1,0 +1,37 @@
+{
+  "final": "",
+  "exit": 0,
+  "signal": null,
+  "stop": {
+    "reason": "completed",
+    "inFlight": "tool"
+  },
+  "cost": {
+    "inputTokens": null,
+    "cachedInputTokens": null,
+    "outputTokens": null,
+    "toolCalls": 1
+  },
+  "tools": [
+    {
+      "name": "command_execution",
+      "input": "sleep 100",
+      "status": "running",
+      "paths": [],
+      "addresses": []
+    }
+  ],
+  "filtered": false,
+  "error": null,
+  "session": "thr_synthetic7",
+  "trace": [
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "tool-start",
+      "tool": "command_execution",
+      "status": "running"
+    }
+  ]
+}

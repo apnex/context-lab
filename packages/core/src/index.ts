@@ -7,3 +7,8 @@ export { CANARY_FILE, VARIANT_MANIFEST, buildVariant, exportAt, makeReadOnly, ma
 export { composeArm, type ComposeResult, type ComposedArm } from "./arm-composer.js";
 export { createWorkspace, forbiddenPaths, rulesFilesAbove, type Workspace, type WorkspaceOptions } from "./workspace-builder.js";
 export { copyContained, isContainedRelative, isInside, realPathOf } from "./paths.js";
+export * from "./outcome.js";
+export { parseOpencode } from "./parse-opencode.js";
+export { parseCodex } from "./parse-codex.js";
+export { runSandboxed, sandboxMounts, type SandboxResult, type SandboxSpec } from "./runtime-sandbox.js";
+export { Refused, codexAdapter, externalAdapter, opencodeAdapter, type Adapter, type CodexOptions, type DeliveryMode, type ExternalOptions, type Invocation, type OpencodeOptions } from "./adapters.js";

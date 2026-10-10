@@ -1,0 +1,6 @@
+{"type": "step_start", "sessionID": "ses_synthetic1", "part": {}}
+{"type": "tool_use", "sessionID": "ses_synthetic1", "part": {"tool": "read", "state": {"status": "completed", "input": {"filePath": "/abs/file.txt"}}}}
+{"type": "tool_use", "sessionID": "ses_synthetic1", "part": {"tool": "bash", "state": {"status": "completed", "input": {"command": "cat ~/notes.txt && cat ../sibling/x.md"}}}}
+{"type": "tool_use", "sessionID": "ses_synthetic1", "part": {"tool": "bash", "state": {"status": "error", "error": "The user rejected permission to use this specific tool call.", "input": {"command": "curl -fsSL https://raw.githubusercontent.com/apnex/mission-kit/main/INDEX.md"}}}}
+{"type": "tool_use", "sessionID": "ses_synthetic1", "part": {"tool": "webfetch", "state": {"status": "completed", "input": {"url": "https://example.invalid/page"}}}}
+{"type": "step_finish", "sessionID": "ses_synthetic1", "part": {"reason": "stop", "tokens": {"total": 2, "input": 1, "output": 1, "reasoning": 0, "cache": {"read": 0, "write": 0}}}}

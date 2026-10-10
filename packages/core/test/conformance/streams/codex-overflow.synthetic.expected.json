@@ -1,0 +1,35 @@
+{
+  "final": "",
+  "exit": 0,
+  "signal": null,
+  "stop": {
+    "reason": "error",
+    "inFlight": "none"
+  },
+  "cost": {
+    "inputTokens": null,
+    "cachedInputTokens": null,
+    "outputTokens": null,
+    "toolCalls": 0
+  },
+  "tools": [],
+  "filtered": false,
+  "error": {
+    "cause": "overflow",
+    "name": "",
+    "message": "Codex ran out of room in the model's context window."
+  },
+  "session": "thr_synthetic5",
+  "trace": [
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "model-end"
+    },
+    {
+      "kind": "error",
+      "cause": "overflow"
+    }
+  ]
+}

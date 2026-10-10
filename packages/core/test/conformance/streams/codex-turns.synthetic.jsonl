@@ -1,0 +1,10 @@
+{"type": "thread.started", "thread_id": "thr_synthetic1"}
+{"type": "turn.started"}
+{"type": "item.completed", "item": {"id": "i0", "type": "agent_message", "text": "One."}}
+{"type": "turn.completed", "usage": {"input_tokens": 1000, "cached_input_tokens": 800, "cache_write_input_tokens": 0, "output_tokens": 50, "reasoning_output_tokens": 20}}
+{"type": "turn.started"}
+{"type": "item.started", "item": {"id": "c1", "type": "command_execution", "command": "/bin/bash -lc ls", "status": "in_progress"}}
+{"type": "item.completed", "item": {"id": "c1", "type": "command_execution", "command": "/bin/bash -lc ls", "exit_code": 0, "status": "completed", "aggregated_output": "a\n"}}
+{"type": "item.completed", "item": {"id": "r1", "type": "reasoning", "text": "thinking"}}
+{"type": "item.completed", "item": {"id": "i1", "type": "agent_message", "text": "Two."}}
+{"type": "turn.completed", "usage": {"input_tokens": 1500, "cached_input_tokens": 1200, "cache_write_input_tokens": 0, "output_tokens": 70, "reasoning_output_tokens": 30}}

@@ -1,0 +1,2 @@
+{"type": "step_start", "sessionID": "ses_synthetic1", "part": {}}
+{"type": "error", "sessionID": "ses_synthetic1", "error": {"name": "APIError", "data": {"message": "prompt is too long: 900000 tokens > 872000 maximum context"}}}

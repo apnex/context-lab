@@ -1,0 +1,39 @@
+{
+  "final": "",
+  "exit": 0,
+  "signal": null,
+  "stop": {
+    "reason": "error",
+    "inFlight": "none"
+  },
+  "cost": {
+    "inputTokens": null,
+    "cachedInputTokens": null,
+    "outputTokens": null,
+    "toolCalls": 0
+  },
+  "tools": [],
+  "filtered": false,
+  "error": {
+    "cause": "filter",
+    "name": "",
+    "message": "The response was blocked by the content filter."
+  },
+  "session": "thr_synthetic3",
+  "trace": [
+    {
+      "kind": "model-start"
+    },
+    {
+      "kind": "error",
+      "cause": "filter"
+    },
+    {
+      "kind": "model-end"
+    },
+    {
+      "kind": "error",
+      "cause": "filter"
+    }
+  ]
+}
