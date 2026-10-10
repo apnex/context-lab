@@ -2,15 +2,24 @@
 
 Delta-1 stage 3 builds three runtime adapters - opencode, Codex, and the external adapter - and criterion E6 requires each to pass every case below.\
 By the delta's build order these cases are accepted by the verifier before any adapter is written against them.\
-Status: revision 2, after the verifier's first review; for acceptance.
+Status: revision 3, after the verifier's second review; for acceptance.
 
 ---
 
 ## Where a driven runtime runs
 
 Each driven adapter runs its runtime inside a filesystem sandbox: bubblewrap, with the network shared so the runtime can reach its model provider, and every other namespace unshared.\
-Visible inside are the system directories read-only, the runtime's own installation read-only, the files that resolve names and verify certificates, the workspace read-write, the invocation's own configuration folder read-write, and the arm's on-request folders read-only - nothing else, and a fresh empty home.\
+The mounts, in this order, because a later mount hides an earlier one beneath it:
+
+1. `/usr` read-only, with `/lib64`, `/lib`, `/bin` and `/sbin` as links into it; `/proc`; `/dev`; a private, empty `/tmp`, so the host's sockets under `/tmp` - among them the operator's own Codex daemon - are out of reach.
+2. From `/etc`, read-only and only these: `resolv.conf`, `hosts`, `nsswitch.conf`, `pki`, `ssl`, and `ca-certificates` where present.
+3. An empty folder over `/home`, so nothing of any home is visible.
+4. The runtime's installation, read-only: for opencode its binary; for Codex its vendored native directory, whose binary is run directly rather than through the Node wrapper.
+5. The invocation's own folder read-write - configuration, data, state, and for opencode a cache copied fresh from the operator's opencode cache for this invocation - and the workspace read-write.
+6. The arm's on-request folders, read-only, at their own paths.
+
 So a path the arm does not give the agent does not exist for it, whatever the runtime's own sandbox allows.\
+The network is shared: besides the provider, an agent can reach services listening on the host's loopback address and the host's abstract sockets.\
 Probed before these cases, on this machine: Codex and opencode each ran inside it and completed a task; a Codex agent asked to read a file beside its workspace and to list `/home/apnex/taceng` got "No such file or directory" for both; an opencode agent saw only its own folder under `/home`.
 
 ---
@@ -25,7 +34,7 @@ Every adapter, whatever its runtime, returns one `Outcome` per invocation:
 | `exit` | number or null | The runtime's exit status; null when killed |
 | `signal` | string or null | The signal that ended it, if any |
 | `stop.reason` | `completed`, `timeout`, `error` | How the invocation ended |
-| `stop.inFlight` | `model`, `tool`, `none` | What was open when it ended: a model call begun and not finished, a tool call begun and not finished, or nothing |
+| `stop.inFlight` | `model`, `tool`, `none` | What was open when it ended: a model call begun and not finished, a tool call begun and not finished, or nothing. opencode reports a tool call only when it ends, so for opencode `inFlight` is never `tool`, a stated limit |
 | `cost.seconds` | number | Wall time of the invocation |
 | `cost.inputTokens` | number or null | All input tokens, cached or not; null if the runtime reports none |
 | `cost.cachedInputTokens` | number or null | The part of input read from cache |
@@ -57,14 +66,16 @@ Every adapter, whatever its runtime, returns one `Outcome` per invocation:
 
 | | opencode | Codex |
 |---|---|---|
-| command | `opencode run --format json -m <model>`, and the prompt as its own final argument, after any `--file` options | `codex exec --json --ephemeral --skip-git-repo-check --strict-config --ignore-user-config --ignore-rules -m <model> -C <workspace>`, and the prompt as its final argument, or `-` |
-| configuration | a fresh folder per invocation, named by `XDG_CONFIG_HOME`, holding only the operator's provider block, `plugin: []`, the permissions below and the arm's instruction files; fresh data, state and cache folders by `XDG_DATA_HOME`, `XDG_STATE_HOME`, `XDG_CACHE_HOME`, the cache seeded from the operator's opencode cache, which holds only provider packages | a fresh folder per invocation, named by `CODEX_HOME`, holding only a copy of the operator's login and a `config.toml` with the arm's instructions in `developer_instructions` |
+| command | `opencode run --format json -m <model>`, and the prompt as its own final argument, after any `--file` options | `codex exec --json --ephemeral --skip-git-repo-check --strict-config --ignore-rules -m <model> -C <workspace>`, and the prompt as its final argument, or `-`; its configuration is read, and checked strictly, from the fresh `CODEX_HOME`, which holds nothing of the operator's |
+| configuration | a fresh folder per invocation, named by `XDG_CONFIG_HOME`, holding only the operator's provider block, `plugin: []`, the permissions below and the arm's instruction files; fresh data, state and cache folders by `XDG_DATA_HOME`, `XDG_STATE_HOME`, `XDG_CACHE_HOME`, the cache copied from the operator's opencode cache, which holds provider packages, the operator's plugin packages - not loaded, since `plugin` is empty, an inference - a search binary and a model list | a fresh folder per invocation, outside `/tmp`, named by `CODEX_HOME`, holding only a copy of the operator's login and a `config.toml` with the arm's instructions in `developer_instructions`, `web_search = "disabled"` and `project_doc_fallback_filenames = []` |
 | permissions with tools on | `edit`, `bash`, `read` allowed; `webfetch`, `websearch`, `task` denied; `external_directory` allowed for the arm's on-request folders only, denied otherwise | sandbox `workspace-write`, its network off; `web_search` disabled; approval `never` |
 | tools off | every tool disabled and every permission denied | sandbox `read-only`, `web_search` disabled, and the filesystem sandbox holding an empty workspace - the shell remains, and sees nothing but the system |
 | environment | an allowlist: `PATH`, `PWD` (the workspace), the `XDG_*` folders above, `HOME` (the sandbox's empty home), `OPENCODE_DISABLE_CLAUDE_CODE=1`, and the provider credential variables the provider block names | an allowlist: `PATH`, `PWD`, `HOME`, `CODEX_HOME` |
 
-**Stated additions.**\
-Codex installs its bundled skills into a fresh `CODEX_HOME` on first run; they are the same in every arm, control included, and are a stated part of every Codex agent's context.
+**Stated additions and exposures.**\
+Codex installs its bundled skills into a fresh `CODEX_HOME` on first run; they are the same in every arm, control included, and are a stated part of every Codex agent's context.\
+An agent can read the credentials its runtime needs - the provider key in its environment, the login file in `CODEX_HOME` - so the adapter removes every known credential value from the raw events and the trace before writing either.\
+Inside the sandbox there is no git identity, so a task asking the agent to commit would need one given to it.
 
 ---
 
@@ -74,10 +85,10 @@ No case calls a model.\
 Each runs the adapter against a **stub runtime**: an executable placed first on the `PATH`, named as the runtime, that records its arguments, environment, standard input and the files in its configuration folder, then replays an event stream.\
 Each stream is either a copy of a real stream from an earlier run, named in the case, or a **synthetic** stream for a shape no run has recorded, marked synthetic in its file name.\
 Beside each stream, a file states the exact outcome the adapter must return for it - every field above - written from the stream by hand and accepted by the verifier with these cases.\
-Each case passes only if the adapter's outcome equals that file.
+Each case passes only if the adapter's outcome equals that file in every field but three, which depend on the run and are constrained instead: `cost.seconds` is at least 0; each `trace[].at` is at least the one before; `events` names a file that exists.
 
 A stub cannot show that a runtime honours what the adapter wrote.\
-So stage 3 also runs, once per runtime version, a live check per configuration claim: instructions arrive; on-request folders are readable and nothing else is; `webfetch` and `websearch` are refused on opencode; web search is absent on Codex; tools off leaves nothing to read.
+So stage 3 also runs, once per runtime version, a live check per configuration claim: instructions arrive; on-request folders are readable and nothing else is; `webfetch` and `websearch` are refused on opencode; web search is absent on Codex; a Codex agent's shell cannot reach the network; tools off leaves nothing to read.
 
 ---
 
@@ -97,14 +108,15 @@ Each case runs for each adapter unless it says otherwise.
 | C8 | **Instructions delivered** | For an arm with two instruction files, the stub's configuration holds them as the expected file states: opencode, their paths in `instructions` in that order; Codex, `developer_instructions` equal to each file's text, in order, each wrapped `<file name="NAME">` and `</file>`, joined by a blank line; external, each written beside the prompt |
 | C9 | **On-request delivery** | For an arm with an on-request folder, it is bound read-only into the sandbox at its own path; opencode's `external_directory` allows exactly that path; no instruction text is added for it on either runtime; external lists it beside the prompt |
 | C10 | **Prompt delivery modes** | opencode declares `inline` and `attachment`: inline puts the prompt as the final argument; attachment passes the file with `--file` and the prompt still as its own final argument. Codex declares `inline` and `stdin`: inline puts the prompt as the final argument and leaves standard input empty and closed; stdin passes `-` and the prompt on standard input. External declares `file-pointer`. An undeclared mode is refused before anything runs |
-| C11 | **Isolation of the invocation** | The stub's environment holds exactly the allowlist; its configuration folder holds exactly what the invocation table states and is new for this invocation; `HOME` is empty; and inside the sandbox the stub cannot see the operator's home, `/home/apnex/taceng`, or a file placed beside the workspace |
+| C11 | **Isolation of the invocation** | The stub - a POSIX `sh` script, since Node is not under `/usr` - records that its environment holds exactly the allowlist; its configuration folder holds exactly what the invocation table states and is new for this invocation; and, inside the sandbox, three sentinel files are absent - one placed in the operator's real home, one in the folder above the workspace, one beside the workspace - while the workspace and each on-request folder are present |
 | C12 | **Network** | Codex: sandbox network off and `web_search` disabled in the configuration; opencode: `webfetch` and `websearch` denied, and the adapter declares network as detected, not denied |
 | C13 | **Tools off** | opencode: every tool disabled and every permission denied; Codex: `read-only`, `web_search` disabled, and the sandbox's workspace empty |
 | C14 | **Timeout** | A stub that starts one child in its own process group and one with `setsid`, then never exits, is stopped at the time limit: `stop.reason` `timeout`, and the stub and both children are gone within two seconds of the limit |
-| C15 | **Refusing a setting** | Before anything runs, the adapter refuses, naming it: opencode, a `reasoningEffort` not among the model's `variants` in the provider block; Codex, a `reasoningEffort` other than `minimal`, `low`, `medium`, `high`; external, any setting |
+| C15 | **Refusing a setting** | Before anything runs, the adapter refuses, naming it: opencode, a `reasoningEffort` not among the model's `variants` in the provider block - today every model's list is empty, so every effort is refused; Codex, a `reasoningEffort` not among the efforts Codex's own model metadata lists for that model; external, any setting |
 | C16 | **Session** | The session id in the stream is returned in `session`; continuation itself is probed at board item M2.1 |
 | C17 | **What was in flight** | For a synthetic stream ending after a model call began, `stop.inFlight` is `model`; after a tool call began, `tool`; after both ended, `none` |
 | C18 | **Trace** | The trace holds one normalised event per runtime event the mapping names, in arrival order, each with an `at` that never decreases |
+| C19 | **Credentials removed** | For a synthetic stream in which a tool's output prints the provider key, neither the raw events written nor the trace contain the key |
 
 ---
 
