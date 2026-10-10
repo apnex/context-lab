@@ -1,7 +1,7 @@
 # context-lab - board
 
 The live, triaged set of legal next moves, for the director to select from.\
-M1 is selected (`0007`); its delta is being drafted.
+M1 is selected (`0007`); its delta, `docs/DELTAS/DELTA-1.md`, awaits ratification.
 
 ---
 
@@ -43,12 +43,12 @@ Order on the higher: a mandate breach ranks with S2 and a signal with S4; ties g
 ## M1 - A core that runs one-phase experiments, proven isolated `OPEN`
 
 The smallest slice that replaces a copy: a pack, pinned variants, isolated agents on two runtimes and an external one, probes, validity, blinding, cross-family judging and a tally.\
-It carries mission-kit's comprehension and adherence suites as single-phase experiments, so its first result can be checked against theirs.
+It carries mission-kit's adherence suite and one comprehension suite as single-phase experiments; its tally is checked against two past runs, and its live results are reported beside theirs.
 
 | Item | Move | Cites | Depends on |
 |---|---|---|---|
 | M1.1 | Core for one-phase experiments: pack checker, experiment register, variant builder, arm composer, workspace builder, adapters, isolation prober, validity classifier, code measurer, blinder, judge panel, tally, run conductor | `B1` | - |
-| M1.2 | mission-kit's pack: its comprehension and adherence suites as one-phase experiments, run on the core and compared with their last results on mission-kit's own tools | `B11` | M1.1 |
+| M1.2 | mission-kit's pack: its adherence suite and its `explain` comprehension suite as one-phase experiments, run on the core, with the differences from their last results on mission-kit's own tools reported | `B11` | M1.1 |
 
 ## M2 - Multi-phase episodes and the change gate `OPEN`
 
