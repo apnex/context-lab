@@ -4,10 +4,8 @@ instant: target
 
 # context-lab - system architecture, target
 
-**Instant: target.**\
-context-lab described as the system it is when the ratified decisions about it are built.\
-There is no current-instant document: nothing of context-lab is built yet, so its current architecture is empty, and the working mechanism it generalises lives in its first two users, mission-kit and zorg.\
-The current document begins with the first built component, derived from source as `AR1` requires.
+**Instant: target.** context-lab described as the system it is when the ratified decisions about it are built.\
+Its current architecture is empty; the mechanism it generalises runs inside its first two users, mission-kit and zorg.
 
 Written in the present tense of a system that exists.\
 It contains no plan, order or estimate; those belong to the board and to deltas.
@@ -16,47 +14,44 @@ It contains no plan, order or estimate; those belong to the board and to deltas.
 
 ## 1. Status and authority
 
-Authored by the architect, ratified by the director per section.\
-Maturity is per section; approval is aggregate-only.
+Authored by the architect, ratified by the director per section; approval is aggregate-only.
 
-| Section | Maturity |
-|---|---|
-| 2 Identity, scope, non-goals | provisional |
-| 3 Justification chain | provisional |
-| 4 Axiom alignment | provisional |
-| 5 Anchored core | provisional |
-| 6 Entity model and interfaces | provisional |
-| 7 Run time | provisional |
-| 8 Verification | provisional |
-| 9 Risks and the owed-and-open register | provisional |
+| Section | Maturity | Reopens on |
+|---|---|---|
+| 2 Identity, scope, non-goals | provisional | A ruling that changes scope, or a project needing an experiment outside it |
+| 3 Justification chain | provisional | A ruling added to `docs/DECISIONS.md` |
+| 4 Axiom alignment | provisional | A change to traits, or a tension discharged or found |
+| 5 Anchored core | provisional | A duty with no owner, or one owned twice |
+| 6 Entities, the pack, interfaces | provisional | A project putting something project-specific outside its pack |
+| 7 Run time | provisional | A state a run reaches that is not listed |
+| 8 Verification | provisional | A claim about the system with no check |
+| 9 Owed and open | provisional | Any row closed or added |
 
 | Field | Value |
 |---|---|
 | Programme purpose | [`VISION.md`](../VISION.md) - cited, never restated |
-| Rulings | [`docs/DECISIONS.md`](DECISIONS.md); the founding rulings are mission-kit's `0083`-`0089` |
-| Origin design | mission-kit `docs/evals/standing/DESIGN.md`, ratified as mission-kit `0086`, whose universal parts this architecture holds |
+| Rulings | [`docs/DECISIONS.md`](DECISIONS.md) |
+| Provenance | mission-kit `docs/evals/standing/DESIGN.md` and rulings `0083`-`0089`, which are about mission-kit; this system rests on its own rulings, of which `0004` adopts the universal parts of that design |
 
 ---
 
 ## 2. Identity, scope and non-goals
 
-**Identity.**\
-context-lab runs experiments on the context language-model agents are given, and reports what each experiment showed.\
-A project supplies what is specific to it - its experiments, its context, how that context reaches an agent, and its own vocabulary - as a **project pack**; context-lab supplies everything else.
+**Identity.** context-lab runs experiments on the context language-model agents are given, and reports what each experiment showed.\
+A project supplies everything specific to it as a **project pack**; the operator supplies the environment - credentials, installed agent runtimes, a working directory, parallelism; context-lab supplies the rest.
 
 **Scope.**
 
-- Experiments whose factors are context: content, manner, amount and moment of delivery, and the corpus revision it comes from.
-- Models and agent runtimes as declared factors, varied or held fixed.
+- Experiments whose factors are context - content, manner, amount, moment of delivery, source revision - with models, agent runtimes and their settings as declared factors.
 - Comprehension, behaviour, precision and cost as measured outcomes.
-- Judging by code where a check can decide, by agents of other model families where reading is needed, and by people where the outcome is for a person.
+- Judging by code where a check can decide, by agents of other model families where reading is needed, by chains of agents where one classifies and another verifies, and by people where the outcome is for a person.
 
 **Non-goals.**
 
 - Ranking models.
-- Holding any project's experiments, keys, run records or conclusions.
+- Holding any project's experiments, answer keys, run records or conclusions.
 - Editing any project's working context.
-- Deciding for a project: a result and a gate verdict are evidence the project's own authority acts on.
+- Approving or blocking a project's change: a comparison flags; the project decides.
 - Experiments on live systems without their owner's recorded consent.
 
 ---
@@ -64,147 +59,191 @@ A project supplies what is specific to it - its experiments, its context, how th
 ## 3. Justification chain
 
 **Domain.**\
-Agents act on what is put in front of them, and projects shape that by writing guidance, choosing what loads and when, and summarising history.\
-Whether a given shaping helps is usually asserted from one session, by the author of the guidance, with the same model judging - three dependencies on one source.
+Agents act on what is put in front of them, and projects shape it by writing guidance, choosing what loads and when, and summarising history.\
+In the one corpus measured, mission-kit, whether a shaping helped was asserted by its author, from one session, with the same model judging, until an evaluation tool replaced that practice - an observation about one project, inferred to be common.
 
 **Axioms.**\
-The organisation's axioms in force for this system, by its traits (section 4): `A1`, `A3`-`A14`.\
-`A2` is not in force: nothing reconciles a running state to a declaration.
+In force by this system's traits (section 4): `A1`, `A3`-`A14`.\
+`A2` is not: nothing reconciles a running state to a declaration.
 
 **North star of this system.**\
-Every result is attributable to the declared differences in context alone, or states what else differed.
+Every result is attributable to the declared differences between conditions alone, or states what else differed.
 
 **Principles.**
 
-1. **Proven, not assumed.** What an agent received, and that nothing else reached it, is shown by probes in every run (`A8`, `A5`).
-2. **Code before judges.** Anything a check can decide is decided by code; agents judge only what needs reading (`A11`).
-3. **No family judges itself.** An outcome is judged by model families other than the one that produced it (`A8`).
-4. **Rules before outcomes.** How an experiment is judged, and what a gate blocks on, is fixed and recorded before its outcomes exist (`A8`, `A14`).
-5. **The project owns its content.** Everything project-specific enters through the pack and stays the project's (vision, is-not 6).
-6. **Failure is data.** A run that fails is classified by cause and reported, never silently dropped or retried until it passes (`A7`, `A4`).
-7. **Whole records.** Every run keeps its configuration, its context, its events, its outcomes and its sealed blinding map, so it can be repeated and audited (`A4`, `A1`).
+| | Principle | From |
+|---|---|---|
+| P1 | **Probed, not assumed.** What each agent received, and the absence of named withheld content, is probed in every run | `A8`, `A5` |
+| P2 | **Code before judges.** What a check can decide is decided by code | `A11` |
+| P3 | **Independent judgement.** No model family judges its own outcomes; a person judges, or checks the judges of, outcomes meant for a person | `A8`, `A13`; vision is-not 7 |
+| P4 | **Rules and status before outcomes.** Judging rules, decision rules, and whether an experiment is held out or exploratory are fixed and recorded before its outcomes exist | `A8`, `A14`; vision is-not 5, succeeding 5 |
+| P5 | **The project owns its content.** Everything project-specific enters through the pack | vision is-not 6 |
+| P6 | **One place per runtime.** Everything that must be known about an agent runtime sits in its adapter | `A3`; vision is-not 8 |
+| P7 | **Failure is data.** A failed cell is classified by cause and reported, never dropped or retried until it passes | `A7`, `A4` |
+| P8 | **Whole records.** A run keeps everything needed to repeat it, audit it and re-tally it | `A4`, `A1`; vision succeeding 3 |
+| P9 | **Evidence, not verdicts.** A comparison flags; the project's authority decides | `A13`; vision non-authority 2 |
 
 **Decisions.**\
-context-lab `0001` - the vision.\
-mission-kit `0083`-`0089` - every axiom carries an adherence trap; three families scored cross-family; explain judged by agents and calibrated by the director; the standing suite design; the component's home, name and register.
+`0001` the vision; `0002` all four existing mechanisms are absorbed; `0003` packs may carry scripts at fixed hooks; `0004` the universal parts of mission-kit's standing-suite design are adopted.
 
 **Model.**\
-A neutral core of single-duty components (section 5) driven by a project pack, producing a run record the project keeps.
+Single-duty components (section 5), each serving a principle, driven by a project pack through fixed hooks, producing a run record the project keeps.
 
 ---
 
 ## 4. Axiom alignment
 
 **Traits.**\
-Stateful - it writes run records and reads them back to blind, tally and gate.\
-Multi-agent - one agent's outcome is another's input: a handoff note to the agent that resumes, every outcome to its judges.\
+Stateful - it writes run records, thresholds and calibration history, and reads them back.\
+Multi-agent - one actor's output is another's input: an agent's outcome to its judges, a classifier's to its verifier, an outcome to a person.\
 Autonomous - a run proceeds and classifies its own failures with no person watching.\
 LLM-in-the-loop - judges' conclusions decide scores.\
 Not declarative.
 
-| Axiom | Stands | Tension, open or discharged |
+| Axiom | Stands | Tension |
 |---|---|---|
-| `A1` state transparency | Run status and every cell's validity are readable from the run record | - |
-| `A3` sovereign composition | Single-duty components; runtimes enter by adapter | Open: the episode driver depends on session continuation that differs by runtime |
-| `A4` zero-loss knowledge | Whole records; results carry limits | - |
-| `A5` perceptual parity | Probes prove what each agent received | Open: judges see masked outcomes, deliberately not what the agent saw |
-| `A6` frictionless collaboration | Agents under test do not collaborate; judges are independent by design | Discharged: collaboration is not a goal of this system |
-| `A7` resilient operations | Failures classified by cause; re-run once for infrastructure only | - |
-| `A8` gated integrity | Isolation probes, canaries and the calibrated change gate | Open: blinding to arm is not achievable when guided output reads differently; reported per property |
-| `A9` chaos-validated | - | Open: no failure injection exercises the validity classifier |
-| `A10` autopoietic evolution | Candidate findings are written out for triage | - |
-| `A11` cognitive minimalism | Code before judges | Open: judging itself is cognitive work, bounded but not removable |
-| `A12` precision context | Judge prompts hold only key, task and outcomes | - |
-| `A13` director intent | People judge outcomes meant for them; gate verdicts are evidence, not decisions | - |
-| `A14` compounding learning | Every run is a durable record; findings can travel between projects | - |
+| `A1` | Run state and every cell's validity are in the run record | Open: thresholds and calibration history span runs, and live in the project's record, so their state is as visible as the project keeps it |
+| `A3` | Single-duty components; runtimes behind adapters (P6); project code behind hooks | Open: a hook is project code inside the core's run |
+| `A4` | Whole records (P8); results carry limits | - |
+| `A5` | Probes show what each agent received (P1) | Deliberate: judges see masked outcomes, not what the agent saw |
+| `A6` | Actors hand over through declared records - outcomes, notes, votes | Open: repetition for independence - two judges, a verifier re-reading a classifier - is friction bought for `A8` |
+| `A7` | Failures classified by cause (P7) | Open: re-running infrastructure and isolation failures once selects which attempts count; bounded by once-only and reported per arm |
+| `A8` | Sealing order: variants probed before cells run, outcomes blinded before judging, rules fixed before outcomes | Open: blinding to arm was not achieved on one trap in the first measured run; tested per property |
+| `A9` | - | Open: no failure injection exercises the validity classifier |
+| `A10` | - | Open: no loop files context-lab's own invalid-cell causes and audit findings as its defects |
+| `A11` | Code before judges (P2) | Irreducible: judging prose is cognitive work |
+| `A12` | Judge prompts carry instructions, task, key, starting state and outcomes, nothing else | - |
+| `A13` | People judge outcomes meant for them (P3); comparisons are evidence (P9) | - |
+| `A14` | Durable records; candidate findings | Open: findings travelling between projects has no mechanism beyond records a project chooses to share |
 
 ---
 
 ## 5. The anchored core
 
-Each component has one duty.
+Each component has one duty and serves at least one principle.
 
-| Component | Duty | Consumes | Exposes |
-|---|---|---|---|
-| **Pack checker** | Validates a project pack against the pack schema | A project pack | Validation verdict with every defect |
-| **Corpus exporter** | Materialises a context source at a pinned revision, with project-masked paths removed | A source and revision from the pack | A local, read-only context copy |
-| **Arm builder** | Assembles one arm's context for one runtime | Context copies, the arm declaration | An arm configuration |
-| **Isolation prober** | Proves an arm holds exactly its declared context | An arm configuration, the pack's canaries | Probe verdict per arm and runtime |
-| **Workspace builder** | Creates a fixture workspace with no rules file above it and an opaque name | A fixture | A workspace and its initial commit |
-| **Runtime adapter** | Runs one agent invocation on one runtime | Arm configuration, workspace, prompt, optional session | Events, final message, exit, cost, in the common form |
-| **Episode driver** | Sequences an episode's phases and branches | A scenario, an arm, a model | Phase outcomes |
-| **Run controller** | Executes a run's cells to completion | An experiment, factors, run count | The run record |
-| **Validity classifier** | Classifies each cell valid or invalid by cause | A cell's events and paths | Validity and cause |
-| **Code measurer** | Computes every outcome property a check can decide | Outcomes, the pack's term lists and patterns | Code scores, cost, routing traces |
-| **Blinder** | Builds judge prompts with masked outcomes and seals the map | Valid outcomes, keys, the pack's identifier patterns | Judge prompts, a sealed map |
-| **Judging** | Obtains votes for each prompt from judges of other families | Judge prompts | Votes |
-| **Human calibrator** | Obtains a person's picks on outcome pairs | Pairs chosen from judged outcomes | Picks and agreement |
-| **Tally** | Combines votes and code scores into results per factor | Votes, code scores, the sealed map | The result |
-| **Gate** | Applies a calibrated threshold rule to a base-and-head result | Results, A/A thresholds | Verdict with flagged properties |
+| Component | Duty | Consumes | Exposes | Serves |
+|---|---|---|---|---|
+| **Pack checker** | Validates a project pack | A pack; its declaration-check hook | Every defect, or a pass | P5 |
+| **Experiment register** | Fixes an experiment before it runs | An experiment from the pack | Its content hash and status - result or exploration, held out or not | P4 |
+| **Selector** | Chooses scenarios by their declared tags | Tags requested; the pack's scenarios | A scenario set, with the generated entry-to-scenario view | P5 |
+| **Variant builder** | Builds one context variant | A source and revision; the variant declaration; the pack's transform hook | A local, read-only copy, its addresses rewritten to itself, its canaries planted | P1, P5 |
+| **Arm composer** | Composes one arm, runtime-neutral | Variants; the arm declaration | An arm: what reaches the agent, and by which delivery - instruction, folder file, on request | P6 |
+| **Workspace builder** | Creates an isolated workspace | A fixture; the pack's forbidden paths | A workspace with an opaque name, no rules file above it, its initial commit | P1 |
+| **Runtime adapter** | Runs one agent invocation on its runtime | An arm, a workspace, a prompt, a delivery mode, a session, settings | Events, final message, cost, tool paths and fetches, filter flags, in the common form | P6 |
+| **Isolation prober** | Probes what an arm received | An arm on an adapter; the pack's canaries and leak probes | Per arm and runtime: received, withheld-absent, or inconclusive when filtered | P1 |
+| **Phase driver** | Executes a scenario's declared phases | A scenario, an arm, a population member | Phase outcomes, notes, branch outcomes | P4 |
+| **Answer parser** | Splits a reader's answer into answers per probe | An answer; the self-explanation marker | Answers per probe, the self-explanation removed | P2 |
+| **Validity classifier** | Classifies a cell by cause | A cell's normalised events and paths; forbidden paths and addresses | Valid, or invalid: infrastructure, behaviour or isolation | P7 |
+| **Code measurer** | Scores what a check can decide | Unmasked outcomes; term and exclusion lists; measure hooks | Code scores, routing traces, restated-guidance flags | P2 |
+| **Blinder** | Blinds outcomes for judging | Valid outcomes; identifier patterns; fixture paths | Masked outcomes under opaque ids, with their sealed mapping | P3 |
+| **Judge panel** | Obtains validated votes on blinded outcomes | Masked outcomes; the declared judging - judges, families, chains, order, response schema | Votes, each validated, with arm guesses; unparseable replies retried, then incomplete | P3 |
+| **Human panel** | Obtains a person's picks on paired outcomes | Pairs, chosen by the declared rule - preference pairs, or calibration pairs from one scenario and arm that judges scored apart | Picks, fault tags | P3 |
+| **Tally** | Computes results per factor | Votes, code scores, picks, the sealed mapping | Pass rates, agreement, arm-guess rates, the comprehension-behaviour link, judge-person agreement, the smallest detectable difference | P8 |
+| **Threshold deriver** | Derives decision thresholds from A/A results | Results of a condition compared with itself | A threshold set per size, with its false-alarm rate | P4 |
+| **Comparator** | Compares two results under a declared rule | Two results; the rule - per-property tolerance, A/A threshold with extension, or improve-without-worsening across families | Flags, never a verdict | P9 |
+| **Candidate writer** | Writes candidate findings from results | Results; the pack's finding rules | Candidates with evidence, for the project to triage | P9 |
+| **Run conductor** | Conducts a run through its lifecycle | An experiment and its factors | The run record: configuration, method version, revisions, consent, events, outcomes, votes, mapping, results | P8 |
 
-**The project pack** holds: experiments (scenarios, traps as isomorphic pairs, probes, keys, typed properties), context sources and revisions, delivery declarations per arm, identifier patterns to mask, term and exclusion lists, canary sentences and leak probes, and the project's gate policy.
+**Adapters.**\
+Each agent runtime has one, and one **external** adapter hands prompts out and takes answers back, for any harness context-lab does not drive.\
+An adapter owns its runtime's configuration format, where it places instructions, which rules files it loads, its session continuation, its delivery modes - inline, file pointer, standard input, attachment - its event shape, and its content-filter signal.
 
-**Kinds of experiment** are shapes of scenario, not separate machinery: comprehension is a single interview phase; adherence is a full episode; classification of agents' findings is judging applied to outcomes the project supplies.
+**Kinds of experiment are declarations, not machinery.**\
+A comprehension run is one phase in which a reader answers probes, parsed by the answer parser and judged on a declared scale; an adherence run is a multi-phase episode; human preference is the human panel as primary judge; classify-then-verify is a declared judging chain whose second stage counts only what it verifies.
 
 ---
 
-## 6. Entity model and interfaces
+## 6. Entities, the pack, interfaces
 
 | Entity | Holds |
 |---|---|
-| Experiment | Scenarios, factors and their levels, runs per cell, pre-registered rules |
-| Scenario | Surface tags, entries exercised, fixture, phases, trap pairs, probes |
-| Property | Key text, type (adherence, precision, comprehension), guidance named, decided by code or judge |
-| Arm | A level of the context factor: sources, delivery, revision |
-| Cell | One (scenario, arm, model, run) |
-| Episode | A cell's phases and branches, with their outcomes |
-| Outcome | Final message, diff, events, cost, validity and cause |
-| Vote | A judge's score and reason for one property of one outcome |
-| Result | Pass rates per property and factor level, agreement, limits |
-| Run record | All of the above for one run, plus configuration, revisions and the sealed map |
+| Pack | Everything project-specific, listed below |
+| Experiment | Scenarios, factors and levels, runs per cell, rules, status, hash |
+| Scenario | Tags, fixture, phases, trap pairs, probes, held-out flag |
+| Property | Key, type - adherence, precision, comprehension - guidance named, decided by code or judge, scale |
+| Population member | Model, family, tier, runtime, settings such as reasoning effort |
+| Variant | Source, revision, transform, canaries, address rewrites |
+| Arm | Variants and their delivery |
+| Cell | Scenario, arm, population member, run, trap version and position |
+| Outcome | Final message, diff, events, cost, wording used, validity and cause |
+| Note | A phase's handoff - the agent's own, or generated by a declared generator |
+| Vote | Judge, score, reason, arm guess |
+| Pick | Person, pair, choice, fault tags |
+| Threshold set | Rule, size, threshold, false-alarm rate, the A/A runs it came from |
+| Result | Rates per property and factor level, agreement, limits, which validity rules it met |
+| Candidate finding | Rule triggered, evidence |
+| Consent | Owner, material, scope, when given - required for any experiment touching material not built for it |
+| Run record | All of the above for one run |
 
-**Interfaces.**
+**The pack, exhaustively.**\
+Experiments; context sources and revisions; variant declarations; delivery declarations; the population and judge assignment; identifier patterns to mask; self-explanation markers; term and exclusion lists; canaries and leak probes; forbidden paths and addresses; reader and judge instructions, response formats and launcher wordings; decision rules and run sizes; finding rules; calibration policy; consent records; where the run record is kept; and its hooks.\
+Nothing project-specific is read from anywhere else.
 
-- **Pack to core:** a directory the pack checker validates; nothing project-specific is read from anywhere else.
-- **Core to runtime:** the runtime adapter contract - given an arm configuration, a workspace, a prompt and an optional session, return events, final message, exit status and cost in one common form, regardless of runtime.
-- **Core to project:** the run record, written where the project names, and the result; the project decides what is published.
-- **Core to person:** calibration pairs presented one at a time, answered with a pick.
+**Hooks, by decision `0003`.**
+
+| Hook | Called by | Contract |
+|---|---|---|
+| declaration check | Pack checker | Reads the pack; returns defects |
+| variant transform | Variant builder | Reads a source copy; writes a variant into a given folder |
+| outcome measure | Code measurer | Reads one unmasked outcome; returns named scores |
+| note generator | Phase driver | Reads the fixture and a phase's diff; returns a note |
+
+A hook receives its inputs as one JSON document, returns one, runs with no network, reads only what it is given, writes only where told, and is stopped at a time limit; a hook that fails makes its properties incomplete, not the run invalid.
+
+**Interfaces.**\
+Pack to core: a directory, validated before anything runs.\
+Core to runtime: the adapter contract, one common form whatever the runtime.\
+Core to judge: masked outcomes and a response schema, by a delivery mode the judge's adapter supports with tools off.\
+Core to person: one pair at a time, answered with a pick.\
+Core to project: the run record and the result, written where the pack says; the project decides what is published.
 
 ---
 
 ## 7. Run time
 
-**A run** moves through: prepared, isolation proven, cells complete, blinded, judged, tallied, and - for a change gate - verdict given.\
-It stops at isolation if any arm fails its probes, and an arm that cannot be proven never runs.
+**A run** moves through:
 
-**A cell** is valid, or invalid for one cause: infrastructure (re-run once), agent behaviour (not re-run; unreached properties score 0; cost counted), or isolation (re-run once).
+1. **recorded** - the experiment register fixes it; a run of an unrecorded or changed experiment is exploration, whatever it was declared;
+2. **built** - every variant and arm composed;
+3. **probed** - every arm on every runtime; an arm that fails is never run, an inconclusive probe is recorded;
+4. **executed** - every cell to an outcome;
+5. **measured** - code scores on unmasked outcomes;
+6. **blinded**, **judged**, **tallied**;
+7. optionally **compared**, and **candidates written**.
 
-**An episode** runs P1 work, P2 handoff in the same session, two P3 branches in fresh sessions from the agent's own note and from a neutral note generated from the fixture and the P1 diff, and P4 interview in a fresh session reading only the arm's local context.\
-Each trap pair is met once per episode; position and version rotate across runs and models.
+**A cell** is valid, or invalid for one cause: infrastructure, including a content filter (re-run once); agent behaviour, judged from the event trace (not re-run; unreached properties score 0; cost counted); or isolation (re-run once).
 
-**The gate** compares base and head with three runs per cell, flags a property whose pooled drop exceeds the three-run A/A threshold, extends it to nine runs, and reports a drop that still exceeds the nine-run threshold as persisting.
+**An episode** is the scenario's declared phases and branches, each starting in the same session or a fresh one, from the workspace and, if declared, a note.\
+Each trap pair is met once per episode, its version and position rotated across runs and population as the experiment declares.
+
+**A comparison** applies its declared rule; an A/A-calibrated rule extends a flagged property by its declared runs and reports a flag that persists at the larger size.
 
 ---
 
 ## 8. Verification
 
-- **Every run proves its own isolation:** each arm, on each runtime, answers leak probes and quotes its canary before any cell runs.
-- **Behaviour tests per component,** each refusal mutation-tested: removed from the code to show the test fails.
-- **A/A runs** set the gate's thresholds, and a held-out A/A run checks them.
-- **Human calibration** checks agent judges on outcomes meant for a person.
-- **Every run record re-tallies** to the same result from its votes and sealed map.
+- **Every run probes its own isolation** before any cell runs: canaries quoted, a negative canary absent where declared, leak probes answered.
+- **Judges' isolation** is probed as agents' is.
+- **Every component has behaviour tests,** each refusal mutation-tested.
+- **Every adapter passes one conformance suite** for the common form.
+- **The core reads nothing project-specific:** its tests run against two packs with disjoint vocabularies.
+- **Every hook is called under its contract** in tests: no network, bounded reads and writes, a time limit.
+- **Every run record re-tallies** to its result from its votes, picks and mapping.
+- **Repeatability is itself tested:** a recorded experiment, repeated, is compared under its declared rule.
 
 ---
 
-## 9. Risks, divergence, and the owed-and-open register
+## 9. Owed and open
 
 | # | Owed or open | Why it matters |
 |---|---|---|
-| 1 | Session continuation under isolation is unprobed on both runtimes | The episode driver depends on it |
-| 2 | Whether each runtime's compaction keeps instruction files is unknown | P3 assumes it |
+| 1 | Session continuation under isolation is unprobed on both driven runtimes | Multi-session phases depend on it |
+| 2 | Whether each runtime's compaction keeps instruction files is unknown | Experiments simulating compaction assume it |
 | 3 | No failure injection exercises the validity classifier (`A9`) | Its causes are asserted, not tested |
-| 4 | Blinding to arm fails where guided output reads differently | Judge scores on such properties lean on code-scored ones |
-| 5 | Adapters exist for two runtimes only | Generality across runtimes is a claim, not a measurement |
-| 6 | No second model tier is named for two of three families | Tier is confounded with family |
-| 7 | Provider content filters and rate limits are uncharacterised | They cause invalid cells that cluster by family |
-| 8 | Local delivery differs from network fetching | An on-trigger arm does not reproduce a networked session exactly |
+| 4 | Blinding to arm was not achieved on one trap | Judge scores on such properties lean on code-scored ones |
+| 5 | Two runtimes have adapters | Generality across runtimes is a claim |
+| 6 | Content filters and rate limits are uncharacterised; filter-caused failures clustering by provider is inferred from one provider | Invalid cells may cluster by family |
+| 7 | Local delivery differs from fetching over a network | An arm reading files does not reproduce a networked session exactly |
+| 8 | Findings travelling between projects has no mechanism beyond shared records (`A14`) | The vision's fourth success measure has no support |
+| 9 | No loop files context-lab's own failures as its defects (`A10`) | It does not correct itself |
