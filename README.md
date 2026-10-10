@@ -1,4 +1,4 @@
-# agent-evals
+# context-lab
 
 Learn whether what a project tells its agents changes what they do.
 

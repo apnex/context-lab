@@ -1,4 +1,4 @@
-# agent-evals - vision
+# context-lab - vision
 
 **Status: draft, being written with the director; not ratified.**
 
