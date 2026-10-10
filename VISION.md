@@ -1,6 +1,6 @@
 # context-lab - vision
 
-**Status: draft, being written with the director; not ratified.**
+**Status: draft for audit and ratification; every section accepted by the director on 2026-10-10.**
 
 ---
 
@@ -54,6 +54,21 @@ Accepted by the director on 2026-10-10.
 
 ---
 
+## Authority
+
+The director holds this vision and ratifies any change to it.\
+A changed vision is a new vision, ratified as such, never a second view of this one.
+
+---
+
 ## What holding this vision does not authorise
 
-To be drafted.
+Holding or citing this vision does not authorise:
+
+1. **Treating a result as valid because it ran here.** Validity comes from meeting the method's rules - isolation, rules set in advance, invalid runs excluded; running here proves nothing by itself.
+2. **Deciding for a project.** A result is evidence for the project's own authority; a project's gate blocks a change only because that project ruled it should.
+3. **Running agents against anything but material built for the experiment, without its owner's explicit consent.** A project's live systems, real data and shared repositories are out of reach unless their owner consents, and the consent is recorded with the experiment.
+4. **Collecting or publishing a project's content.** Runs stay where the project keeps them; only the project decides what is published.
+5. **Changing a project's context.** This measures context and never edits it, even when a result points to a rewrite.
+
+Accepted by the director on 2026-10-10, with the third softened from a prohibition to consent so that research on live systems remains possible.
