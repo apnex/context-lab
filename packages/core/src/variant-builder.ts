@@ -1,0 +1,118 @@
+// variant-builder - builds one context variant (architecture section 5, principles P1 and P5).
+//
+// A variant is a local, read-only copy of a source at one pinned revision. The builder exports the
+// source from git at that revision - never from a working tree, which has no revision to repeat -
+// drops excluded paths, keeps included ones, runs the project's transform hook if one is declared,
+// rewrites every declared address of the source to the copy itself, and plants the variant's
+// canaries in one file at its root. The variant's manifest records the revision it came from.
+//
+// Address rewriting is longest-prefix first, so a declared address that extends another - a raw
+// file address under a repository address - is rewritten whole, not by its shorter prefix.
+
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import { runHook, type HookResult } from "./hook-runner.js";
+import type { LoadedPack, Variant } from "./pack-schema.js";
+
+export const CANARY_FILE = "context-lab-canary.md";
+export const VARIANT_MANIFEST = "context-lab-variant.json";
+
+export interface VariantManifest {
+	variant: string;
+	source: string;
+	revision: string;
+	canaries: string[];
+	rewritten: number;
+}
+
+export type BuiltVariant =
+	| { ok: true; dir: string; manifest: VariantManifest }
+	| { ok: false; variant: string; reason: string; hook?: HookResult };
+
+const git = (cwd: string, ...args: string[]): Buffer => execFileSync("git", args, { cwd, maxBuffer: 1 << 30, stdio: ["ignore", "pipe", "pipe"] });
+
+function filesUnder(dir: string): string[] {
+	return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+		const p = path.join(dir, e.name);
+		return e.isDirectory() ? filesUnder(p) : e.isFile() ? [p] : [];
+	});
+}
+
+/** Export a source directory at a revision into an empty folder, through git, so the revision is exact. */
+export function exportAt(sourceDir: string, revision: string, into: string): string {
+	const sha = git(sourceDir, "rev-parse", "--verify", `${revision}^{commit}`).toString().trim();
+	const prefix = git(sourceDir, "rev-parse", "--show-prefix").toString().trim();
+	const top = git(sourceDir, "rev-parse", "--show-toplevel").toString().trim();
+	const tar = git(top, "archive", "--format=tar", prefix ? `${sha}:${prefix}` : sha);
+	fs.mkdirSync(into, { recursive: true });
+	execFileSync("tar", ["-x", "-C", into], { input: tar, maxBuffer: 1 << 30 });
+	return sha;
+}
+
+/** Rewrite every occurrence of each address in a text file to the replacement; returns the count. */
+export function rewriteAddresses(dir: string, addresses: string[], to: string): number {
+	const ordered = [...addresses].sort((a, b) => b.length - a.length);
+	let count = 0;
+	for (const f of filesUnder(dir)) {
+		const buf = fs.readFileSync(f);
+		if (buf.includes(0)) continue; // binary
+		let text = buf.toString("utf8");
+		let changed = false;
+		for (const a of ordered) {
+			const parts = text.split(a);
+			if (parts.length > 1) {
+				count += parts.length - 1;
+				text = parts.join(to);
+				changed = true;
+			}
+		}
+		if (changed) fs.writeFileSync(f, text);
+	}
+	return count;
+}
+
+export async function buildVariant(loaded: LoadedPack, variantId: string, revision: string, outDir: string): Promise<BuiltVariant> {
+	const variant: Variant | undefined = loaded.pack.variants.find((v) => v.id === variantId);
+	if (!variant) throw new Error(`no variant ${variantId} in pack ${loaded.pack.id}`);
+	const source = loaded.pack.sources.find((s) => s.id === variant.source);
+	if (!source) throw new Error(`variant ${variantId} names no declared source`);
+	const sourceDir = path.resolve(loaded.dir, source.path);
+	if (fs.existsSync(outDir) && fs.readdirSync(outDir).length > 0) throw new Error(`${outDir} is not empty`);
+
+	const staging = `${outDir}.export`;
+	fs.rmSync(staging, { recursive: true, force: true });
+	let sha: string;
+	try {
+		sha = exportAt(sourceDir, revision, staging);
+	} catch (e) {
+		return { ok: false, variant: variantId, reason: `the source could not be exported at ${revision}: ${String(e).slice(0, 300)}` };
+	}
+	for (const ex of source.exclude ?? []) fs.rmSync(path.join(staging, ex), { recursive: true, force: true });
+	if (variant.include !== undefined) {
+		const keep = variant.include;
+		for (const f of filesUnder(staging)) if (!keep.some((g) => path.matchesGlob(path.relative(staging, f), g))) fs.rmSync(f);
+	}
+
+	fs.mkdirSync(outDir, { recursive: true });
+	if (variant.transform !== undefined) {
+		const hook = loaded.pack.hooks.find((h) => h.id === variant.transform);
+		if (!hook) throw new Error(`variant ${variantId} names no declared transform hook`);
+		const r = await runHook(loaded.dir, hook, { variant: variantId, from: staging, to: outDir }, { readable: [staging], writable: outDir });
+		fs.rmSync(staging, { recursive: true, force: true });
+		if (!r.ok) {
+			fs.rmSync(outDir, { recursive: true, force: true });
+			return { ok: false, variant: variantId, reason: `its transform hook failed (${r.reason}): ${r.detail}`, hook: r };
+		}
+	} else {
+		fs.cpSync(staging, outDir, { recursive: true });
+		fs.rmSync(staging, { recursive: true, force: true });
+	}
+
+	const rewritten = rewriteAddresses(outDir, source.addresses, outDir);
+	fs.writeFileSync(path.join(outDir, CANARY_FILE), variant.canaries.map((c) => `${c}\n`).join(""));
+	const manifest: VariantManifest = { variant: variantId, source: source.id, revision: sha, canaries: variant.canaries, rewritten };
+	fs.writeFileSync(path.join(outDir, VARIANT_MANIFEST), JSON.stringify(manifest, null, 2) + "\n");
+	for (const f of filesUnder(outDir)) fs.chmodSync(f, 0o444);
+	return { ok: true, dir: outDir, manifest };
+}

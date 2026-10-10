@@ -25,3 +25,14 @@ export function editJson(file: string, edit: (j: any) => void): void {
 	edit(j);
 	fs.writeFileSync(file, JSON.stringify(j, null, 2) + "\n");
 }
+
+import { execFileSync } from "node:child_process";
+
+/** Make a copied pack's directory a git repository with one commit, so its source has a revision. */
+export function commitAll(dir: string, message = "fixture"): string {
+	const g = (...a: string[]): string => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t.invalid", ...a], { cwd: dir, encoding: "utf8" }).trim();
+	if (!fs.existsSync(path.join(dir, ".git"))) g("init", "-q");
+	g("add", "-A");
+	g("commit", "-q", "--allow-empty", "-m", message);
+	return g("rev-parse", "HEAD");
+}

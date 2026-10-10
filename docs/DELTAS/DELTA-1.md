@@ -124,7 +124,7 @@ Evaluated by an agent that built none of the code the criterion exercises, holdi
 | E10 | 7 | A live run of mission-kit's adherence suite, started by suite name, five traps by three arms by three families by three runs, reaches tallied; every isolation probe for arms and judges passed before any cell ran; all 135 cells are valid or invalid with a cause; each cell invalid for infrastructure or isolation was re-run at most once, both attempts recorded and counted per arm; every valid outcome holds two votes from families other than its own; and the run record re-tallies to its result. |
 | E11 | 7 | A live run of mission-kit's `explain` suite on both driven runtimes, readers from three families and judges from the other two, reaches tallied; every reader-probe pair holds two validated votes or a recorded absence scored 0; and no judge prompt contains text that followed the self-explanation marker. |
 | E12 | 1, 2, 4 | For each of the three hooks, in contract tests and in the synthetic pack, a hook that attempts the network, reads outside its inputs, writes outside its folder or exceeds its time limit is stopped and gives its failure result - the pack failed; the arm not built and not run; the properties incomplete - and each hook's success path is used in the E7 tests. |
-| E13 | 2 | A built variant contains no occurrence of any address the pack declares for its source, and the run record names the source revision the variant was built from. |
+| E13 | 2, 4 | A built variant contains no occurrence of any address the pack declares for its source, and the run record names the source revision the variant was built from. |
 | E14 | 4 | In the run record, every code score carries a time earlier than the blinding of its outcome. |
 | E15 | 5 | The judge panel refuses to assign a judge of an outcome's own family, and its test fails when that refusal is removed. |
 | E16 | every | `tsc -b` exits 0 with `strict` enabled and no file excluded from type checking, and `node --test` runs every test against the built output. |
@@ -194,6 +194,15 @@ The same agent re-checked: E1, E2, E3 for stage 1 and E12 for stage 1 green, eac
 **Limits found, not fixed.**\
 A hook that catches its own denied attempts still returns success: the sandbox prevents what a hook may not do, and does not detect that it tried.\
 Re-recording an experiment after seeing outcomes restores its declared status; stage 4 compares a record's time with its outcomes' (`B13`).
+
+**Stage 2.**\
+Built: the variant builder, exporting through git at a pinned revision, applying excludes, includes and the transform hook, rewriting declared addresses longest first, planting canaries, and writing a manifest with the revision; the arm composer; the workspace builder.\
+Run against mission-kit's corpus at `13c4879`: seven addresses rewritten, none left, `docs/` excluded, and the always-on arm composed to eighteen instruction files.\
+Found while building, and done within the fence:
+
+- Each guided arm receives its variants' canary file as one more instruction, so the isolation prober can show the instructions arrived; it is a stated addition to the context, the same in every guided arm.
+- mission-kit's pack declares every published form of its address - the repository, its `blob/main` and `tree/main` paths, and raw files under `/main` - because rewriting the bare address alone would leave raw links pointing at a wrong path.
+- E13's second clause, that the run record names the revision, can only be shown once a run record exists; the variant's manifest records the revision now, and the run record carries it at stage 4 - a restaging like `0010`'s, for the director's confirmation.
 
 ---
 

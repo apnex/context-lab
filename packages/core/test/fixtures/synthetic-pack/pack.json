@@ -6,7 +6,8 @@
       "id": "almanac",
       "path": "source",
       "addresses": [
-        "https://example.invalid/almanac"
+        "https://example.invalid/almanac",
+        "https://example.invalid/almanac/raw/main"
       ]
     }
   ],
