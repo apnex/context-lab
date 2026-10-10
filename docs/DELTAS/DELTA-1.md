@@ -220,6 +220,14 @@ The reviews changed the design within the fence: driven runtimes run inside a bu
 Without it, a Codex agent could read the whole disk, which its own sandbox allows, and a Codex judge could not have its tools taken away.\
 They also corrected Codex's output-token arithmetic, mapped Codex web search as a fetch, found that `--ignore-user-config` would have made Codex ignore the configuration holding an arm's instructions, and added the fields the validity classifier needs.
 
+**Stage 3.**\
+Built: the opencode, Codex and external adapters, running driven runtimes in the filesystem sandbox; the common outcome form and its two parsers; the isolation prober; the validity classifier.\
+Expected outcomes for the conformance streams come from a separate derivation in Python, written from the cases rather than the code; the two first disagreed on words inside a `sed` expression, and the cases now state the word rule both follow.\
+Live checks of every configuration claim pass on opencode 1.18.35 and codex-cli 0.162.1 (`packages/core/test/live/config-claims.live.ts`).\
+The first live web check passed while Codex opened a page through its apps connector, which the check did not name: Codex's hosted tools that leave the sandbox are now switched off, and the check judges whether the page's content reached the agent, not which tool was used.\
+That gap was present in mission-kit's adherence runs: GPT agents there had web search, and two control agents used it - for Codex's own documentation, not for mission-kit; recorded in mission-kit's audit.\
+The isolation prober is tested with a scripted adapter here; its live runs are criterion E4, at stage 7.
+
 ---
 
 ## Adversarial review
