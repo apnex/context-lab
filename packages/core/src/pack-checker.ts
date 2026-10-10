@@ -139,6 +139,23 @@ function readJson(file: string): { ok: true; value: unknown } | { ok: false; mes
 
 const SLUG = /^[a-z0-9][a-z0-9.-]*$/;
 
+/** Entries under a fixture that cannot be followed to a file or directory. */
+function unreadable(dir: string): string[] {
+	const out: string[] = [];
+	for (const e of fs.readdirSync(dir)) {
+		const p = path.join(dir, e);
+		let st: fs.Stats;
+		try {
+			st = fs.statSync(p);
+		} catch {
+			out.push(p);
+			continue;
+		}
+		if (st.isDirectory()) out.push(...unreadable(p));
+	}
+	return out;
+}
+
 
 
 function duplicates(ids: string[]): string[] {
@@ -238,6 +255,7 @@ export async function checkPack(packDir: string): Promise<CheckResult> {
 			if (typeof scenario.fixture === "string") {
 				const f = path.resolve(dir, scenario.fixture);
 				if (!fs.existsSync(f) || !fs.statSync(f).isDirectory()) defects.push({ check: "fixture-dir", where: `scenarios.${sid}`, message: `${scenario.fixture} is not a directory` });
+				else for (const bad of unreadable(f)) defects.push({ check: "fixture-dir", where: `scenarios.${sid}`, message: `${path.relative(dir, bad)} cannot be read: a broken or looping link` });
 			}
 			for (const p of scenario.properties) {
 				const where = `scenarios.${sid}.${p.id}`;

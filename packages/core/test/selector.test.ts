@@ -58,3 +58,11 @@ test("the entry view lists every scenario under every entry its tags name", asyn
 	const view = entryView(await load(copyPack()));
 	assert.deepEqual(Object.fromEntries(view), { "graft-rule": ["graft"], "prune-rule": ["prune"] });
 });
+
+test("a scenario serving two experiments is listed once under each entry", async () => {
+	const dir = copyPack();
+	fs.writeFileSync(path.join(dir, "experiments", "second.json"), fs.readFileSync(path.join(dir, "experiments", "orchard.json"), "utf8").replace('"id": "orchard"', '"id": "second"'));
+	editJson(path.join(dir, "pack.json"), (j) => { j.experiments.push("experiments/second.json"); });
+	const view = entryView(await load(dir));
+	assert.deepEqual(view.get("graft-rule"), ["graft"]);
+});

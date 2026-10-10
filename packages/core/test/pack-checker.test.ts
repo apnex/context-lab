@@ -21,6 +21,7 @@ const defects: Record<CheckId, ((dir: string) => void)[]> = {
 	"shape": [
 		(d) => editJson(packJson(d), (j) => { j.sources[0].addresses = "https://example.invalid/almanac"; }),
 		(d) => editJson(packJson(d), (j) => { delete j.records; }),
+		(d) => editJson(graft(d), (j) => { delete j.task; }),
 		(d) => editJson(packJson(d), (j) => { j.colour = "green"; }),
 		(d) => editJson(graft(d), (j) => { j.properties[0].type = "taste"; }),
 		(d) => editJson(expJson(d), (j) => { j.runsPerCell = 0; }),
@@ -47,7 +48,10 @@ const defects: Record<CheckId, ((dir: string) => void)[]> = {
 		(d) => editJson(expJson(d), (j) => { j.factors.population.push("ghost"); }),
 	],
 	"scenario-file": [(d) => editJson(expJson(d), (j) => { j.scenarios.push("scenarios/no-such.json"); })],
-	"fixture-dir": [(d) => editJson(graft(d), (j) => { j.fixture = "fixtures/no-such"; })],
+	"fixture-dir": [
+		(d) => editJson(graft(d), (j) => { j.fixture = "fixtures/no-such"; }),
+		(d) => fs.symlinkSync(path.join(d, "no-such-target.txt"), path.join(d, "fixtures", "graft", "BROKEN.txt")),
+	],
 	"probe-arms": [(d) => editJson(packJson(d), (j) => { j.isolation.leakProbes[0].arms = ["ghost"]; })],
 	"property-measure": [
 		(d) => editJson(graft(d), (j) => { j.properties[0].measure = "count-words"; }),

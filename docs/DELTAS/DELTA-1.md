@@ -1,7 +1,7 @@
 # Delta-1 - a core that runs one-phase experiments, proven isolated - a vertical slice
 
 ```yaml
-status:     ratified (docs/DECISIONS.md 0009) - revision 3; stage 1 open
+status:     ratified (docs/DECISIONS.md 0009) - revision 3, with stage amendments awaiting the director's confirmation; stage 1 verified green
 selected:   docs/DECISIONS.md 0007, board item M1 (M1.1, M1.2)
 from-state: docs/ARCHITECTURE-TARGET.md header - "Its current architecture is empty"
 to-state:   docs/ARCHITECTURE-TARGET.md (0006, 0008), the components fenced in section 1
@@ -62,9 +62,9 @@ Built in TypeScript, following the convention of the organisation's TypeScript c
 Each stage lands with its own tests, and its criteria are green, before the next depends on it.
 
 1. **Pack and record.** The workspace; pack schema; both packs written statically; pack checker; hook runner; experiment register; selector and suites. Criteria E1, E2, E3 except its run-record clause, E12 for its bounds and the declaration-check failure result, E16.
-2. **Context.** Variant builder, arm composer, workspace builder. Criteria E13, and E12's variant-transform failure result.
+2. **Context.** Variant builder, arm composer, workspace builder. Criteria E13, and E12's variant-transform failure result as far as the arm not being built.
 3. **Runtimes.** The three adapters and their conformance suite, accepted by the verifier before the adapters are built; isolation prober; validity classifier. Criteria E5, E6.
-4. **One-phase runs.** Phase driver, run conductor, answer parser, code measurer. Criteria E7, E14, E3's run-record clause, and E12's outcome-measure failure result and success paths.
+4. **One-phase runs.** Phase driver, run conductor, answer parser, code measurer. Criteria E7, E14, E3's run-record clause, and the rest of E12: an unbuilt arm not run, the outcome-measure failure result, and the synthetic pack's transform and measure hooks run on their success paths.
 5. **Judging.** Blinder, judge panel, tally. Criterion E15.
 6. **Parity.** Legacy-record readers; the tally against two past runs. Criteria E8, E9.
 7. **mission-kit's pack, live.** Criteria E4, E10, E11.
@@ -183,10 +183,13 @@ E3's clause "recorded in the run record" cannot be met before a run record exist
 **Amendments after verification, by the executor, for the director's confirmation.**
 
 - The stage column of E3 and E12 now states the stages that complete them, as stage 1's own text already did for E12; the stage list says which part of each is evaluated where.
-- The network test connects to an address on the internet and to a listener on the host; the time-limit test asserts the hook stopped within two seconds of its limit and that a process it started did not outlive it, with a test timeout so a hook never stopped fails rather than hangs. Each was mutation-tested: removing the network namespace, or the kill, fails it.
+- The network test connects to an address on the internet and to a listener on the host; the time-limit test asserts the hook stopped within two seconds of its limit and that a process it started did not outlive it, with a test timeout so each such test fails rather than waits; a run whose hooks are never stopped still leaves their processes running, so the whole run needs an outer limit. Each was mutation-tested: removing the network namespace, or the kill, fails it.
 - The content hash now also covers each source declaration, every hook's declaration including its time limit, the declaration-check hook file, the experiment's suites, and fixture files behind symbolic links.
 - Every part of a multi-part check has its own fixture; a declaration-check hook's defect is asserted as written; a pack may declare one declaration-check hook only, a new check; the entry view lists a scenario once; the sandbox binds the Node binary, not its installation directory.
 - The test that only asserted a failure result was stated was removed: the results are enacted at stages 2 and 4.
+
+**Re-verification.**\
+The same agent re-checked: E1, E2, E3 for stage 1 and E12 for stage 1 green, each new test mutation-tested; five minor findings followed - a masked missing-field fixture, the whole-run hang, an untested entry-view fix, the staging detail above, and broken links in fixtures - and are fixed, the last by a new part of the fixture check.
 
 **Limits found, not fixed.**\
 A hook that catches its own denied attempts still returns success: the sandbox prevents what a hook may not do, and does not detect that it tried.\
