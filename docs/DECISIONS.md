@@ -23,8 +23,9 @@ They are not copied here; this register starts at the vision.
 | 0001 | 2026-10-10 | The vision in `VISION.md` is ratified. | director | ratified | - |
 | 0002 | 2026-10-10 | context-lab absorbs every existing evaluation mechanism of its first users: comprehension runs, adherence runs, human preference judging, and classify-then-verify judging chains. | director | ratified | - |
 | 0003 | 2026-10-10 | A project pack holds data and, at a few fixed points each with a stated contract, project scripts: measuring outcomes, building context variants, and checking declarations. | director | ratified | - |
-| 0004 | 2026-10-10 | context-lab adopts the universal parts of mission-kit's standing-suite design, listed in its record, and none of its mission-kit-specific choices. | director | proposed | - |
-| 0005 | 2026-10-10 | A fourth hook point, the note generator, is added to the three of `0003`. | director | proposed | amends 0003 |
+| 0004 | 2026-10-10 | context-lab adopts the universal parts of mission-kit's standing-suite design, listed in its record, and none of its mission-kit-specific choices. | director | ratified | - |
+| 0005 | 2026-10-10 | A fourth hook point, the note generator, is added to the three of `0003`. | director | ratified | amends 0003 |
+| 0006 | 2026-10-10 | The target architecture in `docs/ARCHITECTURE-TARGET.md` is ratified, every section approved. | director | ratified | - |
 
 ---
 
@@ -70,7 +71,7 @@ The core runs project code, so each hook's inputs, outputs and access are bounde
 
 ### 0004
 
-**Ruling, proposed.** context-lab adopts from mission-kit's standing-suite design (`docs/evals/standing/DESIGN.md`, mission-kit `0086`) its universal parts, including:
+**Ruling.** context-lab adopts from mission-kit's standing-suite design (`docs/evals/standing/DESIGN.md`, mission-kit `0086`) its universal parts, including:
 
 - pinned, local delivery of each context variant, every address of the source rewritten to the local copy, canaries proving it was read and a negative canary proving a variant was not, and network fetches of the source treated as isolation failures;
 - isolation probed for every arm and runtime before any cell runs, judges included;
@@ -90,21 +91,36 @@ It also adopts two parts the design does not hold, from the vision (is-not 5 and
 It adopts none of the design's mission-kit-specific choices - its four arms, its population, its run sizes and cadence, its thresholds, its digest and its misreading register - which a project declares in its pack.
 
 **Status.**\
-Proposed with the target architecture, for ratification with it.
+Ratified with the target architecture (`0006`).
 
 **Source.**\
 `[V, mission-kit docs/evals/standing/DESIGN.md; independent audit and re-check of the architecture drafts]`
 
 ### 0005
 
-**Ruling, proposed.**\
+**Ruling.**\
 Amends `0003`: a fourth hook, the note generator, lets a project generate the note a phase starts from.
 
 **Why.**\
 A phase starting from a note needs one that matches the workspace the earlier phase left, which a fixed note cannot, and how to summarise a project's work is project-specific.
 
 **Status.**\
-Proposed with the target architecture, for ratification with it.
+Ratified with the target architecture (`0006`).
 
 **Source.**\
 `[V, re-check of the architecture redraft, which found four hooks against 0003's three]`
+
+### 0006
+
+**Ruling.**\
+The target architecture is ratified, every section approved; each reopens on the trigger its status table names.
+
+**How it was reached.**\
+Drafted, audited by an agent that did not write it, redrafted in its core, re-checked, and corrected; `0004` and `0005` were ratified with it.
+
+**Alternatives refuted.**\
+Ratifying with changes, or reading a section first - offered, not chosen.
+
+**Source.**\
+`[V, director ruling 2026-10-10]`
+

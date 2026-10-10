@@ -14,24 +14,25 @@ It contains no plan, order or estimate; those belong to the board and to deltas.
 
 ## 1. Status and authority
 
-Authored by the architect, ratified by the director per section; approval is aggregate-only.
+Authored by the architect, ratified by the director per section; approval is aggregate-only.\
+Ratified 2026-10-10 (`docs/DECISIONS.md` `0006`).
 
 | Section | Maturity | Reopens on |
 |---|---|---|
-| 2 Identity, scope, non-goals | provisional | A ruling that changes scope, or a project needing an experiment outside it |
-| 3 Justification chain | provisional | A ruling added to `docs/DECISIONS.md` |
-| 4 Axiom alignment | provisional | A change to traits, or a tension discharged or found |
-| 5 Anchored core | provisional | A duty with no owner, or one owned twice |
-| 6 Entities, the pack, interfaces | provisional | A project putting something project-specific outside its pack |
-| 7 Run time | provisional | A state a run reaches that is not listed |
-| 8 Verification | provisional | A claim about the system with no check |
-| 9 Owed and open | provisional | Any row closed or added |
+| 2 Identity, scope, non-goals | approved | A ruling that changes scope, or a project needing an experiment outside it |
+| 3 Justification chain | approved | A ruling added to `docs/DECISIONS.md` |
+| 4 Axiom alignment | approved | A change to traits, or a tension discharged or found |
+| 5 Anchored core | approved | A duty with no owner, or one owned twice |
+| 6 Entities, the pack, interfaces | approved | A project putting something project-specific outside its pack |
+| 7 Run time | approved | A state a run reaches that is not listed |
+| 8 Verification | approved | A claim about the system with no check |
+| 9 Owed and open | approved | Any row closed or added |
 
 | Field | Value |
 |---|---|
 | Programme purpose | [`VISION.md`](../VISION.md) - cited, never restated |
 | Rulings | [`docs/DECISIONS.md`](DECISIONS.md) |
-| Provenance | mission-kit `docs/evals/standing/DESIGN.md` and rulings `0083`-`0089`, which are about mission-kit; this system rests on its own rulings, of which `0004`, proposed with this document, adopts the universal parts of that design |
+| Provenance | mission-kit `docs/evals/standing/DESIGN.md` and rulings `0083`-`0089`, which are about mission-kit; this system rests on its own rulings, of which `0004` adopts the universal parts of that design |
 
 ---
 
@@ -84,7 +85,7 @@ Every result is attributable to the declared differences between conditions alon
 | P9 | **Evidence, not verdicts.** A comparison flags; the project's authority decides | `A13`; vision non-authority 2 |
 
 **Decisions.**\
-`0001` the vision; `0002` all four existing mechanisms are absorbed; `0003` packs may carry scripts at fixed hooks; and, proposed for ratification with this document, `0004` the universal parts of mission-kit's standing-suite design are adopted, and `0005` a note-generator hook is added to `0003`'s three.
+`0001` the vision; `0002` all four existing mechanisms are absorbed; `0003` packs may carry scripts at fixed hooks; `0004` the universal parts of mission-kit's standing-suite design are adopted, and `0005` a note-generator hook is added to `0003`'s three.
 
 **Model.**\
 Single-duty components (section 5), each serving a principle, driven by a project pack through fixed hooks, producing a run record the project keeps.
