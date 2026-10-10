@@ -1,7 +1,7 @@
 # context-lab - board
 
 The live, triaged set of legal next moves, for the director to select from.\
-M1 is selected (`0007`); its delta, `docs/DELTAS/DELTA-1.md`, awaits ratification.
+M1 is active under `docs/DELTAS/DELTA-1.md`, ratified (`0009`).
 
 ---
 
@@ -40,7 +40,7 @@ Order on the higher: a mandate breach ranks with S2 and a signal with S4; ties g
 
 ---
 
-## M1 - A core that runs one-phase experiments, proven isolated `OPEN`
+## M1 - A core that runs one-phase experiments, proven isolated `ACTIVE`
 
 The smallest slice that replaces a copy: a pack, pinned variants, isolated agents on two runtimes and an external one, probes, validity, blinding, cross-family judging and a tally.\
 It carries mission-kit's adherence suite and one comprehension suite as single-phase experiments; its tally is checked against two past runs, and its live results are reported beside theirs.

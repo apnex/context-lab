@@ -1,7 +1,7 @@
 # Delta-1 - a core that runs one-phase experiments, proven isolated - a vertical slice
 
 ```yaml
-status:     draft revision 2 - adversarial review applied; for the director's ratification
+status:     ratified (docs/DECISIONS.md 0009) - revision 3; stage 1 open
 selected:   docs/DECISIONS.md 0007, board item M1 (M1.1, M1.2)
 from-state: docs/ARCHITECTURE-TARGET.md header - "Its current architecture is empty"
 to-state:   docs/ARCHITECTURE-TARGET.md (0006, 0008), the components fenced in section 1
@@ -53,7 +53,7 @@ Also:
 Agents run with network access denied where the runtime can deny it, and every attempt to reach a forbidden address is detected from the event trace wherever it cannot.\
 No task in either mission-kit suite needs the network.
 
-Built in Node, as both sources are, with no runtime dependencies beyond the operating system's namespace and bubblewrap tools - an author's choice, not a ruling.
+Built in TypeScript, following the convention of the organisation's TypeScript components and zorg's layout in particular - npm workspaces under `packages/`, built with `tsc -b` under strict settings, tested with `node --test`, Node 24 or later - with development dependencies only (`typescript`, `@types/node`) and no runtime dependencies beyond the operating system's namespace and bubblewrap tools (`0009`).
 
 ---
 
@@ -61,7 +61,7 @@ Built in Node, as both sources are, with no runtime dependencies beyond the oper
 
 Each stage lands with its own tests, and its criteria are green, before the next depends on it.
 
-1. **Pack and record.** Pack schema; both packs written statically; pack checker; hook runner; experiment register; selector and suites. Criteria E1, E2, E3, E12.
+1. **Pack and record.** The workspace; pack schema; both packs written statically; pack checker; hook runner; experiment register; selector and suites. Criteria E1, E2, E3, E12, E16.
 2. **Context.** Variant builder, arm composer, workspace builder. Criterion E13.
 3. **Runtimes.** The three adapters and their conformance suite, accepted by the verifier before the adapters are built; isolation prober; validity classifier. Criteria E5, E6.
 4. **One-phase runs.** Phase driver, run conductor, answer parser, code measurer. Criteria E7, E14.
@@ -127,6 +127,7 @@ Evaluated by an agent that built none of the code the criterion exercises, holdi
 | E13 | 2 | A built variant contains no occurrence of any address the pack declares for its source, and the run record names the source revision the variant was built from. |
 | E14 | 4 | In the run record, every code score carries a time earlier than the blinding of its outcome. |
 | E15 | 5 | The judge panel refuses to assign a judge of an outcome's own family, and its test fails when that refusal is removed. |
+| E16 | every | `tsc -b` exits 0 with `strict` enabled and no file excluded from type checking, and `node --test` runs every test against the built output. |
 
 ---
 
@@ -193,3 +194,6 @@ Ratify after fixes.
 | From-state described rather than cited | minor | Cited in the header |
 | "Built in Node" bearing weight | minor | Kept as an author's choice; it constrains only the hook runner, which names its mechanism |
 | A tool to make E8's fixed rounding exact | minor | Applied in E8 |
+
+**Amended after the review, before ratification.**\
+The language changed from JavaScript to TypeScript by director ruling, and criterion E16 was added; the build line, stage 1 and the criteria table are the only text changed, and the change was not re-reviewed.
