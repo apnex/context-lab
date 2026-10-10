@@ -2,7 +2,7 @@
 
 Delta-1 stage 3 builds three runtime adapters - opencode, Codex, and the external adapter - and criterion E6 requires each to pass every case below.\
 By the delta's build order these cases are accepted by the verifier before any adapter is written against them.\
-Status: revision 3, after the verifier's second review; for acceptance.
+Status: revision 4, accepted by the verifier after three reviews; adapters are built against it.
 
 ---
 
@@ -114,7 +114,7 @@ Each case runs for each adapter unless it says otherwise.
 | C14 | **Timeout** | A stub that starts one child in its own process group and one with `setsid`, then never exits, is stopped at the time limit: `stop.reason` `timeout`, and the stub and both children are gone within two seconds of the limit |
 | C15 | **Refusing a setting** | Before anything runs, the adapter refuses, naming it: opencode, a `reasoningEffort` not among the model's `variants` in the provider block - today every model's list is empty, so every effort is refused; Codex, a `reasoningEffort` not among the efforts Codex's own model metadata lists for that model; external, any setting |
 | C16 | **Session** | The session id in the stream is returned in `session`; continuation itself is probed at board item M2.1 |
-| C17 | **What was in flight** | For a synthetic stream ending after a model call began, `stop.inFlight` is `model`; after a tool call began, `tool`; after both ended, `none` |
+| C17 | **What was in flight** | For a synthetic stream ending after a model call began, `stop.inFlight` is `model`; for Codex only, after a tool call began, `tool`; after both ended, `none` |
 | C18 | **Trace** | The trace holds one normalised event per runtime event the mapping names, in arrival order, each with an `at` that never decreases |
 | C19 | **Credentials removed** | For a synthetic stream in which a tool's output prints the provider key, neither the raw events written nor the trace contain the key |
 

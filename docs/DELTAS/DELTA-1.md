@@ -214,6 +214,12 @@ One of its mutation runs changed the permissions of the operator's home folder: 
 The cause was in the build, not the verifier: a test that pointed a link at a real folder, and two exported functions that followed links.\
 Fixed: tests point links only at scratch folders; `makeReadOnly` and `makeWritable` never follow a link; a source or fixture folder linking back to its parent is refused instead of copied without end, and the pack check reports it instead of failing; a failed export leaves no staging folder; an exclude of the whole source is a defect; scratch folders are removed when tests finish; and the protections the verifier found untested each have a test.
 
+**Stage 3, before any adapter.**\
+The adapter conformance cases (`packages/core/test/conformance/CASES.md`) were accepted by the verifier at revision 4, after three reviews, before any adapter was written, as stage 3 requires.\
+The reviews changed the design within the fence: driven runtimes run inside a bubblewrap filesystem sandbox, the network shared for the provider, so a path an arm does not give an agent does not exist for it - probed on both runtimes on this machine.\
+Without it, a Codex agent could read the whole disk, which its own sandbox allows, and a Codex judge could not have its tools taken away.\
+They also corrected Codex's output-token arithmetic, mapped Codex web search as a fetch, found that `--ignore-user-config` would have made Codex ignore the configuration holding an arm's instructions, and added the fields the validity classifier needs.
+
 ---
 
 ## Adversarial review
