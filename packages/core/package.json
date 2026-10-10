@@ -1,0 +1,25 @@
+{
+  "name": "@apnex/context-lab-core",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The neutral core of context-lab: packs, records, runs, judging and results.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "files": [
+    "dist/src"
+  ],
+  "bin": {
+    "context-lab": "./dist/src/cli.js"
+  }
+}

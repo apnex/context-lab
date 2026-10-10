@@ -163,6 +163,20 @@ The pack records no consent, because every experiment in it runs on material bui
 
 ---
 
+## Record
+
+**Stage 1.**\
+Built: the workspace; the pack schema; the pack checker, with twenty-one listed checks; the hook runner; the experiment register; the selector and suites; a command line; the synthetic pack; mission-kit's pack at `docs/evals/context-lab/` in mission-kit's repository.\
+Found while building, and done within the fence:
+
+- The pack schema gained fields mission-kit's pack needed to carry its suites as they are: inline fixtures; a scenario's starting state, scoring note, scored file and notes; a property's rubric and notes; an experiment's instructions, preamble and judge instructions; and the arms each leak probe's content is withheld from, with a check that they exist.
+- The experiment register lives in the pack's own `register/` folder, not with run records, because it is the evidence an experiment was fixed before its outcomes and the project keeps it with the experiment.
+- E12's failure results are staged: the declaration-check failure is enacted at stage 1; the variant-transform and outcome-measure failures are enacted by the components that call them, at stages 2 and 4, and E12 is evaluated in full at stage 4.
+- Wording held in mission-kit's tool code - the reader prompt and default scorer text of `eval.mjs`, the response schema and chunking of `adherence.mjs` - is transcribed into the pack at stages 4 and 5, when the phase driver and judge panel define where it goes.
+- E7's literal list was frozen from mission-kit's pack as the criterion lists it; an experiment id, `adherence`, was left out because it is also one of the core's own property types.
+
+---
+
 ## Adversarial review
 
 **Reviewer.**\

@@ -1,0 +1,289 @@
+// pack-checker - validates a project pack (architecture section 5).
+//
+// Every check the checker runs is listed in PACK_CHECKS, so a test can hold one fixture per check
+// and show each is load-bearing: remove a check and its fixture stops being rejected. A pack that
+// passes every check is loaded and returned; one that fails is returned with every defect, each
+// naming its check and where it was found.
+
+import fs from "node:fs";
+import path from "node:path";
+import { runHook } from "./hook-runner.js";
+import {
+	DECIDERS, DELIVERY_KINDS, EXERCISES_TAG, HOOK_KINDS, PACK_FILE, PACK_SCHEMA, PROPERTY_TYPES, STATUSES,
+	type Experiment, type LoadedPack, type Pack, type Scenario,
+} from "./pack-schema.js";
+
+export const PACK_CHECKS = {
+	"pack-file": "pack.json exists and parses as JSON",
+	"schema-version": `the pack declares schema ${PACK_SCHEMA}`,
+	"shape": "every field of the pack, its experiments and scenarios has its declared type",
+	"slug-ids": "every id is a lowercase slug",
+	"unique-ids": "ids are unique within each collection, and scenario ids across the pack",
+	"source-path": "every source path is a directory",
+	"variant-source": "every variant names a declared source",
+	"variant-transform": "a variant's transform names a variant-transform hook",
+	"arm-variant": "every delivery names a declared variant",
+	"hook-file": "every hook file exists",
+	"experiment-file": "every experiment file exists and parses as JSON",
+	"experiment-refs": "an experiment's arms and population are declared",
+	"scenario-file": "every scenario file exists and parses as JSON",
+	"fixture-dir": "a scenario's fixture, if named as a directory, is one",
+	"probe-arms": "every leak probe names declared arms",
+	"property-measure": "a code-decided property names an outcome-measure hook, and a judged one names none",
+	"scale": "a property's scale runs from a lower to a higher number",
+	"suite-experiment": "every suite names a declared experiment",
+	"suite-nonempty": "every suite selects at least one scenario",
+	"regex": "every mask and leak pattern is a valid regular expression",
+	"declaration-check": "the pack's declaration-check hook, if any, reports no defect",
+} as const;
+export type CheckId = keyof typeof PACK_CHECKS;
+
+export interface Defect {
+	check: CheckId;
+	where: string;
+	message: string;
+}
+
+export type CheckResult = { ok: true; loaded: LoadedPack; defects: [] } | { ok: false; defects: Defect[] };
+
+// --- shape ----------------------------------------------------------------------------------------
+
+type Shape = "string" | "number" | "boolean" | "string[]" | "object" | "array" | ((v: unknown) => boolean);
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+const matches = (v: unknown, s: Shape): boolean => {
+	if (typeof s === "function") return s(v);
+	if (s === "string[]") return Array.isArray(v) && v.every((x) => typeof x === "string");
+	if (s === "array") return Array.isArray(v);
+	if (s === "object") return isObj(v);
+	return typeof v === s;
+};
+const oneOf = (xs: readonly string[]) => (v: unknown): boolean => typeof v === "string" && xs.includes(v);
+const fixtureShape = (v: unknown): boolean => v === null || typeof v === "string"
+	|| (isObj(v) && Object.keys(v).length === 1 && isObj(v["files"]) && Object.values(v["files"]).every((x) => typeof x === "string"));
+const pair = (v: unknown): boolean => Array.isArray(v) && v.length === 2 && v.every((x) => typeof x === "number");
+const positiveInt = (v: unknown): boolean => Number.isInteger(v) && (v as number) > 0;
+
+function shape(obj: unknown, where: string, required: Record<string, Shape>, optional: Record<string, Shape>, out: Defect[]): obj is Record<string, unknown> {
+	if (!isObj(obj)) {
+		out.push({ check: "shape", where, message: "is not an object" });
+		return false;
+	}
+	let ok = true;
+	for (const [k, s] of Object.entries(required)) {
+		if (!(k in obj)) { out.push({ check: "shape", where, message: `lacks ${k}` }); ok = false; } else if (!matches(obj[k], s)) { out.push({ check: "shape", where: `${where}.${k}`, message: "has the wrong type" }); ok = false; }
+	}
+	for (const [k, s] of Object.entries(optional)) {
+		if (k in obj && !matches(obj[k], s)) { out.push({ check: "shape", where: `${where}.${k}`, message: "has the wrong type" }); ok = false; }
+	}
+	for (const k of Object.keys(obj)) {
+		if (!(k in required) && !(k in optional)) { out.push({ check: "shape", where, message: `has an unknown field ${k}` }); ok = false; }
+	}
+	return ok;
+}
+
+function eachShape(v: unknown, where: string, required: Record<string, Shape>, optional: Record<string, Shape>, out: Defect[]): void {
+	if (!Array.isArray(v)) return;
+	v.forEach((x, i) => shape(x, `${where}[${i}]`, required, optional, out));
+}
+
+function packShape(raw: unknown, out: Defect[]): raw is Pack {
+	const before = out.length;
+	if (!shape(raw, "pack", {
+		schema: "string", id: "string", sources: "array", variants: "array", arms: "array", population: "array", hooks: "array",
+		masks: "object", isolation: "object", experiments: "string[]", suites: "array", records: "object",
+	}, {}, out)) return false;
+	eachShape(raw["sources"], "sources", { id: "string", path: "string", addresses: "string[]" }, { exclude: "string[]" }, out);
+	eachShape(raw["variants"], "variants", { id: "string", source: "string", canaries: "string[]" }, { include: "string[]", transform: "string" }, out);
+	eachShape(raw["arms"], "arms", { id: "string", deliver: "array" }, {}, out);
+	if (Array.isArray(raw["arms"])) raw["arms"].forEach((a, i) => { if (isObj(a)) eachShape(a["deliver"], `arms[${i}].deliver`, { variant: "string", file: "string", as: oneOf(DELIVERY_KINDS) }, {}, out); });
+	eachShape(raw["population"], "population", { id: "string", family: "string", runtime: "string", model: "string" }, { settings: "object" }, out);
+	eachShape(raw["hooks"], "hooks", { id: "string", kind: oneOf(HOOK_KINDS), file: "string", timeLimitSeconds: positiveInt }, {}, out);
+	shape(raw["masks"], "masks", { identifiers: "string[]" }, { selfExplanationMarker: "string" }, out);
+	if (shape(raw["isolation"], "isolation", { leakProbes: "array", forbidden: "object" }, {}, out)) {
+		const iso = raw["isolation"] as Record<string, unknown>;
+		eachShape(iso["leakProbes"], "isolation.leakProbes", { id: "string", question: "string", leak: "string", arms: "string[]" }, {}, out);
+		shape(iso["forbidden"], "isolation.forbidden", { paths: "string[]", addresses: "string[]" }, {}, out);
+	}
+	eachShape(raw["suites"], "suites", { id: "string", experiment: "string", select: "object" }, {}, out);
+	if (Array.isArray(raw["suites"])) raw["suites"].forEach((s, i) => { if (isObj(s)) shape(s["select"], `suites[${i}].select`, {}, { allTags: "string[]", anyTags: "string[]", scenarios: "string[]" }, out); });
+	shape(raw["records"], "records", { path: "string" }, {}, out);
+	return out.length === before;
+}
+
+function experimentShape(raw: unknown, where: string, out: Defect[]): raw is Experiment {
+	const before = out.length;
+	if (!shape(raw, where, { id: "string", declaredStatus: oneOf(STATUSES), scenarios: "string[]", factors: "object", runsPerCell: positiveInt, phases: "array" }, { instructions: "string", preamble: "string", judgeInstructions: "string", notes: "string" }, out)) return false;
+	shape(raw["factors"], `${where}.factors`, { arms: "string[]", population: "string[]" }, {}, out);
+	eachShape(raw["phases"], `${where}.phases`, { id: "string", session: oneOf(["new"]) }, {}, out);
+	return out.length === before;
+}
+
+function scenarioShape(raw: unknown, where: string, out: Defect[]): raw is Scenario {
+	const before = out.length;
+	if (!shape(raw, where, { id: "string", tags: "string[]", fixture: fixtureShape, task: "string", properties: "array" }, { heldOut: "boolean", start: "string", scoring: "string", scoredFile: "string", notes: "string" }, out)) return false;
+	eachShape(raw["properties"], `${where}.properties`, { id: "string", type: oneOf(PROPERTY_TYPES), decidedBy: oneOf(DECIDERS), key: "string", scale: pair }, { guidance: "string[]", measure: "string", rubric: "string", notes: "string" }, out);
+	return out.length === before;
+}
+
+// --- loading --------------------------------------------------------------------------------------
+
+function readJson(file: string): { ok: true; value: unknown } | { ok: false; message: string } {
+	if (!fs.existsSync(file)) return { ok: false, message: "does not exist" };
+	try {
+		return { ok: true, value: JSON.parse(fs.readFileSync(file, "utf8")) as unknown };
+	} catch (e) {
+		return { ok: false, message: `does not parse: ${String(e)}` };
+	}
+}
+
+const SLUG = /^[a-z0-9][a-z0-9.-]*$/;
+
+
+
+function duplicates(ids: string[]): string[] {
+	const seen = new Set<string>();
+	const dup = new Set<string>();
+	for (const id of ids) (seen.has(id) ? dup : seen).add(id);
+	return [...dup];
+}
+
+function validRegex(p: string): boolean {
+	try {
+		new RegExp(p);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/** Scenario ids a suite's selection resolves to, in the experiment's scenario order. */
+export function selectScenarios(scenarios: Scenario[], select: { allTags?: string[]; anyTags?: string[]; scenarios?: string[] }): string[] {
+	const byTag = (select.allTags?.length ?? 0) > 0 || (select.anyTags?.length ?? 0) > 0;
+	return scenarios
+		.filter((s) => {
+			if (select.scenarios?.includes(s.id)) return true;
+			if (!byTag) return false;
+			const all = (select.allTags ?? []).every((t) => s.tags.includes(t));
+			const any = (select.anyTags ?? []).length === 0 || (select.anyTags ?? []).some((t) => s.tags.includes(t));
+			return all && any;
+		})
+		.map((s) => s.id);
+}
+
+export async function checkPack(packDir: string): Promise<CheckResult> {
+	const dir = path.resolve(packDir);
+	const defects: Defect[] = [];
+	const file = path.join(dir, PACK_FILE);
+	const raw = readJson(file);
+	if (!raw.ok) return { ok: false, defects: [{ check: "pack-file", where: PACK_FILE, message: raw.message }] };
+	if (isObj(raw.value) && raw.value["schema"] !== PACK_SCHEMA) {
+		return { ok: false, defects: [{ check: "schema-version", where: "pack.schema", message: `is ${JSON.stringify(raw.value["schema"])}, not ${PACK_SCHEMA}` }] };
+	}
+	if (!packShape(raw.value, defects)) return { ok: false, defects };
+	const pack = raw.value;
+
+	// Experiments and scenarios load before reference checks, so every check sees the whole pack.
+	const experiments: LoadedPack["experiments"] = new Map();
+	// A scenario file may serve several experiments; ids must be unique across distinct files.
+	const scenarioFiles = new Map<string, string>();
+	const experimentIds: string[] = [];
+	for (const ef of pack.experiments) {
+		const r = readJson(path.join(dir, ef));
+		if (!r.ok) { defects.push({ check: "experiment-file", where: ef, message: r.message }); continue; }
+		if (!experimentShape(r.value, ef, defects)) continue;
+		const scenarios = new Map<string, { file: string; scenario: Scenario }>();
+		for (const sf of r.value.scenarios) {
+			const s = readJson(path.join(dir, sf));
+			if (!s.ok) { defects.push({ check: "scenario-file", where: sf, message: s.message }); continue; }
+			if (!scenarioShape(s.value, sf, defects)) continue;
+			scenarios.set(s.value.id, { file: sf, scenario: s.value });
+			scenarioFiles.set(path.normalize(sf), s.value.id);
+		}
+		experiments.set(r.value.id, { file: ef, experiment: r.value, scenarios });
+		experimentIds.push(r.value.id);
+	}
+	if (defects.some((d) => d.check === "shape")) return { ok: false, defects };
+
+	const ids: [string, string[]][] = [
+		["sources", pack.sources.map((x) => x.id)], ["variants", pack.variants.map((x) => x.id)], ["arms", pack.arms.map((x) => x.id)],
+		["population", pack.population.map((x) => x.id)], ["hooks", pack.hooks.map((x) => x.id)], ["suites", pack.suites.map((x) => x.id)],
+		["isolation.leakProbes", pack.isolation.leakProbes.map((x) => x.id)], ["experiments", experimentIds], ["scenarios", [...scenarioFiles.values()]],
+	];
+	if (!SLUG.test(pack.id)) defects.push({ check: "slug-ids", where: "pack.id", message: `${pack.id} is not a lowercase slug` });
+	for (const [where, xs] of ids) {
+		for (const id of xs) if (!SLUG.test(id)) defects.push({ check: "slug-ids", where, message: `${id} is not a lowercase slug` });
+		for (const id of duplicates(xs)) defects.push({ check: "unique-ids", where, message: `${id} is declared more than once` });
+	}
+
+	for (const s of pack.sources) {
+		const p = path.resolve(dir, s.path);
+		if (!fs.existsSync(p) || !fs.statSync(p).isDirectory()) defects.push({ check: "source-path", where: `sources.${s.id}`, message: `${s.path} is not a directory` });
+	}
+	const hooks = new Map(pack.hooks.map((h) => [h.id, h]));
+	for (const v of pack.variants) {
+		if (!pack.sources.some((s) => s.id === v.source)) defects.push({ check: "variant-source", where: `variants.${v.id}`, message: `names undeclared source ${v.source}` });
+		if (v.transform !== undefined && hooks.get(v.transform)?.kind !== "variant-transform") defects.push({ check: "variant-transform", where: `variants.${v.id}`, message: `${v.transform} is not a variant-transform hook` });
+	}
+	for (const a of pack.arms) for (const d of a.deliver) {
+		if (!pack.variants.some((v) => v.id === d.variant)) defects.push({ check: "arm-variant", where: `arms.${a.id}`, message: `names undeclared variant ${d.variant}` });
+	}
+	for (const h of pack.hooks) {
+		if (!fs.existsSync(path.resolve(dir, h.file))) defects.push({ check: "hook-file", where: `hooks.${h.id}`, message: `${h.file} does not exist` });
+	}
+	for (const [eid, { experiment, scenarios }] of experiments) {
+		for (const a of experiment.factors.arms) if (!pack.arms.some((x) => x.id === a)) defects.push({ check: "experiment-refs", where: `experiments.${eid}`, message: `names undeclared arm ${a}` });
+		for (const m of experiment.factors.population) if (!pack.population.some((x) => x.id === m)) defects.push({ check: "experiment-refs", where: `experiments.${eid}`, message: `names undeclared population member ${m}` });
+		for (const [sid, { scenario }] of scenarios) {
+			if (typeof scenario.fixture === "string") {
+				const f = path.resolve(dir, scenario.fixture);
+				if (!fs.existsSync(f) || !fs.statSync(f).isDirectory()) defects.push({ check: "fixture-dir", where: `scenarios.${sid}`, message: `${scenario.fixture} is not a directory` });
+			}
+			for (const p of scenario.properties) {
+				const where = `scenarios.${sid}.${p.id}`;
+				if (p.decidedBy === "code" && hooks.get(p.measure ?? "")?.kind !== "outcome-measure") defects.push({ check: "property-measure", where, message: "is decided by code but names no outcome-measure hook" });
+				if (p.decidedBy === "judge" && p.measure !== undefined) defects.push({ check: "property-measure", where, message: "is judged but names a measure hook" });
+				if (!(p.scale[0] < p.scale[1])) defects.push({ check: "scale", where, message: `scale ${JSON.stringify(p.scale)} does not rise` });
+			}
+		}
+	}
+	for (const s of pack.suites) {
+		const e = experiments.get(s.experiment);
+		if (!e) { defects.push({ check: "suite-experiment", where: `suites.${s.id}`, message: `names undeclared experiment ${s.experiment}` }); continue; }
+		if (selectScenarios([...e.scenarios.values()].map((x) => x.scenario), s.select).length === 0) defects.push({ check: "suite-nonempty", where: `suites.${s.id}`, message: "selects no scenario" });
+	}
+	for (const [i, p] of pack.masks.identifiers.entries()) if (!validRegex(p)) defects.push({ check: "regex", where: `masks.identifiers[${i}]`, message: `${p} is not a valid pattern` });
+	for (const l of pack.isolation.leakProbes) {
+		if (!validRegex(l.leak)) defects.push({ check: "regex", where: `isolation.leakProbes.${l.id}`, message: `${l.leak} is not a valid pattern` });
+		for (const a of l.arms) if (!pack.arms.some((x) => x.id === a)) defects.push({ check: "probe-arms", where: `isolation.leakProbes.${l.id}`, message: `names undeclared arm ${a}` });
+	}
+
+	const declCheck = pack.hooks.find((h) => h.kind === "declaration-check");
+	if (declCheck && defects.length === 0) {
+		const r = await runHook(dir, declCheck, { pack, packDir: dir }, { readable: [dir] });
+		if (!r.ok) defects.push({ check: "declaration-check", where: `hooks.${declCheck.id}`, message: `failed (${r.reason}): ${r.detail}` });
+		else {
+			const out = r.output;
+			const list = isObj(out) && Array.isArray(out["defects"]) ? out["defects"] : null;
+			if (list === null) defects.push({ check: "declaration-check", where: `hooks.${declCheck.id}`, message: "returned no defects list" });
+			else for (const d of list) defects.push({ check: "declaration-check", where: isObj(d) && typeof d["where"] === "string" ? d["where"] : declCheck.id, message: isObj(d) && typeof d["message"] === "string" ? d["message"] : JSON.stringify(d) });
+		}
+	}
+
+	if (defects.length) return { ok: false, defects };
+	return { ok: true, loaded: { dir, pack, experiments }, defects: [] };
+}
+
+/** The entry-to-scenario view, generated from scenarios' exercises: tags. */
+export function entryView(loaded: LoadedPack): Map<string, string[]> {
+	const view = new Map<string, string[]>();
+	for (const { scenarios } of loaded.experiments.values()) {
+		for (const { scenario } of scenarios.values()) {
+			for (const t of scenario.tags) {
+				if (!t.startsWith(EXERCISES_TAG)) continue;
+				const entry = t.slice(EXERCISES_TAG.length);
+				view.set(entry, [...(view.get(entry) ?? []), scenario.id]);
+			}
+		}
+	}
+	return view;
+}

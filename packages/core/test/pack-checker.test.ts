@@ -1,0 +1,60 @@
+// Criterion E1: one fixture per listed check, each with exactly that defect, each rejected with
+// the defect named; the synthetic pack is accepted. Removing a check from the checker leaves its
+// fixture accepted, which this test reports as a failure - so every check is shown load-bearing.
+
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { test } from "node:test";
+import { PACK_CHECKS, checkPack, type CheckId } from "../src/index.js";
+import { copyPack, editJson, syntheticPack } from "./helpers.js";
+
+const packJson = (d: string): string => path.join(d, "pack.json");
+const expJson = (d: string): string => path.join(d, "experiments", "orchard.json");
+const graft = (d: string): string => path.join(d, "scenarios", "graft.json");
+
+const defects: Record<CheckId, (dir: string) => void> = {
+	"pack-file": (d) => fs.rmSync(packJson(d)),
+	"schema-version": (d) => editJson(packJson(d), (j) => { j.schema = "context-lab.pack/2"; }),
+	"shape": (d) => editJson(packJson(d), (j) => { j.sources[0].addresses = "https://example.invalid/almanac"; }),
+	"slug-ids": (d) => editJson(packJson(d), (j) => { j.suites[0].id = "All-Orchard"; }),
+	"unique-ids": (d) => editJson(packJson(d), (j) => { j.isolation.leakProbes.push({ ...j.isolation.leakProbes[0] }); }),
+	"source-path": (d) => editJson(packJson(d), (j) => { j.sources[0].path = "no-such-dir"; }),
+	"variant-source": (d) => editJson(packJson(d), (j) => { j.variants[0].source = "ghost"; }),
+	"variant-transform": (d) => editJson(packJson(d), (j) => { j.variants[0].transform = "count-words"; }),
+	"arm-variant": (d) => editJson(packJson(d), (j) => { j.arms[1].deliver[0].variant = "ghost"; }),
+	"hook-file": (d) => editJson(packJson(d), (j) => { j.hooks[2].file = "hooks/no-such-hook.mjs"; }),
+	"experiment-file": (d) => editJson(packJson(d), (j) => { j.experiments.push("experiments/no-such.json"); }),
+	"experiment-refs": (d) => editJson(expJson(d), (j) => { j.factors.arms.push("ghost"); }),
+	"scenario-file": (d) => editJson(expJson(d), (j) => { j.scenarios.push("scenarios/no-such.json"); }),
+	"fixture-dir": (d) => editJson(graft(d), (j) => { j.fixture = "fixtures/no-such"; }),
+	"probe-arms": (d) => editJson(packJson(d), (j) => { j.isolation.leakProbes[0].arms = ["ghost"]; }),
+	"property-measure": (d) => editJson(graft(d), (j) => { j.properties[0].measure = "count-words"; }),
+	"scale": (d) => editJson(graft(d), (j) => { j.properties[0].scale = [1, 0]; }),
+	"suite-experiment": (d) => editJson(packJson(d), (j) => { j.suites[0].experiment = "ghost"; }),
+	"suite-nonempty": (d) => editJson(packJson(d), (j) => { j.suites[1].select = { allTags: ["no-such-tag"] }; }),
+	"regex": (d) => editJson(packJson(d), (j) => { j.masks.identifiers.push("("); }),
+	"declaration-check": (d) => fs.writeFileSync(path.join(d, "hooks", "check.mjs"),
+		'import fs from "node:fs"; fs.readFileSync(0, "utf8"); console.log(JSON.stringify({ defects: [{ where: "orchard", message: "planted defect" }] }));\n'),
+};
+
+test("the synthetic pack is accepted", async () => {
+	const r = await checkPack(syntheticPack);
+	assert.deepEqual(r.defects, []);
+	assert.equal(r.ok, true);
+});
+
+test("every listed check has a defect fixture", () => {
+	assert.deepEqual(Object.keys(defects).sort(), Object.keys(PACK_CHECKS).sort());
+});
+
+for (const check of Object.keys(PACK_CHECKS) as CheckId[]) {
+	test(`a pack whose only defect is ${check} is rejected, naming it`, async () => {
+		const dir = copyPack();
+		defects[check](dir);
+		const r = await checkPack(dir);
+		assert.equal(r.ok, false, `the ${check} fixture was accepted`);
+		assert.ok(r.defects.length > 0);
+		for (const d of r.defects) assert.equal(d.check, check, `expected only ${check}, got ${d.check}: ${d.where} ${d.message}`);
+	});
+}

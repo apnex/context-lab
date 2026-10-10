@@ -1,0 +1,10 @@
+{
+  "id": "graft",
+  "tags": ["orchard", "exercises:graft-rule"],
+  "fixture": "fixtures/graft",
+  "task": "Graft the pear scion onto the quince rootstock and write down what you did.",
+  "properties": [
+    { "id": "graft-1", "type": "adherence", "decidedBy": "judge", "key": "The note records the rootstock and the scion.", "scale": [0, 1], "guidance": ["graft-rule"] },
+    { "id": "graft-2", "type": "precision", "decidedBy": "code", "key": "The note is under fifty words.", "scale": [0, 1], "measure": "count-words" }
+  ]
+}

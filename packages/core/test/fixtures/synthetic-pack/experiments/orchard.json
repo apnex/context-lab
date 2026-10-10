@@ -1,0 +1,8 @@
+{
+  "id": "orchard",
+  "declaredStatus": "result",
+  "scenarios": ["scenarios/graft.json", "scenarios/prune.json"],
+  "factors": { "arms": ["bare", "almanac"], "population": ["p1", "p2"] },
+  "runsPerCell": 2,
+  "phases": [{ "id": "work", "session": "new" }]
+}

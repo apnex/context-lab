@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "useUnknownInCatchVariables": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noEmitOnError": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "resolveJsonModule": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "types": ["node"],
+    "composite": true,
+    "rootDir": ".",
+    "outDir": "dist"
+  },
+  "include": ["src", "test"]
+}

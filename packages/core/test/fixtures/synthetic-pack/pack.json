@@ -1,0 +1,125 @@
+{
+  "schema": "context-lab.pack/1",
+  "id": "orchard",
+  "sources": [
+    {
+      "id": "almanac",
+      "path": "source",
+      "addresses": [
+        "https://example.invalid/almanac"
+      ]
+    }
+  ],
+  "variants": [
+    {
+      "id": "almanac-full",
+      "source": "almanac",
+      "transform": "trim",
+      "canaries": [
+        "The heron counts eleven stones."
+      ]
+    }
+  ],
+  "arms": [
+    {
+      "id": "bare",
+      "deliver": []
+    },
+    {
+      "id": "almanac",
+      "deliver": [
+        {
+          "variant": "almanac-full",
+          "file": "GUIDE.md",
+          "as": "instruction"
+        }
+      ]
+    }
+  ],
+  "population": [
+    {
+      "id": "p1",
+      "family": "f1",
+      "runtime": "opencode",
+      "model": "m1"
+    },
+    {
+      "id": "p2",
+      "family": "f2",
+      "runtime": "codex",
+      "model": "m2"
+    }
+  ],
+  "hooks": [
+    {
+      "id": "check-decl",
+      "kind": "declaration-check",
+      "file": "hooks/check.mjs",
+      "timeLimitSeconds": 20
+    },
+    {
+      "id": "trim",
+      "kind": "variant-transform",
+      "file": "hooks/trim.mjs",
+      "timeLimitSeconds": 20
+    },
+    {
+      "id": "count-words",
+      "kind": "outcome-measure",
+      "file": "hooks/count.mjs",
+      "timeLimitSeconds": 20
+    }
+  ],
+  "masks": {
+    "identifiers": [
+      "\\bPOL-\\d+\\b"
+    ],
+    "selfExplanationMarker": "WHY:"
+  },
+  "isolation": {
+    "leakProbes": [
+      {
+        "id": "heron",
+        "question": "How many stones does the heron count?",
+        "leak": "eleven",
+        "arms": [
+          "bare"
+        ]
+      }
+    ],
+    "forbidden": {
+      "paths": [
+        "/srv/orchard-private"
+      ],
+      "addresses": [
+        "https://example.invalid/almanac"
+      ]
+    }
+  },
+  "experiments": [
+    "experiments/orchard.json"
+  ],
+  "suites": [
+    {
+      "id": "all-orchard",
+      "experiment": "orchard",
+      "select": {
+        "allTags": [
+          "orchard"
+        ]
+      }
+    },
+    {
+      "id": "pruning",
+      "experiment": "orchard",
+      "select": {
+        "anyTags": [
+          "exercises:prune-rule"
+        ]
+      }
+    }
+  ],
+  "records": {
+    "path": "records"
+  }
+}

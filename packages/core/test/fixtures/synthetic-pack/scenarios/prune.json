@@ -1,0 +1,9 @@
+{
+  "id": "prune",
+  "tags": ["orchard", "exercises:prune-rule"],
+  "fixture": null,
+  "task": "Say which branches of the apple tree to prune in winter.",
+  "properties": [
+    { "id": "prune-1", "type": "comprehension", "decidedBy": "judge", "key": "Names crossing branches.", "scale": [0, 2] }
+  ]
+}
