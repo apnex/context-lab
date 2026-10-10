@@ -1,6 +1,6 @@
 # context-lab - vision
 
-**Status: draft, for ratification by the director.**
+**Status: ratified by the director on 2026-10-10 (`docs/DECISIONS.md` 0001).**
 
 ---
 
