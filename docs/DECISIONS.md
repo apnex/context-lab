@@ -38,6 +38,7 @@ They are not copied here; this register starts at the vision.
 | 0016 | 2026-10-11 | Comprehension answers are judged in eval.mjs's scorer form verbatim but for one change: judges reply with their score lines instead of writing a file and replying DONE. | director | ratified | - |
 | 0017 | 2026-10-11 | Delta-1 is complete: every exit criterion was evaluated green by an agent that built none of the code. | executor, evaluated by the verifier | recorded | - |
 | 0018 | 2026-10-11 | Milestone M2, multi-phase episodes and the change gate, is the next move, opened as Delta-2. | director | ratified | - |
+| 0019 | 2026-10-11 | Delta-2 is ratified, revision 3: a gate runs base and head as two arms of one run; the gate rule is the largest standardised drop over m properties against a threshold exceeded one time in ten under A/A, persistence tested on nested sets; mission-kit's handoff and A/A experiments state a pooled detectable difference of 0.25 in pass rate, with the default that no change is indicated. | director | ratified | - |
 
 ---
 
@@ -271,4 +272,15 @@ M3, zorg's pack and human judging - not chosen; the standing suite's question, w
 
 **Source.**\
 `[V, director selection 2026-10-11]`
+
+### 0019
+
+**Ruling.**\
+Delta-2 is ratified as revision 3, with its three open points settled as recommended: one run with two arms for a gate; the gate rule as drafted; a stated variation of 0.25 pooled for mission-kit's two new experiments, defaulting to no change indicated.
+
+**Alternatives refuted.**\
+Two separate runs for a gate - refuted because provider drift between runs would read as a change, and mission-kit's design runs base and head as arms of one run.
+
+**Source.**\
+`[V, director ruling 2026-10-11]`
 

@@ -1,7 +1,7 @@
 # Delta-2 - multi-phase episodes and the change gate - a vertical slice
 
 ```yaml
-status:     draft revision 3 - adversarial review and re-check applied; for the director's ratification
+status:     ratified (docs/DECISIONS.md 0019) - revision 3; stage 1 open
 selected:   docs/DECISIONS.md 0018, board items M2.1, M2.2, M2.3
 from-state: Delta-1's to-state (0017): one-phase experiments, isolation probed, judged, tallied
 to-state:   docs/ARCHITECTURE-TARGET.md (0006), the parts fenced in section 1
@@ -36,7 +36,7 @@ This delta builds:
 - **Restated-guidance flags**, by code and diagnostic only: words are maximal runs of letters, digits and apostrophes after lowercasing, markdown dropped; a note or final message sharing twelve or more consecutive words with a file delivered to the arm as `instruction` or `folder-file` is flagged with both paths.
 - **Stated variation.** An experiment declared `result` must state `variation: { difference, scope }` - the smallest difference in pass rate it means to detect, per property or pooled - and `default`, the decision taken when none is detected; `recordExperiment` refuses such an experiment without them, and both are covered by the register's hash. The result reports, per scope, the difference detectable at 80% power and 5% two-sided, `(1.96 + 0.84) * sqrt(2 p (1 - p) / n)`, with `p` the pooled rate and `n` the outcomes per arm, beside the stated difference.
 - **Held-out scenarios**, reported only in their own section of a result and of a comparison and in no total. A project declares, by a command, that a named change was informed by a held-out scenario's outcomes; the register records it, append-only; later results and comparisons list that scenario as exposed to that change.
-- **Gates as one run with two arms.** A change gate runs base and head as two arms of one run, as mission-kit's ratified standing-suite design states (its sections 8 and 10), so both meet the same provider at the same time; a variant may therefore declare its own `revision`, overriding the run's. An A/A run is one run with two arms delivering the same variant at the same revision - this shape is pending the director's confirmation.
+- **Gates as one run with two arms.** A change gate runs base and head as two arms of one run, as mission-kit's ratified standing-suite design states (its sections 8 and 10), so both meet the same provider at the same time; a variant may therefore declare its own `revision`, overriding the run's. An A/A run is one run with two arms delivering the same variant at the same revision (`0019`).
 - **Words used below.** A *cell* is a scenario, an arm and a member; a *cell run* is one of its runs. A property's rate in an arm is its mean over that arm's outcomes, cell runs invalid for behaviour scored at the bottom of the scale and others excluded, as the tally already does.
 - **The threshold deriver.** Its input is one A/A run: two identical arms, A and B, at nine runs per cell. For each scenario and member it pools the present cell runs of both arms - eighteen when none is excluded. A property's drop between two sets is standardised: `d = (rateA - rateB) / sqrt(2 p (1 - p) / n)`, `p` the property's rate over both sets together, `n` the outcomes per set, and `d = 0` where `p` is 0 or 1. For a size `k` of 3 or 9, with the generator the blinder uses seeded by the experiment's hash and `k`, it draws 1000 splits: for each, in sorted order of scenario and member, it shuffles that pool and takes the first `k'` runs as set A and the next `k'` as set B, where `k' = min(k, floor(n_pool / 2))`; every property uses the same split. Per split it takes the largest `d` over `m` properties - `m` declared by the comparison rule, by default every property the experiment holds. The threshold for size `k` is the nine-hundredth of the 1000 sorted largest values, and a drop flags only when strictly greater. It also reports, from nested splits whose first three runs per side form the size-3 sets, how often the two-stage rule below flags a persisting drop; and, as a drift check, where the actual arm A against arm B largest drop falls among the splits. It records `m`, the split count, the run id and both thresholds, and refuses a pool of fewer than twelve present runs.
 - **A tally restricted to cell runs 1 to `k`**, so the first stage of the gate can read a nine-run record as a three-run one.
@@ -154,7 +154,7 @@ The pack changes are authorised by mission-kit's `0087`, as Delta-1's were; the 
 
 **Author's choices**, not settled by any ruling: the re-run unit is the whole episode; a missing own note becomes `(no note was written)`; exposure is recorded per change, as the architecture's register states.
 
-**For the director at ratification:** the gate's shape - one run with base and head as arms, as recommended and drafted, or two runs; the reading of mission-kit's gate rule as the largest standardised drop over `m` properties at the ninetieth percentile, a flag being one property or more, with persistence tested on nested sets; and the stated variation and default of the A/A and handoff experiments.
+**Settled at ratification (`0019`):** the gate's shape - one run with base and head as arms, as recommended and drafted, or two runs; the reading of mission-kit's gate rule as the largest standardised drop over `m` properties at the ninetieth percentile, a flag being one property or more, with persistence tested on nested sets; and the stated variation and default of the A/A and handoff experiments - 0.25 pooled, defaulting to no change indicated.
 
 ---
 
@@ -197,5 +197,5 @@ Ratify after fixes.
 | A tally of runs 1 to 3 that nothing built; source revision drifting between runs | should-fix | Both fenced, and the A/A runs pinned to one revision |
 | The handoff key audit named no procedure or artifact | should-fix | Audit file, its contents, and that F13 runs only on an audited key |
 | The two-stage rule's rate unestimated | should-fix | Estimated from nested splits and reported |
-| The gate as two runs departed from mission-kit's design | should-fix | Redrafted as one run with two arms, pending the director's confirmation |
+| The gate as two runs departed from mission-kit's design | should-fix | Redrafted as one run with two arms; confirmed (`0019`) |
 | Comparator not checking `m`; thresholds suite-specific; rotation unbalanced; drift claim; parallelism inferred | minor | Refusal added; non-claims added |
