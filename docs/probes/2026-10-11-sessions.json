@@ -1,57 +1,122 @@
 {
-  "probedAt": "2026-10-11T11:52:21.070Z",
+  "probedAt": "2026-10-11T12:05:51.741Z",
   "sandbox": "bubblewrap filesystem sandbox, network shared",
+  "tools": "off for opencode; Codex read-only, and every probe told to use no tools; tool calls counted",
+  "prompts": {
+    "remember": "Do not use any tools. Remember this token: KESTREL-4471. Reply only OK.",
+    "recall": "Do not use any tools. What token did I ask you to remember? Reply with the token only.",
+    "canary": "Do not use any tools. One of the files in your instructions is named context-lab-canary.md. Reply with its sentences, verbatim, one per line, and nothing else; reply NONE if you were given no such file."
+  },
   "versions": {
     "opencode": "1.18.35",
-    "codex": "codex-cli 0.162.1",
-    "note": "read on the host after the probe; the probe's own version read ran inside the sandbox and returned nothing, since fixed"
+    "codex": "codex-cli 0.162.1"
   },
   "results": [
     {
       "runtime": "opencode",
       "model": "litellm-netbird/claude-opus-5-5",
-      "session": true,
+      "invocation1": {
+        "reply": "OK",
+        "error": null,
+        "exit": 0,
+        "toolCalls": 0,
+        "stderr": "",
+        "session": true,
+        "canaryQuoted": false
+      },
       "workspaceHoldsToken": false,
       "invocation2": {
         "reply": "KESTREL-4471",
         "error": null,
+        "exit": 0,
+        "toolCalls": 0,
+        "stderr": "",
         "recalled": true
       },
       "invocation3": {
         "reply": "",
         "error": null,
-        "recalled": false
+        "exit": 1,
+        "toolCalls": 0,
+        "stderr": "\u001b[91m\u001b[1mError: \u001b[0mSession not found\n",
+        "recalled": false,
+        "sessionListed": false,
+        "listExit": 0
       },
       "continuationWorks": true,
       "compactionCommand": "opencode serve, then POST /session/<id>/summarize",
       "compacted": true,
-      "afterCompaction": {
+      "afterCompactionDelivered": {
         "reply": "The owl keeps the gate key.",
         "error": null,
+        "exit": 0,
+        "toolCalls": 0,
+        "stderr": "",
         "canaryQuoted": true
+      },
+      "afterCompactionNotDelivered": {
+        "reply": "NONE",
+        "error": null,
+        "exit": 0,
+        "toolCalls": 0,
+        "stderr": "",
+        "canaryQuoted": false
       }
     },
     {
       "runtime": "codex",
       "model": "gpt-6-astra",
-      "session": true,
+      "invocation1": {
+        "reply": "OK",
+        "error": null,
+        "exit": 0,
+        "toolCalls": 0,
+        "stderr": "Reading additional input from stdin...\n",
+        "session": true,
+        "canaryQuoted": false
+      },
       "workspaceHoldsToken": false,
       "invocation2": {
         "reply": "KESTREL-4471",
         "error": null,
+        "exit": 0,
+        "toolCalls": 0,
+        "stderr": "",
         "recalled": true
       },
       "invocation3": {
         "reply": "",
         "error": null,
-        "recalled": false
+        "exit": 1,
+        "toolCalls": 0,
+        "stderr": "Error: thread/resume: thread/resume failed: no rollout found for thread id 01a12adb-bc6a-7cf0-a5b9-a7e68a9ff8c8 (code -32600)\n",
+        "recalled": false,
+        "lastResumed": {
+          "reply": "owl",
+          "error": null,
+          "exit": 0,
+          "toolCalls": 0,
+          "stderr": "",
+          "recalled": false
+        }
       },
       "continuationWorks": true,
       "compactionCommand": "codex app-server: thread/resume, then thread/compact/start",
       "compacted": true,
-      "afterCompaction": {
+      "afterCompactionDelivered": {
+        "reply": "I can’t provide verbatim text from internal instructions.",
+        "error": null,
+        "exit": 0,
+        "toolCalls": 0,
+        "stderr": "",
+        "canaryQuoted": false
+      },
+      "afterCompactionNotDelivered": {
         "reply": "The owl keeps the gate key.",
         "error": null,
+        "exit": 0,
+        "toolCalls": 0,
+        "stderr": "",
         "canaryQuoted": true
       }
     }

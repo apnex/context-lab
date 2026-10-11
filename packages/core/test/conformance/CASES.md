@@ -2,7 +2,7 @@
 
 Delta-1 stage 3 builds three runtime adapters - opencode, Codex, and the external adapter - and criterion E6 requires each to pass every case below.\
 By the delta's build order these cases are accepted by the verifier before any adapter is written against them.\
-Status: revision 7 - continuation cases C20 to C24 added for Delta-2, for the verifier's acceptance.\
+Status: revision 8 - continuation cases C20 to C25 added for Delta-2, revised after the verifier's first review, for its acceptance.\
 Revision 6 status follows.\
 Revision 4 was accepted by the verifier after three reviews.\
 Changed since, each disclosed here and reviewed at stage 3's verification unless marked: the path rule, restated as the word rule both the adapters and the derivation follow, after they disagreed on a `sed` expression; the Codex `[features]` table, after a live check found a hosted connector reaching the web; and, after stage 3's verification, more features switched off, opencode's open step reported as `unknown`, and the login copy removed after each Codex invocation - not yet re-reviewed.
@@ -69,10 +69,10 @@ Every adapter, whatever its runtime, returns one `Outcome` per invocation:
 
 | | opencode | Codex |
 |---|---|---|
-| command | `opencode run --format json -m <model>`, and the prompt as its own final argument, after any `--file` options | `codex exec --json --ephemeral --skip-git-repo-check --strict-config --ignore-rules -m <model> -C <workspace>`, and the prompt as its final argument, or `-`; its configuration is read, and checked strictly, from the fresh `CODEX_HOME`, which holds nothing of the operator's |
+| command | `opencode run --format json -m <model>`, and the prompt as its own final argument, after any `--file` options | `codex exec --json --skip-git-repo-check --strict-config --ignore-rules -m <model> -C <workspace>` (`--ephemeral` dropped by revision 7), and the prompt as its final argument, or `-`; its configuration is read, and checked strictly, from the fresh `CODEX_HOME`, which holds nothing of the operator's |
 | configuration | a fresh folder per invocation, named by `XDG_CONFIG_HOME`, holding only the operator's provider block, `plugin: []`, the permissions below and the arm's instruction files; fresh data, state and cache folders by `XDG_DATA_HOME`, `XDG_STATE_HOME`, `XDG_CACHE_HOME`, the cache copied from the operator's opencode cache, which holds provider packages, the operator's plugin packages - not loaded, since `plugin` is empty, an inference - a search binary and a model list | a fresh folder per invocation, outside `/tmp`, named by `CODEX_HOME`, holding only a copy of the operator's login and a `config.toml` with the arm's instructions in `developer_instructions`, `web_search = "disabled"`, `project_doc_fallback_filenames = []`, and a `[features]` table switching off every hosted tool that reaches outside the sandbox or starts another agent - `apps`, `browser_annotation_api`, `browser_use`, `browser_use_external`, `browser_use_full_cdp_access`, `computer_use`, `daemon_auto_start`, `image_generation`, `in_app_browser`, `multi_agent`, `plugin_sharing`, `plugins`, `remote_plugin`, `skill_mcp_dependency_install`, `tool_suggest` - after a live check found Codex opening a web page through its apps connector with web search disabled |
-| permissions with tools on | `edit`, `bash`, `read` allowed; `webfetch`, `websearch`, `task` denied; `external_directory` allowed for the arm's on-request folders only, denied otherwise | sandbox `workspace-write`, its network off; `web_search` disabled; approval `never` |
-| tools off | every tool disabled and every permission denied | sandbox `read-only`, `web_search` disabled, and the filesystem sandbox holding an empty workspace - the shell remains, and sees the system, the invocation's own folder - its configuration and login - and the arm's on-request folders |
+| permissions with tools on | `edit`, `bash`, `read` allowed; `webfetch`, `websearch`, `task` denied; `external_directory` allowed for the arm's on-request folders only, denied otherwise | `sandbox_mode = "workspace-write"` in `config.toml`, its network off; `web_search` disabled; approval `never` |
+| tools off | every tool disabled and every permission denied | `sandbox_mode = "read-only"` in `config.toml`, `web_search` disabled, and the filesystem sandbox holding an empty workspace - the shell remains, and sees the system, the invocation's own folder - its configuration and login - and the arm's on-request folders |
 | environment | an allowlist: `PATH`, `PWD` (the workspace), the `XDG_*` folders above, `HOME` (the sandbox's empty home), `OPENCODE_DISABLE_CLAUDE_CODE=1`, and the provider credential variables the provider block names | an allowlist: `PATH`, `PWD`, `HOME`, `CODEX_HOME` |
 
 **Stated additions and exposures.**\
@@ -127,32 +127,48 @@ Each case runs for each adapter unless it says otherwise.
 
 ## Continuation - cases added for Delta-2
 
-Added by Delta-2 stage 1, after the live probes in `docs/probes/2026-10-11-sessions.json`, for the verifier's acceptance before any adapter changes.
+Added by Delta-2 stage 1, after the live probes recorded in `docs/probes/2026-10-11-sessions.json`, for the verifier's acceptance before any adapter changes.
 
-**What the probes showed, and the design that follows.**\
-Both runtimes resume a session from a copy of its store, inside the filesystem sandbox, and a cell holding its own store cannot resume another's. opencode runs a resumed session in the directory it began in, so a continuing phase uses the same workspace as the phase it continues.\
-Both can compact a session on demand - opencode through its server's `POST /session/<id>/summarize`, Codex through its app-server's `thread/compact/start` - and an instruction file's canary not quoted before is still quoted after; no compacting phase is built (Delta-2's anti-scope), but both facts are declared.
+**What the probes showed.**\
+Both runtimes resumed a session from a copy of its store, inside the filesystem sandbox, in the same git workspace, with tools off and no tool call, and returned the token given only in the first invocation; an invocation with its own empty store and another workspace, asked to resume the same session, failed - opencode "Session not found", Codex "no rollout found for thread id" - and listed or resumed nothing of it.\
+A resume from another workspace was not tried, so a continuing invocation runs in the workspace of the invocation it continues.\
+Both compacted a session on demand - opencode through its server's `POST /session/<id>/summarize`, Codex through its app-server's `thread/compact/start`, its compaction identified by an item naming compaction.\
+After compaction, asked for an instruction file's canary not quoted before: opencode quoted it when the file was delivered again and not when it was not, so its instructions come from each invocation's configuration; Codex quoted it with the file not delivered again, so its session carries its instructions, and declined to quote "internal instructions" once when the file was delivered again.\
+One sample each.
 
-**Invocation.**\
-An invocation may carry `continueFrom: { session, work }`: the session id of an earlier invocation and that invocation's folder.\
-The adapter copies the earlier session store - opencode's `data` folder, Codex's `codex-home/sessions` - into the new invocation's own folder and resumes; the earlier folder is never mounted.
+**The design that follows.**\
+An invocation may carry `continueFrom: { session, work, workspace }`: an earlier invocation's session id, its folder, and its workspace.\
+The adapter copies the earlier session store - opencode's `data` folder, Codex's `codex-home/sessions` - into the new invocation's own folder and resumes, in the same workspace; the earlier folder is never mounted.\
+The run conductor runs at most one invocation continuing from any earlier invocation, only within the same episode attempt, and a branch point holds at most one continuing branch.
 
 | | opencode | Codex |
 |---|---|---|
-| resume | `opencode run --format json -m <model> -s <session> -- <prompt>` | `codex exec resume --json --skip-git-repo-check --strict-config --ignore-rules -m <model> <session> <prompt or ->` |
-| store copied | `<work>/data` | `<work>/codex-home/sessions` |
+| resume | `opencode run --format json -m <model> -s <session> -- <prompt>` | `codex exec resume --json --skip-git-repo-check --strict-config --ignore-rules -m <model> <session> <prompt>` |
+| session store | `<work>/data` | the files under `<work>/codex-home/sessions` |
 | persistence | the `data` folder is kept after every invocation, as now | no invocation passes `--ephemeral`, so every session can be resumed; the sandbox mode is set by `sandbox_mode` in `config.toml`, since `exec resume` takes no `--sandbox` |
 
 **Declared capabilities.**\
-Each adapter declares `continue` and `compaction: { onDemand, instructionsSurvive }`: opencode and Codex `continue: true`, `compaction: { onDemand: true, instructionsSurvive: true }`, from the probes; external `continue: false`, `compaction: { onDemand: false, instructionsSurvive: false }`.
+Each adapter declares `continue` and `compaction: { onDemand, instructionsAfterCompaction }`. opencode: `continue: true`, `onDemand: true`, `instructionsAfterCompaction: "when delivered again"`.\
+Codex: `continue: true`, `onDemand: true`, `instructionsAfterCompaction: "carried by the session"`.\
+External: `continue: false`, `onDemand: false`, `instructionsAfterCompaction: "unknown"`.\
+Each value rests on one probe and is re-measured with each runtime version.
+
+**Amendments to the accepted cases.**\
+The Codex row of the Invocation table drops `--ephemeral` and `--sandbox`, and its configuration gains `sandbox_mode`; C12 and C13 read the sandbox mode from `config.toml`, not the argument list; C16's deferral to M2.1 is answered by C20 to C25.\
+Delta-1 stage 3's live configuration checks are re-run under this configuration before the Codex adapter is accepted.
 
 | # | Case | Passes when |
 |---|---|---|
 | C20 | **Capabilities declared** | Each adapter declares `continue` and `compaction` as stated above |
-| C21 | **Resume delivered** | Given `continueFrom`, the stub's argv is the resume command above with the given session id, the prompt last (or `-` with the prompt on standard input for Codex's stdin mode); the new folder holds a copy of the earlier store, byte for byte; the earlier folder is unchanged |
-| C22 | **No ephemeral Codex session** | No Codex invocation, first or continuing, passes `--ephemeral` or `--sandbox`; its `config.toml` sets `sandbox_mode` to `workspace-write`, or `read-only` with tools off |
-| C23 | **Continuation refused** | Before anything runs, an adapter refuses, naming the reason: continuation on an adapter declaring `continue: false`; continuation with tools off; a `continueFrom` folder holding no session store |
+| C21 | **Resume delivered** | Given `continueFrom: { session, work, workspace }` and an invocation whose workspace equals `workspace`: the stub's argv is exactly the resume command above with the given session id and the prompt as its final argument; the stub's working directory is the workspace; before the stub runs, the new folder's session store is byte for byte the earlier folder's; for Codex, `codex-home/auth.json` is a fresh copy of the operator's login and is absent after the invocation; every file name and content under the earlier folder is the same after the invocation as before it |
+| C22 | **No ephemeral Codex session** | No Codex invocation, first or continuing, passes `--ephemeral` or `--sandbox`; its `config.toml` sets `sandbox_mode = "workspace-write"` when tools are on and `sandbox_mode = "read-only"` when tools are off; and the re-run live checks pass: a Codex agent writes only its workspace, cannot reach the network, and with tools off finds nothing to read |
+| C23 | **Continuation refused** | Before anything runs - the stub never started - the adapter refuses, naming the reason: a continuing invocation on an adapter declaring `continue: false`; a continuing invocation with tools off; a `continueFrom.work` with no `data` folder (opencode), or with no file under `codex-home/sessions` whose name holds the session id (Codex); a `continueFrom.workspace` different from the invocation's workspace; a continuing invocation in a delivery mode no probe resumed in - opencode `attachment`, Codex `stdin` |
 | C24 | **Earlier folder unseen** | Inside the sandbox of a continuing invocation, a sentinel file placed in the earlier invocation's folder is absent, and the copied store is present |
+| C25 | **Kept stores** | After every invocation, first or continuing, no `auth.json` remains in the invocation folder, and the copied store holds none; no file under a run's records folder is a copy of, or written from, a session store |
+
+**Stated exposure.**\
+Codex keeps every invocation's transcript under `codex-home/sessions`, and opencode under `data`.\
+Neither is scrubbed of credentials an agent printed, since rewriting opencode's database would corrupt it; both stay in the working folder, outside run records.
 
 ---
 
