@@ -2,7 +2,8 @@
 
 Delta-1 stage 3 builds three runtime adapters - opencode, Codex, and the external adapter - and criterion E6 requires each to pass every case below.\
 By the delta's build order these cases are accepted by the verifier before any adapter is written against them.\
-Status: revision 6.\
+Status: revision 7 - continuation cases C20 to C24 added for Delta-2, for the verifier's acceptance.\
+Revision 6 status follows.\
 Revision 4 was accepted by the verifier after three reviews.\
 Changed since, each disclosed here and reviewed at stage 3's verification unless marked: the path rule, restated as the word rule both the adapters and the derivation follow, after they disagreed on a `sed` expression; the Codex `[features]` table, after a live check found a hosted connector reaching the web; and, after stage 3's verification, more features switched off, opencode's open step reported as `unknown`, and the login copy removed after each Codex invocation - not yet re-reviewed.
 
@@ -121,6 +122,37 @@ Each case runs for each adapter unless it says otherwise.
 | C17 | **What was in flight** | For a synthetic stream ending after a model call began, `stop.inFlight` is `model` for Codex and `unknown` for opencode; for Codex, after a tool call began, `tool`; after both ended, `none` |
 | C18 | **Trace** | The trace holds one normalised event per runtime event the mapping names, in arrival order, each with an `at` that never decreases |
 | C19 | **Credentials removed** | For a synthetic stream in which a tool's output prints the provider key, neither the raw events written nor the trace contain the key |
+
+---
+
+## Continuation - cases added for Delta-2
+
+Added by Delta-2 stage 1, after the live probes in `docs/probes/2026-10-11-sessions.json`, for the verifier's acceptance before any adapter changes.
+
+**What the probes showed, and the design that follows.**\
+Both runtimes resume a session from a copy of its store, inside the filesystem sandbox, and a cell holding its own store cannot resume another's. opencode runs a resumed session in the directory it began in, so a continuing phase uses the same workspace as the phase it continues.\
+Both can compact a session on demand - opencode through its server's `POST /session/<id>/summarize`, Codex through its app-server's `thread/compact/start` - and an instruction file's canary not quoted before is still quoted after; no compacting phase is built (Delta-2's anti-scope), but both facts are declared.
+
+**Invocation.**\
+An invocation may carry `continueFrom: { session, work }`: the session id of an earlier invocation and that invocation's folder.\
+The adapter copies the earlier session store - opencode's `data` folder, Codex's `codex-home/sessions` - into the new invocation's own folder and resumes; the earlier folder is never mounted.
+
+| | opencode | Codex |
+|---|---|---|
+| resume | `opencode run --format json -m <model> -s <session> -- <prompt>` | `codex exec resume --json --skip-git-repo-check --strict-config --ignore-rules -m <model> <session> <prompt or ->` |
+| store copied | `<work>/data` | `<work>/codex-home/sessions` |
+| persistence | the `data` folder is kept after every invocation, as now | no invocation passes `--ephemeral`, so every session can be resumed; the sandbox mode is set by `sandbox_mode` in `config.toml`, since `exec resume` takes no `--sandbox` |
+
+**Declared capabilities.**\
+Each adapter declares `continue` and `compaction: { onDemand, instructionsSurvive }`: opencode and Codex `continue: true`, `compaction: { onDemand: true, instructionsSurvive: true }`, from the probes; external `continue: false`, `compaction: { onDemand: false, instructionsSurvive: false }`.
+
+| # | Case | Passes when |
+|---|---|---|
+| C20 | **Capabilities declared** | Each adapter declares `continue` and `compaction` as stated above |
+| C21 | **Resume delivered** | Given `continueFrom`, the stub's argv is the resume command above with the given session id, the prompt last (or `-` with the prompt on standard input for Codex's stdin mode); the new folder holds a copy of the earlier store, byte for byte; the earlier folder is unchanged |
+| C22 | **No ephemeral Codex session** | No Codex invocation, first or continuing, passes `--ephemeral` or `--sandbox`; its `config.toml` sets `sandbox_mode` to `workspace-write`, or `read-only` with tools off |
+| C23 | **Continuation refused** | Before anything runs, an adapter refuses, naming the reason: continuation on an adapter declaring `continue: false`; continuation with tools off; a `continueFrom` folder holding no session store |
+| C24 | **Earlier folder unseen** | Inside the sandbox of a continuing invocation, a sentinel file placed in the earlier invocation's folder is absent, and the copied store is present |
 
 ---
 
