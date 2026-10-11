@@ -1,0 +1,74 @@
+{
+  "checkedAt": "2026-10-11T12:30:19.326Z",
+  "models": [
+    "litellm-netbird/claude-opus-5-5",
+    "gpt-6-astra"
+  ],
+  "results": [
+    {
+      "check": "opencode: instructions arrive",
+      "ok": true,
+      "detail": "completed; tools none; final \"The heron counts eleven stones.\""
+    },
+    {
+      "check": "opencode: an on-request folder is readable",
+      "ok": true,
+      "detail": "completed; tools read:completed; final \"plum-orchard-4417\""
+    },
+    {
+      "check": "opencode: a file beside the workspace is not readable",
+      "ok": true,
+      "detail": "completed; tools read:declined; final \"UNAVAILABLE\\n\\nThe file is outside the workspace, and a permission rule blocks reading it.\""
+    },
+    {
+      "check": "opencode: no tool reaches the web",
+      "ok": true,
+      "detail": "completed; tools none; final \"UNAVAILABLE\\n\\nI don't have a web fetch or web search tool here. My only tools are shell, file read/write/edit, glob, grep\""
+    },
+    {
+      "check": "opencode: tools off leaves nothing to read",
+      "ok": true,
+      "detail": "completed; tools none; final \"UNAVAILABLE\\n\\nI have no file-reading tools available in this session, so I can't open `notes.txt`.\""
+    },
+    {
+      "check": "codex: instructions arrive",
+      "ok": true,
+      "detail": "completed; tools none; final \"The heron counts eleven stones.\""
+    },
+    {
+      "check": "codex: an on-request folder is readable",
+      "ok": true,
+      "detail": "completed; tools command_execution:completed; final \"plum-orchard-4417\""
+    },
+    {
+      "check": "codex: a file beside the workspace is not readable",
+      "ok": true,
+      "detail": "completed; tools command_execution:error; final \"UNAVAILABLE\""
+    },
+    {
+      "check": "codex: no tool reaches the web",
+      "ok": true,
+      "detail": "completed; tools none; final \"UNAVAILABLE\""
+    },
+    {
+      "check": "codex: the shell cannot reach the network",
+      "ok": true,
+      "detail": "completed; tools command_execution:completed; final \"```text\\ncurl: (6) Could not resolve host: example.com\\n```\""
+    },
+    {
+      "check": "codex: the shell writes only its workspace",
+      "ok": true,
+      "detail": "completed; tools command_execution:completed; final \"DONE — the `$CODEX_HOME` write failed (read-only filesystem); `./agent-wrote.txt` was written.\""
+    },
+    {
+      "check": "codex: a continuing invocation's shell writes only its workspace and cannot reach the network",
+      "ok": true,
+      "detail": "completed; tools command_execution:completed; final \"- First `echo`: `Read-only file system` for `$CODEX_HOME/agent-wrote.txt`.\\n- Second `echo`: No output; wrote `x` to `./a\""
+    },
+    {
+      "check": "codex: tools off leaves nothing to read",
+      "ok": true,
+      "detail": "completed; tools command_execution:error; final \"UNAVAILABLE\""
+    }
+  ]
+}

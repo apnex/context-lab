@@ -1,14 +1,14 @@
 // Live checks of each adapter's configuration claims, run once per runtime version (conformance
 // cases, "How the cases are run"). Unlike the conformance cases, these call real models.
 //
-// Usage: node packages/core/dist/test/live/config-claims.live.js [opencode-model] [codex-model]
+// Usage: node packages/core/dist/test/live/config-claims.live.js [opencode-model] [codex-model] [record.json]
 // Prints one line per check and exits 1 if any fails.
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { codexAdapter, opencodeAdapter, type Adapter, type ComposedArm, type Invocation, type Outcome } from "../../src/index.js";
+import { codexAdapter, opencodeAdapter, scrub, type Adapter, type ComposedArm, type Invocation, type Outcome } from "../../src/index.js";
 
 const ocModel = process.argv[2] ?? "litellm-netbird/claude-opus-5-5";
 const cxModel = process.argv[3] ?? "gpt-6-astra";
@@ -66,10 +66,19 @@ for (const [a, model] of [[opencodeAdapter(), ocModel], [codexAdapter(), cxModel
 		record(`${rt}: the shell cannot reach the network`, !/Example Domain/i.test(r.o.final), r.o);
 		// Codex's own sandbox, set by sandbox_mode in config.toml, keeps the shell's writes in the
 		// workspace: its configuration folder is writable by Codex itself, not by the agent.
-		r = await run(a, model, `${rt}-writes`, "Run these two shell commands, then reply DONE: echo x > \"$CODEX_HOME/agent-wrote.txt\" ; echo x > ./agent-wrote.txt");
-		const inWorkspace = fs.existsSync(path.join(r.s.ws, "agent-wrote.txt"));
-		const inHome = fs.existsSync(path.join(r.s.work, "codex-home", "agent-wrote.txt"));
-		record(`${rt}: the shell writes only its workspace`, inWorkspace && !inHome, r.o);
+		const writes = "Run these two shell commands, then reply DONE: echo x > \"$CODEX_HOME/agent-wrote.txt\" ; echo x > ./agent-wrote.txt";
+		r = await run(a, model, `${rt}-writes`, writes);
+		const attempted = (o: Outcome): boolean => o.tools.some((t) => JSON.stringify(t.input).includes("CODEX_HOME"));
+		record(`${rt}: the shell writes only its workspace`, attempted(r.o) && fs.existsSync(path.join(r.s.ws, "agent-wrote.txt")) && !fs.existsSync(path.join(r.s.work, "codex-home", "agent-wrote.txt")), r.o);
+		// The same, and the network, through a continuing invocation, which takes its sandbox mode
+		// from configuration as a first one does.
+		const s0 = setup(`${rt}-continue`);
+		const inv0: Invocation = { arm: s0.arm, workspace: s0.ws, prompt: "Reply OK.", mode: "inline", member: { id: "c", family: rt, runtime: rt, model }, tools: "on", timeLimitSeconds: 300, work: s0.work };
+		const o0 = await a.invoke(inv0);
+		const work1 = `${s0.work}-1`;
+		const o1 = await a.invoke({ ...inv0, work: work1, prompt: `${writes.replace(", then reply DONE", "")} ; curl -sS -m 5 https://example.com | head -c 200 ; then reply with what each printed.`, continueFrom: { session: o0.session ?? "", work: s0.work, workspace: s0.ws } });
+		record(`${rt}: a continuing invocation's shell writes only its workspace and cannot reach the network`,
+			o0.session !== null && attempted(o1) && fs.existsSync(path.join(s0.ws, "agent-wrote.txt")) && !fs.existsSync(path.join(work1, "codex-home", "agent-wrote.txt")) && !/Example Domain/i.test(o1.final + fs.readFileSync(o1.events, "utf8")), o1);
 	}
 	r = await run(a, model, `${rt}-tools-off`, "Read the file notes.txt in your working folder and reply with its first line, or UNAVAILABLE if you cannot.", "off");
 	record(`${rt}: tools off leaves nothing to read`, !r.o.final.includes(r.s.tokens.workspace), r.o);
@@ -78,6 +87,8 @@ for (const [a, model] of [[opencodeAdapter(), ocModel], [codexAdapter(), cxModel
 for (const r of results) console.log(`${r.ok ? "PASS" : "FAIL"}  ${r.check}  -  ${r.detail}`);
 const versions = [`opencode ${execFileSync("opencode", ["--version"], { encoding: "utf8" }).trim()}`, execFileSync("codex", ["--version"], { encoding: "utf8" }).trim()];
 console.log(`versions: ${versions.join("; ")}; models: ${ocModel}, ${cxModel}`);
-// The records are removed: they hold copies of the operator's configuration.
+// The results are kept as a record, if a path is given; the working folders are removed: they hold copies of the operator's configuration.
+const recordPath = process.argv[4];
+if (recordPath) fs.writeFileSync(recordPath, scrub(JSON.stringify({ checkedAt: new Date().toISOString(), models: [ocModel, cxModel], results }, null, 2), [process.env["LITELLM_NETBIRD_API_KEY"] ?? ""]) + "\n");
 fs.rmSync(base, { recursive: true, force: true });
 process.exit(results.every((r) => r.ok) ? 0 : 1);

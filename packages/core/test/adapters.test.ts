@@ -138,6 +138,7 @@ test("opencode: instructions, on-request folder, isolation and network as declar
 	assert.deepEqual(r.configFiles, ["./opencode/opencode.json"]);
 	assert.equal(fs.existsSync(path.join(e.work, "cache")), false, "the cache copy was left behind");
 	assert.equal(fs.existsSync(path.join(e.work, "home")), false, "the home was left behind");
+	assert.equal(fs.existsSync(path.join(e.work, "data", "opencode", "auth.json")), false, "a login file was left in the kept data folder");
 	assert.deepEqual(r.sentinels.sort(), [...e.sentinels.map((s) => `absent ${s}`), `readable ${e.workspace}`, `readable ${path.join(e.onRequest, "ENTRY.md")}`].sort());
 });
 

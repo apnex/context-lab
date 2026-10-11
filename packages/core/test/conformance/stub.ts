@@ -29,6 +29,8 @@ export function stubScript(o: StubOptions): string {
 	];
 	if (o.configVar) lines.push(`(cd "$${o.configVar}" && find . -type f | LC_ALL=C sort) > "$R/config-files"`);
 	if (o.configVar === "CODEX_HOME") lines.push(': > "$CODEX_HOME/state_5.sqlite"', ': > "$CODEX_HOME/logs_2.sqlite-wal"');
+	// A runtime writing a login into its kept data folder, which the adapter must remove (C25).
+	if (o.configVar === "XDG_CONFIG_HOME") lines.push('mkdir -p "$XDG_DATA_HOME/opencode" && echo login > "$XDG_DATA_HOME/opencode/auth.json"');
 	if (o.hang) {
 		lines.push(`sleep ${o.hang.tag}1 &`, `setsid sleep ${o.hang.tag}2 &`, "wait");
 	} else {
