@@ -37,6 +37,7 @@ They are not copied here; this register starts at the vision.
 | 0015 | 2026-10-11 | For a runtime in the filesystem sandbox, a forbidden path the agent names is recorded and does not invalidate the cell; a forbidden address still does, the network being shared. | director | ratified | - |
 | 0016 | 2026-10-11 | Comprehension answers are judged in eval.mjs's scorer form verbatim but for one change: judges reply with their score lines instead of writing a file and replying DONE. | director | ratified | - |
 | 0017 | 2026-10-11 | Delta-1 is complete: every exit criterion was evaluated green by an agent that built none of the code. | executor, evaluated by the verifier | recorded | - |
+| 0018 | 2026-10-11 | Milestone M2, multi-phase episodes and the change gate, is the next move, opened as Delta-2. | director | ratified | - |
 
 ---
 
@@ -259,4 +260,15 @@ This is a record of completion under the ratification of `0009`, not a new rulin
 
 **Source.**\
 `[V, docs/DELTAS/DELTA-1.md Record, closing evaluation]`
+
+### 0018
+
+**Ruling.**\
+M2 is selected from the board, ahead of M3, and opens as Delta-2.
+
+**Alternatives refuted.**\
+M3, zorg's pack and human judging - not chosen; the standing suite's question, whether guidance survives a long session or a compaction, needs multi-phase episodes first.
+
+**Source.**\
+`[V, director selection 2026-10-11]`
 

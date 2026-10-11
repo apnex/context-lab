@@ -51,7 +51,7 @@ It carries mission-kit's adherence suite and one comprehension suite as single-p
 | M1.1 | Core for one-phase experiments, with a run record's time checked against its experiment's record (B13, closed): pack checker, experiment register, variant builder, arm composer, workspace builder, adapters, isolation prober, validity classifier, code measurer, blinder, judge panel, tally, run conductor | `B1` | - |
 | M1.2 | mission-kit's pack: its adherence suite and its `explain` comprehension suite as one-phase experiments, run on the core, with the differences from their last results on mission-kit's own tools reported | `B11` | M1.1 |
 
-## M2 - Multi-phase episodes and the change gate `OPEN`
+## M2 - Multi-phase episodes and the change gate `ACTIVE`
 
 | Item | Move | Cites | Depends on |
 |---|---|---|---|
