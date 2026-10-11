@@ -91,8 +91,6 @@ export function contentHash(loaded: LoadedPack, experimentId: string): string {
 
 // The register lives with the pack, not with run records: it is the evidence that an experiment was
 // fixed before its outcomes existed, so the project keeps it alongside the experiment itself.
-// The register lives with the pack, not with run records: it is the evidence that an experiment was
-// fixed before its outcomes existed, so the project keeps it alongside the experiment itself.
 // It is append-only: recording again adds an entry and never replaces one, so every recording, and
 // when it was made, stays visible against the runs that followed it (B13).
 const registerFile = (loaded: LoadedPack, experimentId: string): string =>

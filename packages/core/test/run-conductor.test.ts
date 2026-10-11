@@ -6,6 +6,7 @@
 // classifier), and B13 (the register is append-only, and a run rests on a record made before it).
 
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
@@ -56,7 +57,10 @@ test("a run moves through every state in order and records what repeating it nee
 	assert.deepEqual(record.scenarios, ["graft", "prune"], "the suite's scenario list is not in the run record");
 	assert.equal(record.suite, "all-orchard");
 	const v = record.variants["almanac-full"];
-	assert.ok(v && "revision" in v && /^[0-9a-f]{40}$/.test(v.revision), "the variant's revision is not in the run record");
+	const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir, encoding: "utf8" }).trim();
+	assert.ok(v && "revision" in v && v.revision === head, "the variant's revision is not the source's in the run record");
+	assert.equal(record.end, "completed");
+	assert.equal(record.timeLimitSeconds, 1200);
 	assert.ok(record.method.version);
 	assert.equal(record.status, "exploration");
 	// 2 scenarios x 2 arms x 2 members x 1 run
@@ -68,11 +72,15 @@ test("code scores are taken from the measure hook, each before the run leaves me
 	const { dir, work, records } = await setup();
 	const { record } = await conductRun(dir, { experiment: "orchard", adapters: { opencode: scripted("opencode"), codex: scripted("codex") }, work, records });
 	const measured = record.states.find((s) => s.state === "measured")!.at;
+	const executed = record.states.find((s) => s.state === "executed")!.at;
 	const graft = cellsOf(records).filter((c) => c.scenario === "graft");
 	assert.equal(graft.length, 4);
 	for (const c of graft) {
 		assert.deepEqual(c.codeScores.map((s) => [s.property, "value" in s ? s.value : s.incomplete]), [["graft-2", 1]]);
-		for (const s of c.codeScores) assert.ok(s.measuredAt <= measured);
+		for (const s of c.codeScores) {
+			assert.ok(!Number.isNaN(Date.parse(s.measuredAt)) && s.measuredAt.length === 24, `${s.measuredAt} is not a time`);
+			assert.ok(s.measuredAt >= executed && s.measuredAt <= measured, "a code score was not taken while measuring");
+		}
 		assert.match(c.diff ?? "", /NOTE\.txt/);
 	}
 	for (const c of cellsOf(records).filter((c) => c.scenario === "prune")) assert.deepEqual(c.codeScores, []);
@@ -83,6 +91,7 @@ test("a measure hook that fails leaves its property incomplete, and nothing else
 	await conductRun(dir, { experiment: "orchard", adapters: { opencode: scripted("opencode"), codex: scripted("codex") }, work, records });
 	for (const c of cellsOf(records).filter((c) => c.scenario === "graft")) {
 		assert.equal(c.valid, true);
+		assert.equal(c.codeScores.length, 1, "a property was dropped rather than left incomplete");
 		assert.ok(c.codeScores.every((s) => "incomplete" in s));
 	}
 });
@@ -154,4 +163,138 @@ test("the self-explanation marker is cut from the final message kept for judging
 test("the method version the run record carries equals the package manifest's", () => {
 	const pkg = JSON.parse(fs.readFileSync(path.join(packageRoot, "package.json"), "utf8")) as { name: string; version: string };
 	assert.deepEqual(METHOD, { package: pkg.name, version: pkg.version });
+});
+
+test("a suite that selects some scenarios records exactly those", async () => {
+	const { dir, work, records } = await setup();
+	const { record } = await conductRun(dir, { suite: "pruning", adapters: { opencode: scripted("opencode"), codex: scripted("codex") }, work, records });
+	assert.deepEqual(record.scenarios, ["prune"]);
+	assert.ok(record.cells.every((c) => c.startsWith("prune.")));
+});
+
+test("the synthetic pack's transform hook runs on its success path", async () => {
+	const { dir, work, records } = await setup((d) => fs.appendFileSync(path.join(d, "source", "GUIDE.md"), "\n\n\n"));
+	const { record } = await conductRun(dir, { experiment: "orchard", adapters: { opencode: scripted("opencode"), codex: scripted("codex") }, work, records });
+	const guide = fs.readFileSync(path.join(work, record.run, "variants", "almanac-full", "GUIDE.md"), "utf8");
+	assert.ok(guide.endsWith(".\n") && !guide.endsWith("\n\n"), "the transform did not trim the guide");
+});
+
+test("a run refuses a record made after it began, before any cell runs", async () => {
+	const { dir, work, records } = await setup();
+	const r = await checkPack(dir);
+	if (!r.ok) throw new Error("pack");
+	recordExperiment(r.loaded, "orchard", new Date(Date.now() + 3600000));
+	const oc = scripted("opencode");
+	await assert.rejects(conductRun(dir, { experiment: "orchard", adapters: { opencode: oc, codex: scripted("codex") }, work, records }), /not earlier than the run/);
+	assert.equal(oc.calls.length, 0);
+});
+
+test("overriding the runs per cell makes a recorded experiment's run exploration", async () => {
+	const { dir, work, records } = await setup();
+	const r = await checkPack(dir);
+	if (!r.ok) throw new Error("pack");
+	recordExperiment(r.loaded, "orchard", new Date(Date.now() - 2000));
+	const { record } = await conductRun(dir, { experiment: "orchard", runsPerCell: 2, adapters: { opencode: scripted("opencode"), codex: scripted("codex") }, work, records });
+	assert.equal(record.status, "exploration");
+	assert.match(record.statusReason, /overridden/);
+});
+
+const narrow = (d: string): void => {
+	editJson(path.join(d, "experiments", "orchard.json"), (j) => { j.factors.population = ["p1"]; j.factors.arms = ["bare"]; j.scenarios = ["scenarios/graft.json"]; });
+	editJson(path.join(d, "pack.json"), (j) => { j.suites = j.suites.filter((x: { id: string }) => x.id !== "pruning"); });
+};
+
+test("a scored file that is a link to elsewhere is not read", async () => {
+	const secret = path.join(scratch(), "secret.txt");
+	fs.writeFileSync(secret, "not for the record\n");
+	const { dir, work, records } = await setup((d) => { narrow(d); editJson(path.join(d, "scenarios", "graft.json"), (j) => { j.scoredFile = "NOTE.txt"; }); });
+	const linker = scripted("opencode", (inv) => { fs.rmSync(path.join(inv.workspace, "NOTE.txt")); fs.symlinkSync(secret, path.join(inv.workspace, "NOTE.txt")); return outcome("done"); });
+	await conductRun(dir, { experiment: "orchard", adapters: { opencode: linker }, work, records });
+	const [c] = cellsOf(records);
+	assert.equal(c!.scoredFile?.content, null);
+	assert.equal(JSON.stringify(c).includes("not for the record"), false);
+});
+
+test("a cell the core cannot complete is recorded, and the run goes on and is saved", async () => {
+	const { dir, work, records } = await setup((d) => editJson(path.join(d, "experiments", "orchard.json"), (j) => { j.factors.population = ["p1"]; j.factors.arms = ["bare"]; }));
+	const flaky = scripted("opencode", (inv) => { if (inv.prompt.includes("Graft")) throw new Error("adapter broke"); return outcome("fine"); });
+	const { record } = await conductRun(dir, { experiment: "orchard", adapters: { opencode: flaky }, work, records });
+	assert.equal(record.end, "completed");
+	const graft = cellsOf(records).find((c) => c.scenario === "graft")!;
+	assert.deepEqual(graft.attempts.map((a) => a.validity.valid ? "valid" : a.validity.cause), ["infrastructure", "infrastructure"]);
+	assert.match(graft.attempts[0]!.failure ?? "", /adapter broke/);
+	assert.equal(cellsOf(records).find((c) => c.scenario === "prune")!.valid, true);
+});
+
+test("each attempt keeps its own diff", async () => {
+	const { dir, work, records } = await setup(narrow);
+	const twice = scripted("opencode", (inv, n) => {
+		fs.writeFileSync(path.join(inv.workspace, `attempt-${n}.txt`), "x\n");
+		return n === 1 ? outcome("x", { tools: [{ name: "read", input: {}, status: "completed", paths: [path.join(dir, "scenarios", "graft.json")], addresses: [] }] }) : outcome("fine");
+	});
+	await conductRun(dir, { experiment: "orchard", adapters: { opencode: twice }, work, records });
+	const [c] = cellsOf(records);
+	assert.equal(c!.attempts.length, 2);
+	assert.match(c!.attempts[0]!.diff ?? "", /attempt-1\.txt/);
+	assert.match(c!.attempts[1]!.diff ?? "", /attempt-2\.txt/);
+	assert.doesNotMatch(c!.attempts[1]!.diff ?? "", /attempt-1\.txt/);
+});
+
+test("an isolation breach then an open-step timeout is a first such timeout: infrastructure (0012)", async () => {
+	const { dir, work, records } = await setup(narrow);
+	const a = scripted("opencode", (_inv, n) => n === 1
+		? outcome("x", { tools: [{ name: "read", input: {}, status: "completed", paths: [path.join(dir, "pack.json")], addresses: [] }] })
+		: outcome("", { exit: null, signal: "SIGKILL", stop: { reason: "timeout", inFlight: "unknown" } }));
+	await conductRun(dir, { experiment: "orchard", adapters: { opencode: a }, work, records });
+	const [c] = cellsOf(records);
+	assert.deepEqual(c!.attempts.map((x) => x.validity.valid ? "valid" : x.validity.cause), ["isolation", "infrastructure"]);
+});
+
+test("touching another run's records or another workspace is isolation; the cell's own workspace is not", async () => {
+	const { dir, work, records } = await setup(narrow);
+	const other = path.join(work, "earlier-run", "workspaces", "w-xyz", "NOTES.txt");
+	const prior = path.join(records, "earlier-run", "run.json");
+	const seq = [prior, other];
+	const a = scripted("opencode", (inv, n) => outcome("x", { tools: [
+		{ name: "read", input: {}, status: "completed", paths: [path.join(inv.workspace, "NOTES.txt")], addresses: [] },
+		...(n <= 2 ? [{ name: "read", input: {}, status: "completed" as const, paths: [seq[n - 1]!], addresses: [] }] : []),
+	] }));
+	await conductRun(dir, { experiment: "orchard", adapters: { opencode: a }, work, records });
+	const [c] = cellsOf(records);
+	assert.deepEqual(c!.attempts.map((x) => x.validity.valid ? "valid" : x.validity.cause), ["isolation", "isolation"]);
+	const own = scripted("opencode", (inv) => outcome("x", { tools: [{ name: "read", input: {}, status: "completed", paths: [path.join(inv.workspace, "NOTES.txt")], addresses: [] }] }));
+	const s2 = await setup(narrow);
+	await conductRun(s2.dir, { experiment: "orchard", adapters: { opencode: own }, work: s2.work, records: s2.records });
+	assert.equal(cellsOf(s2.records)[0]!.valid, true);
+});
+
+test("a file the agent's .gitignore hides still reaches the diff", async () => {
+	const { dir, work, records } = await setup(narrow);
+	const a = scripted("opencode", (inv) => { fs.writeFileSync(path.join(inv.workspace, ".gitignore"), "hidden.txt\n"); fs.writeFileSync(path.join(inv.workspace, "hidden.txt"), "x\n"); return outcome("fine"); });
+	await conductRun(dir, { experiment: "orchard", adapters: { opencode: a }, work, records });
+	assert.match(cellsOf(records)[0]!.diff ?? "", /^\+\+\+ b\/hidden\.txt$/m);
+});
+
+test("a file the operator's own git excludes would hide still reaches the diff", async () => {
+	const { dir, work, records } = await setup(narrow);
+	const home = scratch();
+	fs.writeFileSync(path.join(home, "excludes"), "run.log\n");
+	fs.writeFileSync(path.join(home, ".gitconfig"), `[core]\n\texcludesFile = ${path.join(home, "excludes")}\n`);
+	const a = scripted("opencode", (inv) => { fs.writeFileSync(path.join(inv.workspace, "run.log"), "x\n"); return outcome("fine"); });
+	const saved = process.env["HOME"];
+	process.env["HOME"] = home;
+	try {
+		await conductRun(dir, { experiment: "orchard", adapters: { opencode: a }, work, records });
+	} finally {
+		process.env["HOME"] = saved;
+	}
+	assert.match(cellsOf(records)[0]!.diff ?? "", /^\+\+\+ b\/run\.log$/m);
+});
+
+test("the measure hook gets the final message uncut", async () => {
+	const { dir, work, records } = await setup((d) => { narrow(d); fs.writeFileSync(path.join(d, "hooks", "count.mjs"), 'import fs from "node:fs"; const i = JSON.parse(fs.readFileSync(0, "utf8")); console.log(JSON.stringify({ scores: { "graft-2": i.outcome.final.includes("WHY:") ? 1 : 0 } }));\n'); });
+	await conductRun(dir, { experiment: "orchard", adapters: { opencode: scripted("opencode", () => outcome("Done.\nWHY: the almanac")) }, work, records });
+	const [c] = cellsOf(records);
+	assert.deepEqual(c!.codeScores.map((x) => "value" in x ? x.value : null), [1]);
+	assert.equal(c!.final, "Done.");
 });

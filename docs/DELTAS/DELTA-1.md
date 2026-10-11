@@ -243,6 +243,14 @@ An integration smoke run of the synthetic pack on the real runtimes - claude-opu
 It also showed each opencode invocation copying a 150 MB cache: the copy is now removed when the runtime ends.\
 E14 asks that every code score precede the blinding of its outcome; stage 4 times every score and keeps it before the run leaves measuring, and the blinder that completes the check is stage 5's - so E14 is evaluated at stages 4 and 5, a restaging for the director's confirmation.
 
+**Stage 4 verification.**\
+A fresh verifier - the earlier one's session ended on a provider content filter - found E7, E14's stage-4 part, the run-record clauses of E3 and E13, the rest of E12 and `0012` green, and B13's run refusal untested.\
+It found two major defects, both fixed: an agent could put a link at a scored file and have the core copy any file it named into the run record; and the run record was written only at the end, so one failing cell lost the whole run.\
+Fixed besides: the record is written at every state and as each cell ends, a cell the core cannot complete is recorded and the run goes on, and variants are made writable even after a failure; each attempt keeps its own diff; `0012` counts open-step timeouts, not attempts, so an isolation re-run does not make a first such timeout behaviour; the refusal of a later record happens before any cell runs, and is tested; overriding runs per cell makes a run exploration; the time limit and each runtime's version are recorded; every run record, the whole working folder and every source are forbidden, except a cell's own workspace and its arm's on-request folders; the diff includes files any exclude rule would hide; the measure hook gets the final message uncut; tests now pin values, not shapes.\
+Each new protection was shown load-bearing by removing it, except the operator-excludes rule, which `--force` makes redundant and is removed.\
+Disclosed: the stage-4 commit changed E14's stage column and section 2 before the director confirmed the restaging.\
+Open for the director: the restaging of E14, and how mission-kit's `explain` suite is carried - its reader wording cannot be carried as it is while each probe is its own cell.
+
 ---
 
 ## Adversarial review

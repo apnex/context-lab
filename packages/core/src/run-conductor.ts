@@ -27,6 +27,7 @@ import { runPhase } from "./phase-driver.js";
 import { buildVariant, makeWritable, type BuiltVariant, type VariantManifest } from "./variant-builder.js";
 import { classify, RERUN, type Validity } from "./validity-classifier.js";
 import { createWorkspace } from "./workspace-builder.js";
+import { isInside } from "./paths.js";
 
 export const STATES = ["validated", "recorded", "built", "probed", "executed", "measured"] as const;
 export type State = (typeof STATES)[number];
@@ -51,6 +52,10 @@ export interface Attempt {
 	attempt: number;
 	validity: Validity;
 	outcome: Outcome;
+	/** The workspace's changes after this attempt, against its initial commit. */
+	diff: string | null;
+	/** Set when the attempt could not be completed by the core itself: the adapter or the workspace failed. */
+	failure?: string;
 }
 
 export interface CellRecord {
@@ -66,6 +71,8 @@ export interface CellRecord {
 	diff: string | null;
 	codeScores: CodeScore[];
 }
+
+export type RunEnd = "completed" | "failed";
 
 export interface RunRecord {
 	run: string;
@@ -83,7 +90,11 @@ export interface RunRecord {
 	probes: ProbeResult[];
 	cells: string[];
 	runsPerCell: number;
+	timeLimitSeconds: number;
 	population: string[];
+	runtimes: Record<string, string | null>;
+	end: RunEnd | null;
+	endReason?: string;
 }
 
 /** The core's name and version, held equal to its package manifest by a test. */
@@ -110,10 +121,22 @@ async function pool<T>(items: T[], n: number, fn: (t: T) => Promise<void>): Prom
 	await Promise.all(Array.from({ length: Math.max(1, n) }, async () => { while (q.length) await fn(q.shift()!); }));
 }
 
+// Every change is staged with --force, so files any exclude rule would hide - the operator's own or a
+// .gitignore the agent wrote - are included, and the diff does not depend on the machine.
 function diffOf(workspace: string, init: string): string {
 	const g = ["-c", "core.hooksPath=/dev/null", "-c", "core.quotepath=off"];
-	execFileSync("git", [...g, "add", "-A"], { cwd: workspace, stdio: "ignore" });
+	execFileSync("git", [...g, "add", "-A", "--force"], { cwd: workspace, stdio: "ignore" });
 	return execFileSync("git", [...g, "diff", "--cached", init], { cwd: workspace, encoding: "utf8", maxBuffer: 1 << 28 });
+}
+
+/** A file in the workspace, read only if it is a regular file there and not a link to elsewhere. */
+function readInside(workspace: string, rel: string): string | null {
+	const f = path.resolve(workspace, rel);
+	if (!isInside(f, workspace)) return null;
+	let st: fs.Stats;
+	try { st = fs.lstatSync(f); } catch { return null; }
+	if (!st.isFile()) return null;
+	return fs.readFileSync(f, "utf8");
 }
 
 export async function conductRun(packDir: string, opts: RunOptions): Promise<{ dir: string; record: RunRecord }> {
@@ -147,19 +170,44 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 	const scenarioIds = suite ? selectScenarios(allScenarios, suite.select) : allScenarios.map((s) => s.id);
 	const scenarios = scenarioIds.map((id) => exp.scenarios.get(id)!.scenario);
 	const status = runStatus(loaded, experimentId);
+	const startedAt = states[0]!.at;
+	// A run rests only on a record made before it began (B13).
+	if (status.record !== null && status.record.recordedAt >= startedAt) throw new Error("the experiment's record is not earlier than the run");
+	const runsPerCell = opts.runsPerCell ?? exp.experiment.runsPerCell;
+	let statusValue = status.status, statusReason = status.reason;
+	if (runsPerCell !== exp.experiment.runsPerCell && statusValue === "result") {
+		statusValue = "exploration";
+		statusReason = `runs per cell overridden to ${runsPerCell}, from the recorded ${exp.experiment.runsPerCell}`;
+	}
 	enter("recorded");
 
-	const startedAt = states[0]!.at;
 	const runId = `${startedAt.replace(/[:.]/g, "").replace("T", "-").slice(0, 17)}-${experimentId}`;
-	const recordsDir = path.resolve(opts.records ?? path.resolve(loaded.dir, loaded.pack.records.path), runId);
-	const work = path.resolve(opts.work ?? path.join(os.homedir(), "context-lab-work"), runId);
-	if (fs.existsSync(recordsDir)) throw new Error(`${recordsDir} exists`);
-	fs.mkdirSync(work, { recursive: true });
+	const recordsRoot = path.resolve(opts.records ?? path.resolve(loaded.dir, loaded.pack.records.path));
+	const recordsDir = path.join(recordsRoot, runId);
+	const workRoot = path.resolve(opts.work ?? path.join(os.homedir(), "context-lab-work"));
+	const work = path.join(workRoot, runId);
+	fs.mkdirSync(recordsRoot, { recursive: true });
+	fs.mkdirSync(workRoot, { recursive: true });
+	// Made without recursion, so a second run started in the same second is refused, not merged.
+	fs.mkdirSync(recordsDir);
+	fs.mkdirSync(work);
+	const timeLimitSeconds = opts.timeLimitSeconds ?? 1200;
+	const record: RunRecord = {
+		run: runId, pack: loaded.pack.id, experiment: experimentId, suite: suiteId, scenarios: scenarioIds,
+		status: statusValue, statusReason, register: status.record, method: methodVersion(), states,
+		variants: {}, arms: {}, probes: [], cells: [], runsPerCell, timeLimitSeconds,
+		population: exp.experiment.factors.population, runtimes: {}, end: null,
+	};
+	// The record is written at every state and as each cell ends, so a run that stops part way
+	// leaves everything it did.
+	const save = (): void => write(path.join(recordsDir, "run.json"), record);
+	save();
+	const built = new Map<string, BuiltVariant>();
+	try {
 
 	const armIds = exp.experiment.factors.arms;
 	const variantIds = [...new Set(loaded.pack.arms.filter((a) => armIds.includes(a.id)).flatMap((a) => a.deliver.map((d) => d.variant)))];
-	const built = new Map<string, BuiltVariant>();
-	const variants: RunRecord["variants"] = {};
+	const variants = record.variants;
 	for (const v of variantIds) {
 		const source = loaded.pack.variants.find((x) => x.id === v)!.source;
 		const sourceDir = path.resolve(loaded.dir, loaded.pack.sources.find((s) => s.id === source)!.path);
@@ -168,7 +216,7 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 		built.set(v, b);
 		variants[v] = b.ok ? b.manifest : { failed: b.reason };
 	}
-	const arms: RunRecord["arms"] = {};
+	const arms = record.arms;
 	const composed = new Map<string, ComposedArm>();
 	for (const a of armIds) {
 		const c = composeArm(loaded, a, built);
@@ -176,6 +224,7 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 		if (c.ok) composed.set(a, c.arm);
 	}
 	enter("built");
+	save();
 
 	const members: Member[] = exp.experiment.factors.population.map((id) => loaded.pack.population.find((m) => m.id === id)!);
 	const adapterOf = (m: Member): Adapter => {
@@ -183,16 +232,23 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 		if (!a) throw new Error(`no adapter for runtime ${m.runtime}`);
 		return a;
 	};
-	const probes: ProbeResult[] = [];
+	for (const m of members) if (!(m.runtime in record.runtimes)) record.runtimes[m.runtime] = adapterOf(m).version?.() ?? null;
+	const probes: ProbeResult[] = record.probes;
 	await pool([...composed.values()].flatMap((arm) => members.map((m) => ({ arm, m }))), opts.parallel ?? 4, async ({ arm, m }) => {
 		probes.push(await probeArm(loaded, arm, m, adapterOf(m), { base: path.join(work, "probes", `${arm.arm}.${m.id}`), timeLimitSeconds: opts.timeLimitSeconds ?? 300 }));
 	});
+	probes.sort((a, b) => `${a.arm}.${a.member}`.localeCompare(`${b.arm}.${b.member}`));
 	const passed = (arm: string, m: string): boolean => probes.some((p) => p.arm === arm && p.member === m && p.pass);
 	enter("probed");
+	save();
 
-	const runsPerCell = opts.runsPerCell ?? exp.experiment.runsPerCell;
-	const forbidden = {
-		paths: [...loaded.pack.isolation.forbidden.paths.map((p) => path.resolve(loaded.dir, p)), loaded.dir, recordsDir, path.join(work, "probes")],
+	// Forbidden to every cell: the pack and its declared paths, every source, all run records, and
+	// the whole working folder - except, per cell, its own workspace and its arm's on-request folders.
+	const forbiddenBase = {
+		paths: [
+			...loaded.pack.isolation.forbidden.paths.map((p) => path.resolve(loaded.dir, p)), loaded.dir, recordsRoot, workRoot,
+			...loaded.pack.sources.map((s) => path.resolve(loaded.dir, s.path)),
+		],
 		addresses: [...new Set([...loaded.pack.isolation.forbidden.addresses, ...loaded.pack.sources.flatMap((s) => s.addresses)])],
 	};
 	const cells: { scenario: Scenario; arm: ComposedArm; member: Member; run: number }[] = [];
@@ -204,49 +260,68 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 	await pool(cells, opts.parallel ?? 4, async (c) => {
 		const cell = `${c.scenario.id}.${c.arm.arm}.${c.member.id}.${c.run}`;
 		const attempts: Attempt[] = [];
-		let ws = null as null | { dir: string; init: string };
+		let timeouts = 0;
+		let lastWs: { dir: string; init: string } | null = null;
 		for (let attempt = 1; ; attempt++) {
-			ws = createWorkspace(loaded, c.scenario, c.arm, { base: path.join(work, "workspaces"), rulesFiles: adapterOf(c.member).rulesFiles });
-			fs.mkdirSync(path.join(work, "invocations"), { recursive: true });
-			const inv = fs.mkdtempSync(path.join(work, "invocations", "i-"));
-			fs.rmdirSync(inv);
-			const outcome = await runPhase({ adapter: adapterOf(c.member), experiment: exp.experiment, scenario: c.scenario, arm: c.arm, member: c.member, workspace: ws.dir, work: inv, timeLimitSeconds: opts.timeLimitSeconds ?? 1200 });
-			const validity = classify(outcome, forbidden, attempt);
-			attempts.push({ attempt, validity, outcome });
-			if (validity.valid || !RERUN[validity.cause] || attempt >= 2) break;
+			let a: Attempt;
+			try {
+				const ws = createWorkspace(loaded, c.scenario, c.arm, { base: path.join(work, "workspaces"), rulesFiles: adapterOf(c.member).rulesFiles });
+				lastWs = ws;
+				fs.mkdirSync(path.join(work, "invocations"), { recursive: true });
+				const inv = fs.mkdtempSync(path.join(work, "invocations", "i-"));
+				fs.rmdirSync(inv);
+				const outcome = await runPhase({ adapter: adapterOf(c.member), experiment: exp.experiment, scenario: c.scenario, arm: c.arm, member: c.member, workspace: ws.dir, work: inv, timeLimitSeconds });
+				if (outcome.stop.reason === "timeout" && outcome.stop.inFlight === "unknown") timeouts++;
+				const allow = [ws.dir, inv, ...c.arm.onRequest.map((o) => o.path)];
+				const validity = classify(outcome, { ...forbiddenBase, allow }, Math.max(1, timeouts));
+				let diff: string | null = null;
+				try { diff = diffOf(ws.dir, ws.init); } catch { diff = null; }
+				a = { attempt, validity, outcome, diff };
+				if (diff === null && validity.valid) a = { ...a, validity: { valid: false, cause: "behaviour", detail: "the workspace's changes could not be read: the agent removed or broke its repository" } };
+			} catch (e) {
+				// The core could not complete the attempt; it is recorded, and the run goes on.
+				const empty: Outcome = { final: "", exit: null, signal: null, stop: { reason: "error", inFlight: "none" }, cost: { seconds: 0, inputTokens: null, cachedInputTokens: null, outputTokens: null, toolCalls: 0 }, tools: [], filtered: false, error: null, session: null, trace: [], events: "" };
+				a = { attempt, validity: { valid: false, cause: "infrastructure", detail: `the attempt failed in the core: ${String(e).slice(0, 300)}` }, outcome: empty, diff: null, failure: String(e).slice(0, 1000) };
+			}
+			attempts.push(a);
+			if (a.validity.valid || !RERUN[a.validity.cause] || attempt >= 2) break;
 		}
 		const last = attempts[attempts.length - 1]!;
 		const marker = loaded.pack.masks.selfExplanationMarker;
 		let scored: CellRecord["scoredFile"] = null;
-		const diff = ws ? diffOf(ws.dir, ws.init) : null;
-		if (c.scenario.scoredFile !== undefined && ws) {
-			const f = path.join(ws.dir, c.scenario.scoredFile);
-			const content = fs.existsSync(f) ? fs.readFileSync(f, "utf8") : null;
+		if (c.scenario.scoredFile !== undefined && lastWs !== null) {
+			const content = readInside(lastWs.dir, c.scenario.scoredFile);
 			scored = { path: c.scenario.scoredFile, content, matchesFinal: content !== null && content.trim() === last.outcome.final.trim() };
 		}
-		cellRecords.push({
+		const cr: CellRecord = {
 			cell, scenario: c.scenario.id, arm: c.arm.arm, member: c.member.id, run: c.run, attempts, valid: last.validity.valid,
-			final: last.validity.valid ? stripSelfExplanation(last.outcome.final, marker) : null, scoredFile: scored, diff, codeScores: [],
-		});
+			final: last.validity.valid ? stripSelfExplanation(last.outcome.final, marker) : null, scoredFile: scored, diff: last.diff, codeScores: [],
+		};
+		cellRecords.push(cr);
+		write(path.join(recordsDir, "cells", `${cell}.json`), cr);
+		record.cells = cellRecords.map((x) => x.cell).sort();
+		save();
 	});
 	enter("executed");
 
 	for (const cr of cellRecords) {
 		if (!cr.valid) continue;
 		const scenario = scenarios.find((s) => s.id === cr.scenario)!;
-		cr.codeScores = await measure(loaded, scenario, { final: cr.final ?? "", diff: cr.diff ?? "", scored: cr.scoredFile?.content ?? null }, now);
+		// The measure hook gets the outcome unmasked and uncut, as the agent left it.
+		const raw = cr.attempts[cr.attempts.length - 1]!.outcome.final;
+		cr.codeScores = await measure(loaded, scenario, { final: raw, diff: cr.diff ?? "", scored: cr.scoredFile?.content ?? null }, now);
+		write(path.join(recordsDir, "cells", `${cr.cell}.json`), cr);
 	}
 	enter("measured");
-
-	const record: RunRecord = {
-		run: runId, pack: loaded.pack.id, experiment: experimentId, suite: suiteId, scenarios: scenarioIds,
-		status: status.status, statusReason: status.reason, register: status.record,
-		method: methodVersion(), states, variants, arms, probes,
-		cells: cellRecords.map((c) => c.cell).sort(), runsPerCell, population: members.map((m) => m.id),
-	};
-	if (status.record !== null && status.record.recordedAt >= startedAt) throw new Error("the experiment's record is not earlier than the run");
-	write(path.join(recordsDir, "run.json"), record);
-	for (const cr of cellRecords) write(path.join(recordsDir, "cells", `${cr.cell}.json`), cr);
-	for (const v of built.values()) if (v.ok) makeWritable(v.dir);
+	record.end = "completed";
+	save();
+	} catch (e) {
+		record.end = "failed";
+		record.endReason = String(e).slice(0, 1000);
+		save();
+		throw e;
+	} finally {
+		for (const v of built.values()) if (v.ok && fs.existsSync(v.dir)) makeWritable(v.dir);
+	}
 	return { dir: recordsDir, record };
 }

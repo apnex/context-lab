@@ -33,6 +33,8 @@ export type Validity = { valid: true } | { valid: false; cause: Cause; detail: s
 export interface Forbidden {
 	paths: string[];
 	addresses: string[];
+	/** Paths inside a forbidden path that this cell may still touch: its own workspace, its arm's on-request folders. */
+	allow?: string[];
 }
 
 export const RERUN: Record<Cause, boolean> = { isolation: true, infrastructure: true, behaviour: false };
@@ -54,12 +56,17 @@ export function addressPattern(address: string): RegExp {
 	return new RegExp(`(?:https?://)?(?:[\\w.-]+@)?(?:www\\.)?${escape(host)}[/:]${escape(rest.replace(/^\//, ""))}(?![\\w-])`, "i");
 }
 
-export function classify(o: Outcome, forbidden: Forbidden, attempt = 1): Validity {
+/**
+ * `timeouts` is how many times this cell has now stopped at its limit with an open step whose
+ * nature the trace cannot show, this attempt included (0012): the first such is infrastructure,
+ * a later one behaviour.
+ */
+export function classify(o: Outcome, forbidden: Forbidden, timeouts = 1): Validity {
 	const patterns = forbidden.addresses.map((a) => ({ a, re: addressPattern(a) }));
 	for (const t of o.tools) {
 		for (const p of t.paths) {
 			const hit = forbidden.paths.find((f) => isInside(p, f));
-			if (hit !== undefined) return { valid: false, cause: "isolation", detail: `${t.name} touched ${p}, inside forbidden ${hit}` };
+			if (hit !== undefined && !(forbidden.allow ?? []).some((a) => isInside(p, a))) return { valid: false, cause: "isolation", detail: `${t.name} touched ${p}, inside forbidden ${hit}` };
 		}
 		for (const text of [...t.addresses, ...stringsIn(t.input)]) {
 			for (const { a, re } of patterns) {
@@ -75,7 +82,7 @@ export function classify(o: Outcome, forbidden: Forbidden, attempt = 1): Validit
 	if (o.error?.cause === "provider") return { valid: false, cause: "infrastructure", detail: `the provider failed: ${o.error.message.slice(0, 200)}` };
 	if (o.stop.reason === "timeout" && o.stop.inFlight === "model") return { valid: false, cause: "infrastructure", detail: "stopped at its time limit while waiting on a model call" };
 	if (o.stop.reason === "timeout" && o.stop.inFlight === "unknown") {
-		return attempt <= 1
+		return timeouts <= 1
 			? { valid: false, cause: "infrastructure", detail: "stopped at its time limit with a model call or a tool open, which the trace cannot tell apart; a first timeout counts against the provider" }
 			: { valid: false, cause: "behaviour", detail: "stopped at its time limit again on a re-run" };
 	}

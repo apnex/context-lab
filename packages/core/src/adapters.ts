@@ -6,6 +6,7 @@
 // common form. Each driven adapter runs its runtime inside the filesystem sandbox, with a fresh
 // configuration folder per invocation.
 
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -32,6 +33,8 @@ export interface Invocation {
 
 export interface Adapter {
 	runtime: string;
+	/** The runtime's version, for the run record; null if it cannot be read. */
+	version?(): string | null;
 	rulesFiles: string[];
 	modes: DeliveryMode[];
 	network: "denied" | "detected";
@@ -41,6 +44,15 @@ export interface Adapter {
 }
 
 export class Refused extends Error {}
+
+function readVersion(binary: string): string | null {
+	try {
+		const out = execFileSync(binary, ["--version"], { encoding: "utf8", timeout: 20000, stdio: ["ignore", "pipe", "ignore"] }).trim().split("\n")[0] ?? "";
+		return out.length > 0 && out.length < 80 ? out : null;
+	} catch {
+		return null;
+	}
+}
 
 function prepare(inv: Invocation, adapter: Adapter): { home: string; instr: string } {
 	const why = adapter.refuse(inv);
@@ -115,6 +127,7 @@ export function opencodeAdapter(opts: OpencodeOptions = {}): Adapter {
 	};
 	const adapter: Adapter = {
 		runtime: "opencode",
+		version: () => readVersion(opts.binary ?? which("opencode", env)),
 		rulesFiles: ["AGENTS.md", "CLAUDE.md"],
 		modes: ["inline", "attachment"],
 		network: "detected",
@@ -212,6 +225,7 @@ export function codexAdapter(opts: CodexOptions = {}): Adapter {
 	};
 	const adapter: Adapter = {
 		runtime: "codex",
+		version: () => { const v = opts.vendor ?? codexVendor(env); return readVersion(opts.binary ?? path.join(v, "bin", "codex")); },
 		rulesFiles: ["AGENTS.md", "AGENTS.override.md"],
 		modes: ["inline", "stdin"],
 		network: "denied",
