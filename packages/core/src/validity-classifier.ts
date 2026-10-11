@@ -18,9 +18,11 @@
 // infrastructure and a second timeout of the same cell is behaviour.
 //
 // A forbidden address is found in any string of a tool's input, not only in what parses as an
-// address: with or without a scheme, http or https, any case, an optional www., and a host followed
-// by / or : - which covers git's user@host:path form. An address assembled at run time from
-// variables, or reached through a program that names it some other way, is not found.
+// address: with or without a scheme, http or https, any case, and a host followed by / or : - which
+// covers git's user@host:path form. It fails closed: a string that only mentions the address, or a
+// lookalike host ending in the same name, also counts. An address assembled at run time from
+// variables, percent-encoded, or reached through a program or mirror that names it another way -
+// `gh api repos/...`, api.github.com, a CDN mirror - is not found.
 
 import { isInside } from "./paths.js";
 import type { Outcome } from "./outcome.js";

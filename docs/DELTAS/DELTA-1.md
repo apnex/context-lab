@@ -228,6 +228,13 @@ The first live web check passed while Codex opened a page through its apps conne
 That gap was present in mission-kit's adherence runs: GPT agents there had web search, and two control agents used it - for Codex's own documentation, not for mission-kit; recorded in mission-kit's audit.\
 The isolation prober is tested with a scripted adapter here; its live runs are criterion E4, at stage 7.
 
+**Stage 3 verification.**\
+The verifier found E6 green and E5 red: opencode runs tools inside a step and reports them only when they end, so an opencode agent stopped while working leaves a step open and read as waiting on the model - infrastructure - making E5's behaviour timeout unreachable for opencode.\
+It also found three major defects, all fixed and re-checked: twelve copies of the operator's Codex login left by the live checks, now deleted, with the adapter removing its copy after each invocation and the live checks removing their records; a Codex probe passable by reading the canary file rather than receiving it, now refused, since a probe answer counts only without tool calls and a tool call fails the probe; and forbidden addresses missed in common forms, now matched in every written form the verifier listed.\
+Re-verification: E6 green, E5 green as written; all eleven live checks pass with the wider Codex features table.\
+An opencode timeout with a step open is now `unknown`: infrastructure on a first attempt, behaviour on a re-run - a classification policy E5 does not settle, for the director's ruling.\
+Known limits, stated in the classifier: addresses assembled at run time, percent-encoded, or reached through another program or mirror are not found; a mere mention of a forbidden address counts as reaching it.
+
 ---
 
 ## Adversarial review

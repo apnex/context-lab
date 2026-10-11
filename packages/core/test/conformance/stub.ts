@@ -28,6 +28,7 @@ export function stubScript(o: StubOptions): string {
 		...(o.visible ?? []).map((s) => `if [ -r '${s}' ]; then echo 'readable ${s}' >> "$R/sentinels"; else echo 'unreadable ${s}' >> "$R/sentinels"; fi`),
 	];
 	if (o.configVar) lines.push(`(cd "$${o.configVar}" && find . -type f | LC_ALL=C sort) > "$R/config-files"`);
+	if (o.configVar === "CODEX_HOME") lines.push(': > "$CODEX_HOME/state_5.sqlite"', ': > "$CODEX_HOME/logs_2.sqlite-wal"');
 	if (o.hang) {
 		lines.push(`sleep ${o.hang.tag}1 &`, `setsid sleep ${o.hang.tag}2 &`, "wait");
 	} else {

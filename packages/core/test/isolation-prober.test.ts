@@ -84,6 +84,7 @@ test("an answer reached by a tool call does not count", async () => {
 	const r = await probeArm(loaded, guided, member, scripted(() => outcome("The heron counts eleven stones.", { tools: [tool] })), opts());
 	assert.equal(r.pass, false);
 	assert.equal(r.answers[0]!.answered, false);
+	assert.match(r.reasons.join(), /tool call during a probe/);
 });
 
 test("leak patterns are matched without regard to case", async () => {

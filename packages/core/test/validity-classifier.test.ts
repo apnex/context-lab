@@ -44,6 +44,7 @@ const causes: [string, Outcome, Outcome, string][] = [
 	["opencode timeout with a step open, first attempt", parseOpencode(lines([{ type: "step_start", part: {} }, ocTool("bash", { command: "ls" })]), { ...ctx, exit: null, signal: "SIGKILL", timedOut: true }), oc([]), "infrastructure"],
 	["a content filter with no error event", parseOpencode(lines([{ type: "step_start", part: {} }, { type: "step_finish", part: { reason: "content-filter" } }]), ctx), oc([]), "infrastructure"],
 	["a runtime that exits non-zero", oc([], { exit: 2 }), oc([]), "infrastructure"],
+	["an error of unknown cause, with a final message and exit 0", cx([{ type: "error", message: "something odd happened" }]), cx([]), "infrastructure"],
 	["Codex timeout waiting on the model", parseCodex(lines([{ type: "turn.started" }]), { ...ctx, exit: null, signal: "SIGKILL", timedOut: true }), cx([]), "infrastructure"],
 	["opencode overflow", oc([{ type: "error", error: { name: "APIError", data: { message: "prompt is too long: 900000 tokens > 872000 maximum context" } } }]), oc([]), "behaviour"],
 	["Codex overflow", cx([{ type: "turn.failed", error: { message: "Codex ran out of room in the model's context window." } }]), cx([]), "behaviour"],

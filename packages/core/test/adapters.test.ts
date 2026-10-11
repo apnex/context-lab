@@ -150,6 +150,7 @@ test("Codex: instructions, on-request folder, isolation and network as declared"
 	assert.deepEqual([...CODEX_FEATURES_OFF].sort(), [...FEATURES_OFF].sort());
 	assert.equal(fs.existsSync(path.join(e.work, "codex-home", "auth.json")), false, "the login copy was left behind");
 	assert.equal(fs.existsSync(path.join(e.work, "instructions")), false, "a second copy of the instructions was made");
+	assert.deepEqual(fs.readdirSync(path.join(e.work, "codex-home")).filter((f) => f.includes("sqlite")), [], "Codex's databases were left behind");
 	assert.equal(a.network, "denied");
 	const r = readRecord(e.workspace);
 	assert.deepEqual([...r.env.keys()].filter((k) => !["SHLVL", "_", "OLDPWD"].includes(k)).sort(), ["CODEX_HOME", "HOME", "PATH", "PWD"]);

@@ -33,6 +33,7 @@ export interface ProbeAnswer {
 	answered: boolean;
 	final: string;
 	finding: "ok" | "missing-canary" | "foreign-canary" | "leak" | "unanswered";
+	toolCalls: number;
 }
 
 export interface ProbeResult {
@@ -74,9 +75,12 @@ export async function probeArm(loaded: LoadedPack, arm: ComposedArm, member: Mem
 			else if (arm.negativeCanaries.some((c) => o.final.includes(c))) finding = "foreign-canary";
 		}
 		if (answered && q.kind === "leak" && q.leak?.test(o.final)) finding = "leak";
-		answers.push({ question: q.text, kind: q.kind, probe: q.probe, answered, final: o.final, finding });
+		answers.push({ question: q.text, kind: q.kind, probe: q.probe, answered, final: o.final, finding, toolCalls: o.tools.length });
 	}
 	const reasons: string[] = [];
+	// A tool call during a probe fails it outright: the probe runs with tools off, and an answer a
+	// tool reached could hide a leak as easily as fake a canary.
+	if (answers.some((a) => a.toolCalls > 0)) reasons.push("the agent made a tool call during a probe, with tools off");
 	for (const a of answers) {
 		if (a.finding === "missing-canary") reasons.push("the arm's canary was not quoted, so its instructions did not arrive");
 		if (a.finding === "foreign-canary") reasons.push("another variant's canary was quoted");
