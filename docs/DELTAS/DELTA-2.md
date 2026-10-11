@@ -161,12 +161,13 @@ The pack changes are authorised by mission-kit's `0087`, as Delta-1's were; the 
 **Stage 1.**\
 Probed live, inside the filesystem sandbox, and recorded in `docs/probes/2026-10-11-sessions.json` by `packages/core/test/live/session-probes.live.ts`, on opencode 1.18.35 and codex-cli 0.162.1.\
 Continuation: both runtimes resumed a session from a copied store in the same git workspace, with no tool call, and returned the token; a folder with its own store could not resume or list it.\
-A first probe resumed in a fresh workspace and opencode failed: it runs a resumed session in the directory it began in, so a continuing invocation shares its predecessor's workspace.\
+A first probe resumed in a fresh workspace, its record overwritten by the re-run: Codex recalled the token and opencode failed; outside the sandbox, opencode's log showed the resumed session running in the directory it began in, so a continuing invocation shares its predecessor's workspace.\
 Compaction: both compact on demand - opencode through its server's summarize route, Codex through its app-server's `thread/compact/start`.\
 After compaction, opencode quoted an instruction file's canary when the file was delivered again and not otherwise; Codex quoted it without the file delivered again - its session carries its instructions - and once declined to quote "internal instructions" when it was delivered.\
 One sample each.\
 So mission-kit's backlog row `B3`'s question has an answer for these versions: instruction delivery survives compaction on both runtimes, by different means.\
-The adapter conformance cases gained C20 to C25 for continuation, accepted by the verifier after three reviews before any adapter changed; the adapters then gained continuation from a copied store, Codex runs without `--ephemeral` and takes its sandbox mode from configuration, and Delta-1's live configuration checks were re-run under the new configuration and all pass, with a new check that a Codex agent's shell writes only its workspace.
+The adapter conformance cases gained C20 to C25 for continuation, accepted by the verifier after three reviews before any adapter changed; the adapters then gained continuation from a copied store, Codex runs without `--ephemeral` and takes its sandbox mode from configuration, and Delta-1's live configuration checks were re-run under the new configuration and all thirteen pass, recorded in `docs/probes/2026-10-11-config-claims.json` - among them two new checks, that a Codex agent's shell writes only its workspace, and that a continuing Codex invocation's shell writes only its workspace and cannot reach the network, each requiring the forbidden write to have been attempted.\
+Verification found F1 and F2 green and every new protection load-bearing but one, opencode's removal of a login from its kept data folder, now tested.
 
 ---
 

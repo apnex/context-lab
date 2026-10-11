@@ -131,7 +131,8 @@ Added by Delta-2 stage 1, after the live probes recorded in `docs/probes/2026-10
 
 **What the probes showed.**\
 Both runtimes resumed a session from a copy of its store, inside the filesystem sandbox, in the same git workspace, opencode with tools off and Codex read-only, each with no tool call, and returned the token given only in the first invocation; an invocation with its own empty store and another workspace, asked to resume the same session, failed - opencode "Session not found", Codex "no rollout found for thread id"; opencode's session list from that folder did not show the session, and Codex's `exec resume --last` ran without recalling the token.\
-A resume from another workspace was not tried, so a continuing invocation runs in the workspace of the invocation it continues.\
+A first probe resumed in a fresh workspace, whose record the re-run overwrote: Codex recalled the token, and opencode failed with a server error; outside the sandbox, opencode's log showed the resumed session running in the directory it began in.\
+So a continuing invocation runs in the workspace of the invocation it continues.\
 Both compacted a session on demand - opencode through its server's `POST /session/<id>/summarize`, Codex through its app-server's `thread/compact/start`, its compaction identified by an item naming compaction.\
 After compaction, asked for an instruction file's canary not quoted before: opencode quoted it when the file was delivered again and not when it was not, so its instructions come from each invocation's configuration; Codex quoted it with the file not delivered again, so its session carries its instructions, and declined to quote "internal instructions" once when the file was delivered again.\
 One sample each.
@@ -167,6 +168,7 @@ Delta-1 stage 3's live configuration checks are re-run under this configuration 
 | C25 | **Kept stores** | After every invocation, first or continuing, no `auth.json` remains in the invocation folder, and the copied store holds none; no file under a run's records folder is a copy of, or written from, a session store |
 
 **Stated exposure.**\
+A continuing Codex invocation is given `developer_instructions` again although its session carries them; the probe saw Codex decline to quote them once in that setup, and any effect on behaviour is unmeasured.\
 Codex keeps every invocation's transcript under `codex-home/sessions`, and opencode under `data`.\
 Neither is scrubbed of credentials an agent printed, since rewriting opencode's database would corrupt it; both stay in the working folder, outside run records.
 
