@@ -52,16 +52,35 @@ export function shuffle<T>(xs: T[], seed: string): T[] {
 	return a;
 }
 
-export function mask(text: string, loaded: LoadedPack, paths: string[]): string {
+export interface MaskContext {
+	/** Paths removed from what judges see: the workspace, and every folder of the run - variants, records, the pack. */
+	paths: string[];
+	/** Literal strings replaced with [ID]: the canaries, which only a guided arm holds. */
+	literals: string[];
+}
+
+export function mask(text: string, loaded: LoadedPack, ctx: MaskContext, workspace = ""): string {
 	let out = text;
-	for (const p of [...paths].filter(Boolean).sort((a, b) => b.length - a.length)) out = out.split(`${p}/`).join("").split(p).join(".");
+	if (workspace) out = out.split(`${workspace}/`).join("").split(workspace).join(".");
+	// The whole path is removed, not only its folder: what follows the folder names the run and the variant.
+	for (const p of [...ctx.paths].filter(Boolean).sort((a, b) => b.length - a.length)) out = out.replace(new RegExp(`${p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[^\\s'"\`)\\]]*`, "g"), "[PATH]");
+	for (const l of [...ctx.literals].filter(Boolean).sort((a, b) => b.length - a.length)) out = out.split(l).join("[ID]");
 	for (const pattern of loaded.pack.masks.identifiers) out = out.replace(new RegExp(pattern, "g"), "[ID]");
 	return out;
 }
 
+/** In a diff, any self-explanation an agent wrote into a file is cut to the end of its line. */
+function cutDiff(diff: string, marker: string | undefined): string {
+	if (!marker) return diff;
+	return diff.split("\n").map((l) => { const i = l.indexOf(marker); return i < 0 ? l : l.slice(0, i); }).join("\n");
+}
+
 const judged = (s: Scenario): Property[] => s.properties.filter((p) => p.decidedBy === "judge");
 
-export function blind(loaded: LoadedPack, scenarios: Map<string, Scenario>, cells: CellRecord[], families: Map<string, string>, seed: string, now: () => Date = () => new Date()): Blinded {
+export function blind(loaded: LoadedPack, scenarios: Map<string, Scenario>, cellsIn: CellRecord[], families: Map<string, string>, seed: string, now: () => Date = () => new Date(), ctx: MaskContext = { paths: [], literals: [] }): Blinded {
+	// Ordered by cell id first, so the seed alone fixes the mapping, whatever order cells finished in.
+	const cells = [...cellsIn].sort((a, b) => a.cell.localeCompare(b.cell));
+	const marker = loaded.pack.masks.selfExplanationMarker;
 	const units: Unit[] = [];
 	const absent: Absent[] = [];
 	for (const c of cells) {
@@ -69,17 +88,17 @@ export function blind(loaded: LoadedPack, scenarios: Map<string, Scenario>, cell
 		const s = scenarios.get(c.scenario);
 		if (!s) throw new Error(`no scenario ${c.scenario}`);
 		const last = c.attempts[c.attempts.length - 1]!;
-		const paths = [last.workspace ?? ""];
+		const ws = last.workspace ?? "";
 		const base = { cell: c.cell, scenario: c.scenario, arm: c.arm, member: c.member, family: families.get(c.member) ?? "" };
 		const plain = judged(s).filter((p) => p.answerHeading === undefined);
 		if (plain.length) {
-			const text = `--- FINAL MESSAGE ---\n${mask(c.final ?? "", loaded, paths)}\n--- DIFF ---\n${mask(c.diff ?? "", loaded, paths).trim() || "(no changes)"}\n`;
+			const text = `--- FINAL MESSAGE ---\n${mask(c.final ?? "", loaded, ctx, ws)}\n--- DIFF ---\n${mask(cutDiff(c.diff ?? "", marker), loaded, ctx, ws).trim() || "(no changes)"}\n`;
 			units.push({ id: "", ...base, properties: plain.map((p) => p.id), text, blindedAt: "" });
 		}
 		for (const p of judged(s).filter((x) => x.answerHeading !== undefined)) {
 			const answer = c.answers[p.id];
-			if (answer === null || answer === undefined) absent.push({ cell: c.cell, property: p.id });
-			else units.push({ id: "", ...base, properties: [p.id], text: `--- ANSWER ---\n${mask(answer, loaded, paths)}\n`, blindedAt: "" });
+			if (answer === null || answer === undefined || answer.trim() === "") absent.push({ cell: c.cell, property: p.id });
+			else units.push({ id: "", ...base, properties: [p.id], text: `--- ANSWER ---\n${mask(answer, loaded, ctx, ws)}\n`, blindedAt: "" });
 		}
 	}
 	const ordered = shuffle(units, seed);

@@ -47,6 +47,7 @@ export interface RunOptions {
 	revision?: string;
 	runsPerCell?: number;
 	timeLimitSeconds?: number;
+	judgeTimeLimitSeconds?: number;
 	parallel?: number;
 	now?: () => Date;
 }
@@ -104,6 +105,8 @@ export interface RunRecord {
 	runtimes: Record<string, string | null>;
 	judges: string[];
 	judgeProbes: ProbeResult[];
+	/** What the tally needs, as it stood when the run began, so a re-tally does not depend on the pack. */
+	snapshot: { scenarios: Scenario[]; arms: string[]; population: Member[] };
 	guessGroups: Record<string, string[]>;
 	seed: string;
 	end: RunEnd | null;
@@ -142,14 +145,14 @@ function diffOf(workspace: string, init: string): string {
 	return execFileSync("git", [...g, "diff", "--cached", init], { cwd: workspace, encoding: "utf8", maxBuffer: 1 << 28 });
 }
 
-/** A file in the workspace, read only if it is a regular file there and not a link to elsewhere. */
+/** A file in the workspace, read only if its real path - every folder on the way resolved - is a regular file inside it. */
 function readInside(workspace: string, rel: string): string | null {
 	const f = path.resolve(workspace, rel);
 	if (!isInside(f, workspace)) return null;
-	let st: fs.Stats;
-	try { st = fs.lstatSync(f); } catch { return null; }
-	if (!st.isFile()) return null;
-	return fs.readFileSync(f, "utf8");
+	let real: string;
+	try { real = fs.realpathSync(f); } catch { return null; }
+	if (!isInside(real, fs.realpathSync(workspace)) || !fs.lstatSync(real).isFile()) return null;
+	return fs.readFileSync(real, "utf8");
 }
 
 export async function conductRun(packDir: string, opts: RunOptions): Promise<{ dir: string; record: RunRecord }> {
@@ -211,6 +214,7 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 		status: statusValue, statusReason, register: status.record, method: methodVersion(), states,
 		variants: {}, arms: {}, probes: [], cells: [], runsPerCell, timeLimitSeconds,
 		population: exp.experiment.factors.population, runtimes: {}, judges: [], judgeProbes: [],
+		snapshot: { scenarios, arms: armIds0, population: loaded.pack.population },
 		guessGroups: exp.experiment.judging?.guessGroups ?? Object.fromEntries(armIds0.map((a) => [a, [a]])), seed: runId, end: null,
 	};
 	// The record is written at every state and as each cell ends, so a run that stops part way
@@ -296,10 +300,11 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 				fs.rmdirSync(inv);
 				const outcome = await runPhase({ adapter: adapterOf(c.member), experiment: exp.experiment, scenario: c.scenario, arm: c.arm, member: c.member, workspace: ws.dir, work: inv, timeLimitSeconds });
 				if (outcome.stop.reason === "timeout" && outcome.stop.inFlight === "unknown") timeouts++;
-				// A cell may touch what its arm was given: its variants hold only that, and links in them
-				// were rewritten to point at them - a smoke run found agents following those links.
-				const own = Object.keys(c.arm.revisions).map((v) => built.get(v)).filter((b): b is BuiltVariant & { ok: true } => b !== undefined && b.ok).map((b) => b.dir);
-				const allow = [ws.dir, inv, ...c.arm.onRequest.map((o) => o.path), ...own];
+				// A cell may touch what its arm was given - its instruction and folder files at their source
+				// paths, which rewritten links in them point at, and its on-request folders - and nothing
+				// else of its variants.
+				const given = [...c.arm.instructions.map((f) => f.path), ...c.arm.folderFiles.map((f) => f.path), ...c.arm.onRequest.map((o) => o.path)];
+				const allow = [ws.dir, inv, ...given];
 				const sandboxed = adapterOf(c.member).filesystem === "sandboxed";
 				const validity = classify(outcome, { ...forbiddenBase, allow, sandboxed }, Math.max(1, timeouts));
 				const unreachable = sandboxed ? forbiddenPathsNamed(outcome, { ...forbiddenBase, allow }) : [];
@@ -354,20 +359,21 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 	await new Promise((r) => setTimeout(r, 2));
 	const scenarioMap = new Map(scenarios.map((x) => [x.id, x]));
 	const families = new Map(loaded.pack.population.map((m) => [m.id, m.family]));
-	const blinded = blind(loaded, scenarioMap, cellRecords, families, record.seed, now);
+	const canaries = loaded.pack.variants.flatMap((v) => v.canaries);
+	const blinded = blind(loaded, scenarioMap, cellRecords, families, record.seed, now, { paths: [workRoot, recordsRoot, loaded.dir], literals: canaries });
 	write(path.join(recordsDir, "sealed", "units.json"), blinded);
 	enter("blinded");
 	save();
 
 	const votes = await judgeAll({
 		loaded, experiment: exp.experiment, scenarios: scenarioMap, units: blinded.units, judges, adapters: opts.adapters,
-		guessOptions: Object.keys(record.guessGroups), recordsDir, work, seed: record.seed, timeLimitSeconds: opts.timeLimitSeconds ?? 900, parallel: opts.parallel ?? 4,
+		guessOptions: Object.keys(record.guessGroups), recordsDir, work, seed: record.seed, timeLimitSeconds: opts.judgeTimeLimitSeconds ?? 900, parallel: opts.parallel ?? 4,
 	});
 	write(path.join(recordsDir, "judging", "votes.json"), votes);
 	enter("judged");
 	save();
 
-	const result = tallyRun(recordsDir, loaded);
+	const result = tallyRun(recordsDir);
 	enter("tallied");
 	record.end = "completed";
 	save();
@@ -383,19 +389,17 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 	return { dir: recordsDir, record };
 }
 
-/** Re-tally a run from its record alone: the same files give the same result. */
-export function tallyRun(recordsDir: string, loaded: LoadedPack): Result {
+/** Re-tally a run from its record alone: the same files give the same result, whatever the pack is now. */
+export function tallyRun(recordsDir: string): Result {
 	const read = <T>(f: string): T => JSON.parse(fs.readFileSync(path.join(recordsDir, f), "utf8")) as T;
 	const record = read<RunRecord>("run.json");
-	const exp = loaded.experiments.get(record.experiment);
-	if (!exp) throw new Error(`no experiment ${record.experiment} in the pack`);
-	const scenarios = new Map(record.scenarios.map((id) => [id, exp.scenarios.get(id)!.scenario]));
+	const scenarios = new Map(record.snapshot.scenarios.map((x) => [x.id, x]));
 	const cells = record.cells.map((c) => read<CellRecord>(path.join("cells", `${c}.json`)));
 	const blinded = read<Blinded>(path.join("sealed", "units.json"));
 	const votes = read<Vote[]>(path.join("judging", "votes.json"));
-	const judges = record.judges.map((id) => loaded.pack.population.find((m) => m.id === id)!);
+	const judges = record.judges.map((id) => record.snapshot.population.find((m) => m.id === id)!);
 	const result = tally({
-		run: record.run, status: record.status, arms: exp.experiment.factors.arms, members: record.population, scenarios, cells,
+		run: record.run, status: record.status, arms: record.snapshot.arms, members: record.population, scenarios, cells,
 		units: blinded.units, absent: blinded.absent, votes, assigned: (u) => assignJudges(u, judges).map((j) => j.id), guessGroups: record.guessGroups,
 	});
 	write(path.join(recordsDir, "RESULT.json"), result);
@@ -408,4 +412,3 @@ export function tallyRun(recordsDir: string, loaded: LoadedPack): Result {
 	fs.writeFileSync(path.join(recordsDir, "RESULT.md"), resultMarkdown(result, limits));
 	return result;
 }
-

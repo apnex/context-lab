@@ -60,3 +60,17 @@ export function commitAll(dir: string, message = "fixture"): string {
 	g("commit", "-q", "--allow-empty", "-m", message);
 	return g("rev-parse", "HEAD");
 }
+
+export const isJudgePrompt = (prompt: string): boolean => prompt.includes("=== OUTCOME o1") || prompt.includes("--- answer a1 ---");
+
+/** A judge's reply: every outcome, every listed property scored `value`, guessing the first condition offered. */
+export function judgeReply(prompt: string, value = 1): string {
+	if (prompt.includes("--- answer a1 ---")) {
+		return [...prompt.matchAll(/^--- answer (a\d+) ---$/gm)].map((m) => JSON.stringify({ item: m[1], score: value, reason: "r" })).join("\n");
+	}
+	const guess = /one of: ([^,\n-]+?)(?:,| -)/.exec(prompt)?.[1]?.trim();
+	const outcomes = [...prompt.matchAll(/^=== OUTCOME (o\d+) - properties ([^=]+) ===$/gm)].map((m) => ({
+		id: m[1], scores: Object.fromEntries(m[2]!.split(",").map((x) => [x.trim(), { v: value, reason: "r" }])), ...(guess ? { guess } : {}),
+	}));
+	return JSON.stringify({ outcomes });
+}

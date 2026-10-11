@@ -29,10 +29,12 @@ export interface Result {
 	arms: string[];
 	members: string[];
 	properties: PropertyResult[];
-	totals: Record<string, number>;
+	totals: Record<string, number | null>;
 	excluded: { cell: string; cause: string }[];
 	absent: Absent[];
 	guesses: { right: number; all: number; byGuess: Record<string, number>; baseRate: number | null };
+	/** Cells whose sandboxed agent named a forbidden path that did not exist for it. */
+	unreachable: string[];
 	cellValues: Record<string, Record<string, number | "incomplete">>;
 }
 
@@ -61,7 +63,7 @@ export function tally(t: TallyInput): Result {
 		const last = c.attempts[c.attempts.length - 1]!;
 		if (!c.valid) {
 			const cause = last.validity.valid ? "unknown" : last.validity.cause;
-			if (cause === "behaviour") cellValues[c.cell] = Object.fromEntries(s.properties.map((p) => [p.id, 0]));
+			if (cause === "behaviour") cellValues[c.cell] = Object.fromEntries(s.properties.map((p) => [p.id, p.scale[0]]));
 			else excluded.push({ cell: c.cell, cause });
 			continue;
 		}
@@ -72,7 +74,7 @@ export function tally(t: TallyInput): Result {
 				v[p.id] = cs !== undefined && "value" in cs ? cs.value : "incomplete";
 				continue;
 			}
-			if (t.absent.some((a) => a.cell === c.cell && a.property === p.id)) { v[p.id] = 0; continue; }
+			if (t.absent.some((a) => a.cell === c.cell && a.property === p.id)) { v[p.id] = p.scale[0]; continue; }
 			const unit = t.units.find((u) => u.cell === c.cell && u.properties.includes(p.id));
 			if (!unit) { v[p.id] = "incomplete"; continue; }
 			const judges = t.assigned(unit);
@@ -81,7 +83,8 @@ export function tally(t: TallyInput): Result {
 			v[p.id] = complete ? mean(vs as number[])! : "incomplete";
 			const key = `${s.id}/${p.id}`;
 			const ag = agreement.get(key) ?? { agree: 0, of: 0 };
-			if (complete) { ag.of++; if ((vs as number[]).every((x) => x === vs[0])) ag.agree++; }
+			// Agreement needs at least two votes to mean anything.
+			if (complete && vs.length >= 2) { ag.of++; if ((vs as number[]).every((x) => x === vs[0])) ag.agree++; }
 			agreement.set(key, ag);
 		}
 		cellValues[c.cell] = v;
@@ -101,7 +104,8 @@ export function tally(t: TallyInput): Result {
 			agreement: agreement.get(`${s.id}/${p.id}`) ?? { agree: 0, of: 0 },
 		});
 	}
-	const totals = Object.fromEntries(t.arms.map((a) => [a, properties.reduce((sum, p) => sum + (p.byArm[a]!.mean ?? 0), 0)]));
+	// A total is shown only when every property has a mean for that arm; it sums each property's own scale.
+	const totals = Object.fromEntries(t.arms.map((a) => [a, properties.every((p) => p.byArm[a]!.mean !== null) ? properties.reduce((sum, p) => sum + p.byArm[a]!.mean!, 0) : null]));
 	const groupOf = (arm: string): string | undefined => Object.entries(t.guessGroups).find(([, arms]) => arms.includes(arm))?.[0];
 	const guesses = { right: 0, all: 0, byGuess: {} as Record<string, number>, baseRate: null as number | null };
 	const seen = new Set<string>();
@@ -114,12 +118,12 @@ export function tally(t: TallyInput): Result {
 		guesses.byGuess[v.guess] = (guesses.byGuess[v.guess] ?? 0) + 1;
 		if (groupOf(unit.arm) === v.guess) guesses.right++;
 	}
-	const groups = Object.keys(t.guessGroups);
-	if (t.units.length && groups.length) {
-		const largest = Math.max(...groups.map((g) => t.units.filter((u) => groupOf(u.arm) === g).length));
-		guesses.baseRate = largest / t.units.length;
-	}
-	return { run: t.run, status: t.status, arms: t.arms, members: t.members, properties, totals, excluded, absent: t.absent, guesses, cellValues };
+	// The base rate: always guessing the condition most of the guessed outcomes came from.
+	const truth = new Map<string, number>();
+	for (const key of seen) { const g = groupOf(t.units.find((u) => u.id === key.split(".")[0])!.arm) ?? ""; truth.set(g, (truth.get(g) ?? 0) + 1); }
+	if (guesses.all) guesses.baseRate = Math.max(...truth.values()) / guesses.all;
+	const unreachable = t.cells.filter((c) => c.attempts.some((a) => (a.unreachable ?? []).length > 0)).map((c) => c.cell);
+	return { run: t.run, status: t.status, arms: t.arms, members: t.members, properties, totals, excluded, absent: t.absent, guesses, unreachable, cellValues };
 }
 
 const fmt = (r: Rate): string => (r.mean === null ? "-" : `${r.mean.toFixed(2)} (${r.of})`) + (r.incomplete ? ` +${r.incomplete} inc` : "");
@@ -132,10 +136,11 @@ export function resultMarkdown(r: Result, limits: string[]): string {
 		"## Properties", "",
 		`| Scenario | Property | ${r.arms.join(" | ")} | votes agree |`, `|---|---|${r.arms.map(() => "---").join("|")}|---|`,
 		...r.properties.map((p) => `| ${p.scenario} | ${p.property} | ${r.arms.map((a) => fmt(p.byArm[a]!)).join(" | ")} | ${p.agreement.of ? `${p.agreement.agree}/${p.agreement.of}` : "-"} |`),
-		"", `Totals: ${r.arms.map((a) => `${a} ${r.totals[a]!.toFixed(2)}`).join(", ")}.`, "",
+		"", `Totals, each property on its own scale: ${r.arms.map((a) => `${a} ${r.totals[a] === null ? "- (a property has no mean)" : r.totals[a]!.toFixed(2)}`).join(", ")}.`, "",
 		`Judges guessed the condition right ${r.guesses.right} of ${r.guesses.all} times; always guessing the largest condition would score ${r.guesses.baseRate === null ? "-" : `${Math.round(r.guesses.baseRate * 100)}%`}.`, "",
 		r.excluded.length ? `Excluded cells: ${r.excluded.map((e) => `${e.cell} (${e.cause})`).join(", ")}.` : "No cell excluded.", "",
-		r.absent.length ? `Absent answers, scored 0: ${r.absent.map((a) => `${a.cell} ${a.property}`).join(", ")}.` : "No answer absent.", "",
+		r.absent.length ? `Absent answers, scored at the bottom of their scale: ${r.absent.map((a) => `${a.cell} ${a.property}`).join(", ")}.` : "No answer absent.", "",
+		r.unreachable.length ? `Sandboxed agents named forbidden paths that did not exist for them, in: ${r.unreachable.join(", ")}.` : "No sandboxed agent named a forbidden path.", "",
 	];
 	return lines.join("\n");
 }

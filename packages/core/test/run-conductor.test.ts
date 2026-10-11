@@ -14,7 +14,7 @@ import {
 	CANARY_QUESTION, METHOD, STATES, checkPack, conductRun, recordExperiment, recordHistory,
 	type Adapter, type CellRecord, type Invocation, type Outcome,
 } from "../src/index.js";
-import { commitAll, copyPack, editJson, packageRoot, scratch } from "./helpers.js";
+import { commitAll, copyPack, editJson, isJudgePrompt, judgeReply, packageRoot, scratch } from "./helpers.js";
 
 function outcome(final: string, over: Partial<Outcome> = {}): Outcome {
 	return { final, exit: 0, signal: null, stop: { reason: "completed", inFlight: "none" }, cost: { seconds: 0, inputTokens: null, cachedInputTokens: null, outputTokens: null, toolCalls: 0 }, tools: [], filtered: false, error: null, session: null, trace: [], events: "/dev/null", ...over };
@@ -22,14 +22,7 @@ function outcome(final: string, over: Partial<Outcome> = {}): Outcome {
 
 type Answer = (inv: Invocation, n: number) => Outcome;
 
-/** A judge's reply: every outcome, every listed property scored 1, guessing the first condition offered. */
-export function judgeReply(prompt: string, value = 1): string {
-	const guess = /one of: ([^,.\n]+)/.exec(prompt)?.[1] ?? "";
-	const outcomes = [...prompt.matchAll(/^=== OUTCOME (o\d+) - properties ([^=]+) ===$/gm)].map((m) => ({
-		id: m[1], scores: Object.fromEntries(m[2]!.split(",").map((x) => [x.trim(), { v: value, reason: "r" }])), guess,
-	}));
-	return JSON.stringify({ outcomes });
-}
+
 
 function scripted(runtime: string, answer: Answer = () => outcome("The rootstock is quince and the scion is pear.")): Adapter & { calls: Invocation[] } {
 	const calls: Invocation[] = [];
@@ -38,7 +31,7 @@ function scripted(runtime: string, answer: Answer = () => outcome("The rootstock
 		async invoke(inv) {
 			calls.push(inv);
 			if (inv.prompt === CANARY_QUESTION) return outcome(inv.arm.canaries.join("\n") || "NONE");
-			if (inv.tools === "off" && inv.prompt.includes("=== OUTCOME o1")) return outcome(judgeReply(inv.prompt));
+			if (inv.tools === "off" && isJudgePrompt(inv.prompt)) return outcome(judgeReply(inv.prompt));
 			if (inv.tools === "off") return outcome("I do not know.");
 			fs.writeFileSync(path.join(inv.workspace, "NOTE.txt"), "grafted\n");
 			return answer(inv, calls.filter((c) => c.tools === "on").length);
@@ -342,4 +335,20 @@ test("a sandboxed runtime naming a forbidden path is recorded, not invalid; a fo
 	const [c] = cellsOf(records);
 	assert.deepEqual(c!.attempts.map((x) => x.validity.valid ? "valid" : x.validity.cause), ["isolation", "valid"]);
 	assert.deepEqual(c!.attempts[1]!.unreachable, [path.join(dir, "scenarios", "graft.json")]);
+});
+
+test("a scored file reached through a linked folder is not read", async () => {
+	const host = scratch();
+	fs.writeFileSync(path.join(host, "NOTE.txt"), "not for the record\n");
+	const { dir, work, records } = await setup((d) => { narrow(d); editJson(path.join(d, "scenarios", "graft.json"), (j) => { j.scoredFile = "out/NOTE.txt"; }); });
+	const linker = scripted("opencode", (inv) => { fs.symlinkSync(host, path.join(inv.workspace, "out")); return outcome("done"); });
+	await conductRun(dir, { experiment: "orchard", adapters: { opencode: linker }, work, records });
+	assert.equal(JSON.stringify(cellsOf(records)[0]).includes("not for the record"), false);
+});
+
+test("a file of the arm's variant it was not given is still forbidden", async () => {
+	const { dir, work, records } = await setup((d) => { editJson(path.join(d, "experiments", "orchard.json"), (j) => { j.factors.population = ["p1"]; j.factors.arms = ["almanac"]; j.scenarios = ["scenarios/prune.json"]; }); fs.writeFileSync(path.join(d, "source", "SECRET.md"), "s\n"); });
+	const a = scripted("opencode", (inv) => outcome("x", { tools: [{ name: "read", input: {}, status: "completed", paths: [path.join(path.dirname(inv.arm.instructions[0]!.path), "SECRET.md")], addresses: [] }] }));
+	await conductRun(dir, { experiment: "orchard", adapters: { opencode: a }, work, records });
+	assert.equal(cellsOf(records)[0]!.attempts[0]!.validity.valid ? "valid" : (cellsOf(records)[0]!.attempts[0]!.validity as { cause: string }).cause, "isolation");
 });

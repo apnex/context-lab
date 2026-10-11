@@ -259,6 +259,11 @@ It found two defects, both fixed: rewritten links in a variant pointed agents at
 It also found opencode installing about 160 MB of packages into each invocation's folder, now removed when the runtime ends.\
 The E7 literal list holds short property ids; one, `x6`, matched a hexadecimal constant in the blinder, now written in decimal - a false match of the list, not a mention of mission-kit.
 
+**Stage 5 verification.**\
+The stage 4 verifier found E15 and E14's stage-5 part green, most stage 4 findings fixed, and four major defects in judging, all fixed: a scored file reachable through a linked folder, now read only when its real path is a regular file in the workspace; re-tallying that depended on the pack as it is now, now from a snapshot the run record keeps; judges shown the variant's path, the canary and self-explanation written into a file, now masked; and a guess rate that would read 0 of 0 for mission-kit's adherence suite, whose judges guess guided or unguided, now declared in its pack.\
+Fixed besides: one judge failing no longer stops the run; the seed alone fixes the blinding; a reply missing one outcome keeps the rest and asks again for the missing one; agreement needs two votes; a total needs every property's mean; the base rate is taken over the guesses made; an empty answer is absent; a judge reply reached with a tool is discarded; judges have their own time limit; judges are not asked to guess between one condition; and an arm may touch only the files it was given, not the rest of its variant.\
+Answer units are judged in the comprehension form carried from `eval.mjs`'s scorer prompt, its lines verbatim but for one: its scorer wrote a file and replied DONE, and a judge here has no tools, so it replies with the lines - for the director's ruling, with the rule that a sandboxed runtime naming a forbidden path outside its sandbox is recorded and does not invalidate the cell.
+
 ---
 
 ## Adversarial review
