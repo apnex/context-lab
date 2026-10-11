@@ -1,7 +1,7 @@
 # Delta-1 - a core that runs one-phase experiments, proven isolated - a vertical slice
 
 ```yaml
-status:     ratified (docs/DECISIONS.md 0009) - revision 3, stage amendments confirmed (0010, 0011); stages 1 and 2 verified green, stage 3 open
+status:     ratified (docs/DECISIONS.md 0009) - revision 3, stage amendments confirmed (0010, 0011); stages 1 to 3 verified green (0012), stage 4 open
 selected:   docs/DECISIONS.md 0007, board item M1 (M1.1, M1.2)
 from-state: docs/ARCHITECTURE-TARGET.md header - "Its current architecture is empty"
 to-state:   docs/ARCHITECTURE-TARGET.md (0006, 0008), the components fenced in section 1
@@ -64,7 +64,7 @@ Each stage lands with its own tests, and its criteria are green, before the next
 1. **Pack and record.** The workspace; pack schema; both packs written statically; pack checker; hook runner; experiment register; selector and suites. Criteria E1, E2, E3 except its run-record clause, E12 for its bounds and the declaration-check failure result, E16.
 2. **Context.** Variant builder, arm composer, workspace builder. Criteria E13 except its run-record clause, and E12's variant-transform failure result as far as the arm not being built.
 3. **Runtimes.** The three adapters and their conformance suite, accepted by the verifier before the adapters are built; isolation prober; validity classifier. Criteria E5, E6.
-4. **One-phase runs.** Phase driver, run conductor, answer parser, code measurer. Criteria E7, E14, the run-record clauses of E3 and E13, and the rest of E12: an unbuilt arm not run, the outcome-measure failure result, and the synthetic pack's transform and measure hooks run on their success paths.
+4. **One-phase runs.** Phase driver, run conductor - passing each cell's attempt count to the classifier (`0012`) - answer parser, code measurer. Criteria E7, E14, the run-record clauses of E3 and E13, and the rest of E12: an unbuilt arm not run, the outcome-measure failure result, and the synthetic pack's transform and measure hooks run on their success paths.
 5. **Judging.** Blinder, judge panel, tally. Criterion E15.
 6. **Parity.** Legacy-record readers; the tally against two past runs. Criteria E8, E9.
 7. **mission-kit's pack, live.** Criteria E4, E10, E11.
@@ -232,7 +232,7 @@ The isolation prober is tested with a scripted adapter here; its live runs are c
 The verifier found E6 green and E5 red: opencode runs tools inside a step and reports them only when they end, so an opencode agent stopped while working leaves a step open and read as waiting on the model - infrastructure - making E5's behaviour timeout unreachable for opencode.\
 It also found three major defects, all fixed and re-checked: twelve copies of the operator's Codex login left by the live checks, now deleted, with the adapter removing its copy after each invocation and the live checks removing their records; a Codex probe passable by reading the canary file rather than receiving it, now refused, since a probe answer counts only without tool calls and a tool call fails the probe; and forbidden addresses missed in common forms, now matched in every written form the verifier listed.\
 Re-verification: E6 green, E5 green as written; all eleven live checks pass with the wider Codex features table.\
-An opencode timeout with a step open is now `unknown`: infrastructure on a first attempt, behaviour on a re-run - a classification policy E5 does not settle, for the director's ruling.\
+An opencode timeout with a step open is now `unknown`: infrastructure on a first attempt, behaviour on a re-run - a classification policy E5 does not settle, ruled by the director (`0012`).\
 Known limits, stated in the classifier: addresses assembled at run time, percent-encoded, or reached through another program or mirror are not found; a mere mention of a forbidden address counts as reaching it.
 
 ---

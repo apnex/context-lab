@@ -31,6 +31,7 @@ They are not copied here; this register starts at the vision.
 | 0009 | 2026-10-10 | Delta-1 is ratified, revision 3, built in TypeScript following zorg's layout: npm workspaces, `tsc -b` under strict settings, `node --test`, Node 24 or later, development dependencies only. | director | ratified | - |
 | 0010 | 2026-10-10 | Delta-1's stage amendments are confirmed: E3's run-record clause is evaluated at stage 4, and E12 is completed across stages 1, 2 and 4. | director | ratified | - |
 | 0011 | 2026-10-10 | Delta-1's stage 2 amendment is confirmed: E13's run-record clause is evaluated at stage 4. | director | ratified | amends 0010 |
+| 0012 | 2026-10-10 | An opencode cell that times out with a step open is classified infrastructure on its first attempt and behaviour on a re-run; the run conductor passes the attempt count to the classifier. | director | ratified | - |
 
 ---
 
@@ -185,4 +186,15 @@ Holding the clause at stage 2 - refuted because it needs the run record stage 4 
 
 **Source.**\
 `[V, director confirmation 2026-10-10; docs/DELTAS/DELTA-1.md Record, stage 2]`
+
+### 0012
+
+**Ruling.** opencode reports a tool only when it ends, so a timeout with a step open cannot be told from a stalled provider; it is a provider fault the first time and the agent's behaviour if the re-run also times out.
+
+**Alternatives refuted.**\
+Always a provider fault - refuted because an opencode agent stuck in a long command would never be scored for it, flattering opencode agents against Codex ones.\
+Always the agent's behaviour - refuted because a stalled provider would count against the agent, penalising slower providers.
+
+**Source.**\
+`[V, director ruling 2026-10-10; docs/DELTAS/DELTA-1.md Record, stage 3 verification]`
 
