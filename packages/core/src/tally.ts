@@ -108,11 +108,12 @@ export function tally(t: TallyInput): Result {
 	const totals = Object.fromEntries(t.arms.map((a) => [a, properties.every((p) => p.byArm[a]!.mean !== null) ? properties.reduce((sum, p) => sum + p.byArm[a]!.mean!, 0) : null]));
 	const groupOf = (arm: string): string | undefined => Object.entries(t.guessGroups).find(([, arms]) => arms.includes(arm))?.[0];
 	const guesses = { right: 0, all: 0, byGuess: {} as Record<string, number>, baseRate: null as number | null };
-	const seen = new Set<string>();
+	// Keyed by unit and judge as a pair, not a joined string: a unit id may contain the separator.
+	const seen = new Map<string, Unit>();
 	for (const v of t.votes) {
-		const key = `${v.unit}.${v.judge}`;
+		const key = JSON.stringify([v.unit, v.judge]);
 		if (v.guess === null || seen.has(key)) continue;
-		seen.add(key);
+		seen.set(key, t.units.find((u) => u.id === v.unit)!);
 		const unit = t.units.find((u) => u.id === v.unit)!;
 		guesses.all++;
 		guesses.byGuess[v.guess] = (guesses.byGuess[v.guess] ?? 0) + 1;
@@ -120,7 +121,7 @@ export function tally(t: TallyInput): Result {
 	}
 	// The base rate: always guessing the condition most of the guessed outcomes came from.
 	const truth = new Map<string, number>();
-	for (const key of seen) { const g = groupOf(t.units.find((u) => u.id === key.split(".")[0])!.arm) ?? ""; truth.set(g, (truth.get(g) ?? 0) + 1); }
+	for (const unit of seen.values()) { const g = groupOf(unit.arm) ?? ""; truth.set(g, (truth.get(g) ?? 0) + 1); }
 	if (guesses.all) guesses.baseRate = Math.max(...truth.values()) / guesses.all;
 	const unreachable = t.cells.filter((c) => c.attempts.some((a) => (a.unreachable ?? []).length > 0)).map((c) => c.cell);
 	return { run: t.run, status: t.status, arms: t.arms, members: t.members, properties, totals, excluded, absent: t.absent, guesses, unreachable, cellValues };

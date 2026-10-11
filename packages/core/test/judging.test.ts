@@ -213,3 +213,14 @@ test("the seed alone fixes the blinding, whatever order the cells are given in",
 	const b = blind(loaded, scenarios, [...cells].reverse(), fam, "s").units.map((u) => `${u.id}:${u.cell}:${u.properties}`);
 	assert.deepEqual(a, b);
 });
+
+test("the tally keys guesses by unit and judge, whatever characters a unit id holds", async () => {
+	const { tally } = await import("../src/index.js");
+	const sc = { id: "s", tags: [], fixture: null, task: "", properties: [{ id: "p", type: "adherence" as const, decidedBy: "judge" as const, key: "", scale: [0, 1] as [number, number] }] };
+	const mk = (id: string, arm: string): CellRecord => ({ cell: id, scenario: "s", arm, member: "m", run: 1, valid: true, final: "", scoredFile: null, answers: {}, diff: null, codeScores: [], attempts: [{ attempt: 1, validity: { valid: true }, outcome: { final: "", exit: 0, signal: null, stop: { reason: "completed", inFlight: "none" }, cost: { seconds: 0, inputTokens: null, cachedInputTokens: null, outputTokens: null, toolCalls: 0 }, tools: [], filtered: false, error: null, session: null, trace: [], events: "" }, diff: null }] });
+	const cells = [mk("s.a.m.1", "a"), mk("s.b.m.1", "b")];
+	const units = cells.map((c) => ({ id: c.cell, cell: c.cell, scenario: "s", arm: c.arm, member: "m", family: "f", properties: ["p"], text: "", blindedAt: "" }));
+	const votes = units.flatMap((u) => ["j1", "j2"].map((j) => ({ unit: u.id, property: "p", judge: j, family: j, value: 1, reason: "", guess: "a", prompt: "x" })));
+	const r = tally({ run: "r", status: "s", arms: ["a", "b"], members: ["m"], scenarios: new Map([["s", sc]]), cells, units, absent: [], votes, assigned: () => ["j1", "j2"], guessGroups: { a: ["a"], b: ["b"] } });
+	assert.deepEqual([r.guesses.all, r.guesses.right, r.guesses.baseRate], [4, 2, 0.5]);
+});
