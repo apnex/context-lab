@@ -36,6 +36,7 @@ They are not copied here; this register starts at the vision.
 | 0014 | 2026-10-11 | mission-kit's explain suite is carried as one cell per reader, all four questions in one prompt with its wording verbatim, the answer file split per question for judging. | director | ratified | - |
 | 0015 | 2026-10-11 | For a runtime in the filesystem sandbox, a forbidden path the agent names is recorded and does not invalidate the cell; a forbidden address still does, the network being shared. | director | ratified | - |
 | 0016 | 2026-10-11 | Comprehension answers are judged in eval.mjs's scorer form verbatim but for one change: judges reply with their score lines instead of writing a file and replying DONE. | director | ratified | - |
+| 0017 | 2026-10-11 | Delta-1 is complete: every exit criterion was evaluated green by an agent that built none of the code. | executor, evaluated by the verifier | recorded | - |
 
 ---
 
@@ -248,4 +249,14 @@ Letting judges write a file - refuted because it gives judges tools, which the t
 
 **Source.**\
 `[V, director ruling 2026-10-11; Delta-1 stage 5 verification]`
+
+### 0017
+
+**Record.**\
+Delta-1 reached its to-state: a core that runs one-phase experiments, isolation probed, through to a tallied result, with mission-kit's adherence and `explain` suites running on it.\
+Every exit criterion was evaluated green by an agent that built none of the code; the evaluation is in the delta's Record.\
+This is a record of completion under the ratification of `0009`, not a new ruling.
+
+**Source.**\
+`[V, docs/DELTAS/DELTA-1.md Record, closing evaluation]`
 

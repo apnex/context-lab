@@ -1,7 +1,7 @@
 # Delta-1 - a core that runs one-phase experiments, proven isolated - a vertical slice
 
 ```yaml
-status:     ratified (docs/DECISIONS.md 0009) - revision 3, stage amendments confirmed (0010, 0011); stages 1 to 5 verified green (0012 to 0016), stage 6 open
+status:     complete - every exit criterion evaluated green by an agent that built none of the code (0017); stage amendments confirmed (0010, 0011, 0013)
 selected:   docs/DECISIONS.md 0007, board item M1 (M1.1, M1.2)
 from-state: docs/ARCHITECTURE-TARGET.md header - "Its current architecture is empty"
 to-state:   docs/ARCHITECTURE-TARGET.md (0006, 0008), the components fenced in section 1
@@ -278,9 +278,9 @@ Known differences from the old tools, on runs these two do not contain: the core
 Parity holds neither the incomplete rule nor the absent rule, since neither run contains such a case; their unit tests do.
 
 **Stage 7.**\
-The first live run of mission-kit's adherence suite stopped at probing: the pack's S15 leak pattern matched the word `sub-set`, which one on-trigger agent used in restating the question; the pattern now matches S15's sentence, as `adherence.mjs` required, and the stopped run is recorded as failed (`2026-10-11-090959-adherence`).
+The first live run of mission-kit's adherence suite was stopped by the executor during execution, after 18 cells: the pack's S15 leak pattern matched the word `sub-set`, which one on-trigger agent used in restating the question; the pattern now matches S15's sentence, as `adherence.mjs` required, and the stopped run is recorded as failed (`2026-10-11-090959-adherence`); its own record says it stopped at probing, which is wrong - probing had finished.
 
-Run `2026-10-11-092325-adherence` (E10): started by suite name, mission-kit at `fc06e1d`, opencode 1.18.35, codex-cli 0.162.1; every probe of the nine arm-member pairs and three judge setups passed before any cell ran; all 135 cells valid, none re-run; 864 votes, every outcome two votes from the other families, none missing; the run record re-tallies to its result.\
+Run `2026-10-11-092325-adherence` (E10): started by suite name, mission-kit at `8e469b3`, opencode 1.18.35, codex-cli 0.162.1; every probe of the nine arm-member pairs and three judge setups passed before any cell ran; all 135 cells valid, none re-run; 864 votes, every outcome two votes from the other families, none missing; the run record re-tallies to its result.\
 Run `2026-10-11-102022-explain` (E11): on-trigger, readers of three families, judges of the other two; all probes passed; every reader-probe pair holds two validated votes, none absent; no judge prompt holds text after the self-explanation marker; the record re-tallies to its result.\
 Both runs are exploration: neither experiment was recorded before it ran.
 
@@ -307,7 +307,16 @@ Published `adherence-03` mean / core run mean, per arm:
 | a4-3 | 0.56 / 0.56 | 0.56 / 0.44 | 0.44 / 0.44 |
 
 Known differences between the two runs: local delivery instead of fetches from `main`, with network denied to GPT agents and detected for the others; the filesystem sandbox; GPT agents' web search and hosted connectors off; mission-kit's corpus a day later; masking and judge prompts rebuilt in the core; and run-to-run variation, not yet stated for this suite.\
+**Beside mission-kit's last `explain` run, reported and not judged.**\
+Published `2026-10-03-explain-baseline-rescored`, label `head` / core run, mean of 0 to 2: X1 2.00 / 0.94; X2 1.33 / 0.11; X3 2.00 / 0.28; X4 1.67 / 0.94.\
+The gap is large and its cause is not established.\
+Known differences: that run's keys were later corrected after independent review and by a director ruling on two properties; its corpus held no explain guidance yet; its three readers were one family and its one scorer the same family, where here readers are three families and every answer has two judges of the others; and nine days of corpus change lie between them.\
 The `A4` trap still carries the relative date that made it measure nothing in `adherence-03` (mission-kit `B75`), because the pack carries suites as they are.
+
+**Closing evaluation.**\
+The verifier evaluated E1 to E16 against the code and the live records: all green.\
+Its notes, applied here: the E10 revision is `8e469b3`, not `fc06e1d`; the first run stopped during execution, not at probing; the `explain` comparison section 6 promised is added above.\
+Also noted, not defects: sixteen cells named folders above their workspace while looking for `AGENTS.md`, listed in the result as `0015` requires; and the `[ID]` mask appeared in 2 of 45 on-trigger units and no other, a small tell beside a guess rate of 75% against a base rate of 67%.
 
 ---
 

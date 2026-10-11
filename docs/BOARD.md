@@ -1,7 +1,8 @@
 # context-lab - board
 
 The live, triaged set of legal next moves, for the director to select from.\
-M1 is active under `docs/DELTAS/DELTA-1.md`, ratified (`0009`).
+M1 is done: `docs/DELTAS/DELTA-1.md` is complete (`0017`).\
+The next move is for the director to select.
 
 ---
 
@@ -24,8 +25,8 @@ Order on the higher: a mandate breach ranks with S2 and a signal with S4; ties g
 <!-- BEGIN GENERATED: ledger. Run tools/check-board.mjs --write; do not edit by hand. -->
 | Row | Impact | Principle | Planned in | Finding |
 |---|---|---|---|---|
-| `B1` | S3 | A3 mandate | M1.1 | The duty this component exists for is implemented twice, outside it, and diverging. |
-| `B11` | S3 | A3 mandate | M1.2 | Neither first user has a project pack. |
+| `B1` | S3 | A3 mandate | M2.2 | The duty this component exists for is implemented twice, outside it, and diverging. |
+| `B11` | S3 | A3 mandate | M3.2 | Neither first user has a project pack. |
 | `B2` | S3 | A8 signal | M2.1 | Session continuation under isolation is unprobed on both driven runtimes. |
 | `B3` | S4 | A8 signal | M2.1 | Whether each runtime's compaction keeps instruction files is unknown. |
 | `B4` | S4 | A9 signal | M4.1 | No failure injection exercises the validity classifier. |
@@ -40,7 +41,7 @@ Order on the higher: a mandate breach ranks with S2 and a signal with S4; ties g
 
 ---
 
-## M1 - A core that runs one-phase experiments, proven isolated `ACTIVE`
+## M1 - A core that runs one-phase experiments, proven isolated `DONE`
 
 The smallest slice that replaces a copy: a pack, pinned variants, isolated agents on two runtimes and an external one, probes, validity, blinding, cross-family judging and a tally.\
 It carries mission-kit's adherence suite and one comprehension suite as single-phase experiments; its tally is checked against two past runs, and its live results are reported beside theirs.
