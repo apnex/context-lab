@@ -25,11 +25,14 @@ import type { Outcome } from "./outcome.js";
 import type { LoadedPack, Member, Scenario, Status } from "./pack-schema.js";
 import { runPhase } from "./phase-driver.js";
 import { buildVariant, makeWritable, type BuiltVariant, type VariantManifest } from "./variant-builder.js";
-import { classify, RERUN, type Validity } from "./validity-classifier.js";
+import { classify, forbiddenPathsNamed, RERUN, type Validity } from "./validity-classifier.js";
 import { createWorkspace } from "./workspace-builder.js";
 import { isInside } from "./paths.js";
+import { blind, type Blinded } from "./blinder.js";
+import { EMPTY_ARM, assignJudges, judgeAll, type Vote } from "./judge-panel.js";
+import { resultMarkdown, tally, type Result } from "./tally.js";
 
-export const STATES = ["validated", "recorded", "built", "probed", "executed", "measured"] as const;
+export const STATES = ["validated", "recorded", "built", "probed", "executed", "measured", "blinded", "judged", "tallied"] as const;
 export type State = (typeof STATES)[number];
 
 export interface RunOptions {
@@ -54,6 +57,10 @@ export interface Attempt {
 	outcome: Outcome;
 	/** The workspace's changes after this attempt, against its initial commit. */
 	diff: string | null;
+	/** Where the attempt ran, so the blinder can remove the path from what judges see. */
+	workspace?: string;
+	/** Forbidden paths a sandboxed agent named, which did not exist for it. */
+	unreachable?: string[];
 	/** Set when the attempt could not be completed by the core itself: the adapter or the workspace failed. */
 	failure?: string;
 }
@@ -95,6 +102,10 @@ export interface RunRecord {
 	timeLimitSeconds: number;
 	population: string[];
 	runtimes: Record<string, string | null>;
+	judges: string[];
+	judgeProbes: ProbeResult[];
+	guessGroups: Record<string, string[]>;
+	seed: string;
 	end: RunEnd | null;
 	endReason?: string;
 }
@@ -194,11 +205,13 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 	fs.mkdirSync(recordsDir);
 	fs.mkdirSync(work);
 	const timeLimitSeconds = opts.timeLimitSeconds ?? 1200;
+	const armIds0 = exp.experiment.factors.arms;
 	const record: RunRecord = {
 		run: runId, pack: loaded.pack.id, experiment: experimentId, suite: suiteId, scenarios: scenarioIds,
 		status: statusValue, statusReason, register: status.record, method: methodVersion(), states,
 		variants: {}, arms: {}, probes: [], cells: [], runsPerCell, timeLimitSeconds,
-		population: exp.experiment.factors.population, runtimes: {}, end: null,
+		population: exp.experiment.factors.population, runtimes: {}, judges: [], judgeProbes: [],
+		guessGroups: exp.experiment.judging?.guessGroups ?? Object.fromEntries(armIds0.map((a) => [a, [a]])), seed: runId, end: null,
 	};
 	// The record is written at every state and as each cell ends, so a run that stops part way
 	// leaves everything it did.
@@ -240,6 +253,15 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 		probes.push(await probeArm(loaded, arm, m, adapterOf(m), { base: path.join(work, "probes", `${arm.arm}.${m.id}`), timeLimitSeconds: opts.timeLimitSeconds ?? 300 }));
 	});
 	probes.sort((a, b) => `${a.arm}.${a.member}`.localeCompare(`${b.arm}.${b.member}`));
+	// Judges are probed as agents are, with nothing given and every leak probe asked.
+	const judgeMembers: Member[] = (exp.experiment.judging?.judges ?? exp.experiment.factors.population).map((id) => loaded.pack.population.find((m) => m.id === id)!);
+	for (const j of judgeMembers) if (!(j.runtime in record.runtimes)) record.runtimes[j.runtime] = adapterOf(j).version?.() ?? null;
+	await pool(judgeMembers, opts.parallel ?? 4, async (j) => {
+		record.judgeProbes.push(await probeArm(loaded, EMPTY_ARM, j, adapterOf(j), { base: path.join(work, "probes", `judge.${j.id}`), timeLimitSeconds: opts.timeLimitSeconds ?? 300, allLeaks: true }));
+	});
+	record.judgeProbes.sort((a, b) => a.member.localeCompare(b.member));
+	const judges = judgeMembers.filter((j) => record.judgeProbes.some((p) => p.member === j.id && p.pass));
+	record.judges = judges.map((j) => j.id);
 	const passed = (arm: string, m: string): boolean => probes.some((p) => p.arm === arm && p.member === m && p.pass);
 	enter("probed");
 	save();
@@ -274,11 +296,16 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 				fs.rmdirSync(inv);
 				const outcome = await runPhase({ adapter: adapterOf(c.member), experiment: exp.experiment, scenario: c.scenario, arm: c.arm, member: c.member, workspace: ws.dir, work: inv, timeLimitSeconds });
 				if (outcome.stop.reason === "timeout" && outcome.stop.inFlight === "unknown") timeouts++;
-				const allow = [ws.dir, inv, ...c.arm.onRequest.map((o) => o.path)];
-				const validity = classify(outcome, { ...forbiddenBase, allow }, Math.max(1, timeouts));
+				// A cell may touch what its arm was given: its variants hold only that, and links in them
+				// were rewritten to point at them - a smoke run found agents following those links.
+				const own = Object.keys(c.arm.revisions).map((v) => built.get(v)).filter((b): b is BuiltVariant & { ok: true } => b !== undefined && b.ok).map((b) => b.dir);
+				const allow = [ws.dir, inv, ...c.arm.onRequest.map((o) => o.path), ...own];
+				const sandboxed = adapterOf(c.member).filesystem === "sandboxed";
+				const validity = classify(outcome, { ...forbiddenBase, allow, sandboxed }, Math.max(1, timeouts));
+				const unreachable = sandboxed ? forbiddenPathsNamed(outcome, { ...forbiddenBase, allow }) : [];
 				let diff: string | null = null;
 				try { diff = diffOf(ws.dir, ws.init); } catch { diff = null; }
-				a = { attempt, validity, outcome, diff };
+				a = { attempt, validity, outcome, diff, workspace: ws.dir, ...(unreachable.length ? { unreachable } : {}) };
 				if (diff === null && validity.valid) a = { ...a, validity: { valid: false, cause: "behaviour", detail: "the workspace's changes could not be read: the agent removed or broke its repository" } };
 			} catch (e) {
 				// The core could not complete the attempt; it is recorded, and the run goes on.
@@ -321,8 +348,30 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 		write(path.join(recordsDir, "cells", `${cr.cell}.json`), cr);
 	}
 	enter("measured");
+	save();
+
+	// Blinding comes strictly after the last code score, so "earlier than its blinding" holds to the millisecond.
+	await new Promise((r) => setTimeout(r, 2));
+	const scenarioMap = new Map(scenarios.map((x) => [x.id, x]));
+	const families = new Map(loaded.pack.population.map((m) => [m.id, m.family]));
+	const blinded = blind(loaded, scenarioMap, cellRecords, families, record.seed, now);
+	write(path.join(recordsDir, "sealed", "units.json"), blinded);
+	enter("blinded");
+	save();
+
+	const votes = await judgeAll({
+		loaded, experiment: exp.experiment, scenarios: scenarioMap, units: blinded.units, judges, adapters: opts.adapters,
+		guessOptions: Object.keys(record.guessGroups), recordsDir, work, seed: record.seed, timeLimitSeconds: opts.timeLimitSeconds ?? 900, parallel: opts.parallel ?? 4,
+	});
+	write(path.join(recordsDir, "judging", "votes.json"), votes);
+	enter("judged");
+	save();
+
+	const result = tallyRun(recordsDir, loaded);
+	enter("tallied");
 	record.end = "completed";
 	save();
+	void result;
 	} catch (e) {
 		record.end = "failed";
 		record.endReason = String(e).slice(0, 1000);
@@ -333,3 +382,30 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 	}
 	return { dir: recordsDir, record };
 }
+
+/** Re-tally a run from its record alone: the same files give the same result. */
+export function tallyRun(recordsDir: string, loaded: LoadedPack): Result {
+	const read = <T>(f: string): T => JSON.parse(fs.readFileSync(path.join(recordsDir, f), "utf8")) as T;
+	const record = read<RunRecord>("run.json");
+	const exp = loaded.experiments.get(record.experiment);
+	if (!exp) throw new Error(`no experiment ${record.experiment} in the pack`);
+	const scenarios = new Map(record.scenarios.map((id) => [id, exp.scenarios.get(id)!.scenario]));
+	const cells = record.cells.map((c) => read<CellRecord>(path.join("cells", `${c}.json`)));
+	const blinded = read<Blinded>(path.join("sealed", "units.json"));
+	const votes = read<Vote[]>(path.join("judging", "votes.json"));
+	const judges = record.judges.map((id) => loaded.pack.population.find((m) => m.id === id)!);
+	const result = tally({
+		run: record.run, status: record.status, arms: exp.experiment.factors.arms, members: record.population, scenarios, cells,
+		units: blinded.units, absent: blinded.absent, votes, assigned: (u) => assignJudges(u, judges).map((j) => j.id), guessGroups: record.guessGroups,
+	});
+	write(path.join(recordsDir, "RESULT.json"), result);
+	const limits = [
+		`${record.runsPerCell} run(s) per cell: one outcome moves a cell's mean by up to 1/${record.runsPerCell} of the scale.`,
+		"Agents and judges are language models; each outcome is judged by the families other than its agent's, which removes self-judging, not shared blind spots.",
+		"Judges can often tell the condition from the outcome itself; the guess rate below says how often.",
+		record.status === "exploration" ? `This run is exploration: ${record.statusReason}.` : "This run's experiment was recorded before the run, unchanged.",
+	];
+	fs.writeFileSync(path.join(recordsDir, "RESULT.md"), resultMarkdown(result, limits));
+	return result;
+}
+

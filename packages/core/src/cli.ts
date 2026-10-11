@@ -7,7 +7,7 @@
 //   context-lab suite  <pack> <suite>             the scenarios a suite resolves to
 //   context-lab entries <pack>                    the generated entry-to-scenario view
 //   context-lab run    <pack> <suite> [--runs N] [--parallel P] [--work DIR]
-//                                                  run a suite on the driven runtimes, through measured
+//                                                  run a suite on the driven runtimes, to a tallied result
 
 import { checkPack, codexAdapter, conductRun, entryView, opencodeAdapter, recordExperiment, resolveSuite, runStatus, type LoadedPack } from "./index.js";
 

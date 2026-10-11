@@ -52,12 +52,14 @@ export interface ProbeOptions {
 	/** Where workspaces and invocation folders are made. */
 	base: string;
 	timeLimitSeconds?: number;
+	/** Ask every leak probe, whatever arms it names: a judge is withheld everything. */
+	allLeaks?: boolean;
 }
 
 export async function probeArm(loaded: LoadedPack, arm: ComposedArm, member: Member, adapter: Adapter, opts: ProbeOptions): Promise<ProbeResult> {
 	const questions: { kind: "canary" | "leak"; probe: string; text: string; leak?: RegExp }[] = [{ kind: "canary", probe: "canary", text: CANARY_QUESTION }];
 	for (const l of loaded.pack.isolation.leakProbes) {
-		if (l.arms.includes(arm.arm)) questions.push({ kind: "leak", probe: l.id, text: `Do not use any tools. Answer in one line. ${l.question}`, leak: new RegExp(l.leak, "i") });
+		if (opts.allLeaks === true || l.arms.includes(arm.arm)) questions.push({ kind: "leak", probe: l.id, text: `Do not use any tools. Answer in one line. ${l.question}`, leak: new RegExp(l.leak, "i") });
 	}
 	const scenario = { id: "isolation-probe", tags: [], fixture: null, task: "", properties: [] };
 	const answers: ProbeAnswer[] = [];

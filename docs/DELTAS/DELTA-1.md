@@ -251,6 +251,14 @@ Each new protection was shown load-bearing by removing it, except the operator-e
 Disclosed: the stage-4 commit changed E14's stage column and section 2 before the director confirmed the restaging.\
 Ruled by the director: the restaging of E14 (`0013`); and mission-kit's `explain` suite as one cell per reader with its wording verbatim (`0014`) - properties now name the heading their answer sits under in the scored file, the run conductor splits the file per property, and the prompt the core builds for that suite was compared with `eval.mjs`'s and is identical but for the two paths.
 
+**Stage 5.**\
+Built: the blinder, which splits each valid cell into judged units - its judged properties together, or one property's split answer alone - masks identifiers and the workspace path, seals the mapping with each unit's blinding time, and refuses a unit whose code scores were not taken strictly before it (E14); the judge panel, which assigns every judge of another family and never one of the unit's own (E15), sends each judge its units in an order of its own with tools off, validates every reply and asks up to three times; the tally, which reads only the run record, scores a behaviour-invalid cell 0 and excludes and lists other invalid cells, scores an absent answer 0, and reports rates per arm and member, vote agreement and the judges' guess rate against its base rate; and the states blinded, judged and tallied, with judges' isolation probed beside the arms'.\
+Experiments may now declare their judges and the conditions judges guess between.\
+A smoke run of the synthetic pack on the real runtimes reached a tallied result.\
+It found two defects, both fixed: rewritten links in a variant pointed agents at the variant's own files, which counted as isolation, so a cell may now touch its own arm's variants; and a sandboxed agent naming a path outside its sandbox was counted as a breach although the path did not exist for it - for a sandboxed runtime such a path is now recorded, not invalidating, while forbidden addresses still are, the network being shared.\
+It also found opencode installing about 160 MB of packages into each invocation's folder, now removed when the runtime ends.\
+The E7 literal list holds short property ids; one, `x6`, matched a hexadecimal constant in the blinder, now written in decimal - a false match of the list, not a mention of mission-kit.
+
 ---
 
 ## Adversarial review

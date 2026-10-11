@@ -22,13 +22,23 @@ function outcome(final: string, over: Partial<Outcome> = {}): Outcome {
 
 type Answer = (inv: Invocation, n: number) => Outcome;
 
+/** A judge's reply: every outcome, every listed property scored 1, guessing the first condition offered. */
+export function judgeReply(prompt: string, value = 1): string {
+	const guess = /one of: ([^,.\n]+)/.exec(prompt)?.[1] ?? "";
+	const outcomes = [...prompt.matchAll(/^=== OUTCOME (o\d+) - properties ([^=]+) ===$/gm)].map((m) => ({
+		id: m[1], scores: Object.fromEntries(m[2]!.split(",").map((x) => [x.trim(), { v: value, reason: "r" }])), guess,
+	}));
+	return JSON.stringify({ outcomes });
+}
+
 function scripted(runtime: string, answer: Answer = () => outcome("The rootstock is quince and the scion is pear.")): Adapter & { calls: Invocation[] } {
 	const calls: Invocation[] = [];
 	return {
-		runtime, rulesFiles: ["AGENTS.md"], modes: ["inline"], network: "detected", refuse: () => null, calls,
+		runtime, rulesFiles: ["AGENTS.md"], modes: ["inline"], network: "detected", filesystem: "open", refuse: () => null, calls,
 		async invoke(inv) {
 			calls.push(inv);
 			if (inv.prompt === CANARY_QUESTION) return outcome(inv.arm.canaries.join("\n") || "NONE");
+			if (inv.tools === "off" && inv.prompt.includes("=== OUTCOME o1")) return outcome(judgeReply(inv.prompt));
 			if (inv.tools === "off") return outcome("I do not know.");
 			fs.writeFileSync(path.join(inv.workspace, "NOTE.txt"), "grafted\n");
 			return answer(inv, calls.filter((c) => c.tools === "on").length);
@@ -313,4 +323,23 @@ test("answers under headings in the scored file are split per property, self-exp
 	const a = scripted("opencode", (inv) => { fs.writeFileSync(path.join(inv.workspace, "answers.md"), "### orchard.G1\nQuince.\nWHY: almanac\n### OBSERVATIONS\nnone\n"); return outcome("DONE"); });
 	await conductRun(dir, { experiment: "orchard", adapters: { opencode: a }, work, records });
 	assert.deepEqual(cellsOf(records)[0]!.answers, { g1: "Quince.", g2: null });
+});
+
+test("reading the arm's own variant, as a rewritten link leads an agent to, is not isolation", async () => {
+	const { dir, work, records } = await setup((d) => editJson(path.join(d, "experiments", "orchard.json"), (j) => { j.factors.population = ["p1"]; j.factors.arms = ["almanac"]; j.scenarios = ["scenarios/prune.json"]; }));
+	const a = scripted("opencode", (inv) => outcome("Prune crossing branches.", { tools: [{ name: "read", input: {}, status: "error", paths: [inv.arm.instructions[0]!.path], addresses: [] }] }));
+	await conductRun(dir, { experiment: "orchard", adapters: { opencode: a }, work, records });
+	assert.equal(cellsOf(records)[0]!.valid, true);
+});
+
+test("a sandboxed runtime naming a forbidden path is recorded, not invalid; a forbidden address still is", async () => {
+	const { dir, work, records } = await setup(narrow);
+	const a = scripted("opencode", (_inv, n) => outcome("done", { tools: [
+		{ name: "bash", input: {}, status: "error", paths: [path.join(dir, "scenarios", "graft.json")], addresses: n === 1 ? ["https://example.invalid/almanac"] : [] },
+	] }));
+	a.filesystem = "sandboxed";
+	await conductRun(dir, { experiment: "orchard", adapters: { opencode: a }, work, records });
+	const [c] = cellsOf(records);
+	assert.deepEqual(c!.attempts.map((x) => x.validity.valid ? "valid" : x.validity.cause), ["isolation", "valid"]);
+	assert.deepEqual(c!.attempts[1]!.unreachable, [path.join(dir, "scenarios", "graft.json")]);
 });

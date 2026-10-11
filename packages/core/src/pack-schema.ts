@@ -174,7 +174,18 @@ export interface Experiment {
 	preamble?: string;
 	/** Instructions every judge receives. */
 	judgeInstructions?: string;
+	/** Who judges, and how judges guess the condition; by default the experiment's population, guessing the arm. */
+	judging?: Judging;
 	notes?: string;
+}
+
+export interface Judging {
+	/** Population members who judge; each outcome is judged by every one of another family than its agent's. */
+	judges?: string[];
+	/** The conditions a judge guesses between, each a name for a set of arms; by default each arm is its own. */
+	guessGroups?: Record<string, string[]>;
+	/** Outcomes per judge prompt; 6 by default. */
+	outcomesPerPrompt?: number;
 }
 
 /** A pack loaded with its experiments and scenarios, after it has passed the checker. */

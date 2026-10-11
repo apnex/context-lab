@@ -38,6 +38,8 @@ export interface Adapter {
 	rulesFiles: string[];
 	modes: DeliveryMode[];
 	network: "denied" | "detected";
+	/** Whether the runtime runs in the filesystem sandbox, so a path it was not given does not exist for it. */
+	filesystem: "sandboxed" | "open";
 	/** Why the invocation cannot run, or null; checked before anything runs. */
 	refuse(inv: Invocation): string | null;
 	invoke(inv: Invocation): Promise<Outcome>;
@@ -131,6 +133,7 @@ export function opencodeAdapter(opts: OpencodeOptions = {}): Adapter {
 		rulesFiles: ["AGENTS.md", "CLAUDE.md"],
 		modes: ["inline", "attachment"],
 		network: "detected",
+		filesystem: "sandboxed",
 		refuse(inv) {
 			const m = commonRefusals(inv, adapter);
 			if (m) return m;
@@ -169,8 +172,12 @@ export function opencodeAdapter(opts: OpencodeOptions = {}): Adapter {
 			};
 			for (const v of p.credentialVars) if (env[v] !== undefined) runEnv[v] = env[v]!;
 			const r = await runSandboxed({ install: binary, writable: [inv.work, inv.workspace], readOnly: onRequest, home, cwd: inv.workspace, command: [binary, ...args], env: runEnv, stdin: null, timeLimitSeconds: inv.timeLimitSeconds });
-			// The cache copy is about 150 MB and part of no record, so it goes as soon as the runtime ends.
+			// opencode installs packages into its configuration folder and the home's npm cache on every
+			// invocation, and the cache copy is about 150 MB: none is part of any record, so all go as
+			// soon as the runtime ends, leaving the configuration file.
 			fs.rmSync(path.join(inv.work, "cache"), { recursive: true, force: true });
+			fs.rmSync(home, { recursive: true, force: true });
+			for (const f of fs.readdirSync(path.join(xdg, "opencode"))) if (f !== "opencode.json") fs.rmSync(path.join(xdg, "opencode", f), { recursive: true, force: true });
 			const events = writeEvents(inv, r, secrets);
 			return scrubOutcome(parseOpencode(r.lines, { workspace: inv.workspace, home, exit: r.exit, signal: r.signal, timedOut: r.timedOut, seconds: r.seconds, events }), secrets);
 		},
@@ -229,6 +236,7 @@ export function codexAdapter(opts: CodexOptions = {}): Adapter {
 		rulesFiles: ["AGENTS.md", "AGENTS.override.md"],
 		modes: ["inline", "stdin"],
 		network: "denied",
+		filesystem: "sandboxed",
 		refuse(inv) {
 			const m = commonRefusals(inv, adapter);
 			if (m) return m;
@@ -269,6 +277,7 @@ export function codexAdapter(opts: CodexOptions = {}): Adapter {
 			});
 			// The login copy and Codex's own databases are removed, so no run record carries them.
 			fs.rmSync(path.join(codexHome, "auth.json"), { force: true });
+			fs.rmSync(home, { recursive: true, force: true });
 			for (const f of fs.readdirSync(codexHome)) if (/\.sqlite(-shm|-wal)?$/.test(f)) fs.rmSync(path.join(codexHome, f), { force: true });
 			const events = writeEvents(inv, r, secrets);
 			return scrubOutcome(parseCodex(r.lines, { workspace, home, exit: r.exit, signal: r.signal, timedOut: r.timedOut, seconds: r.seconds, events }), secrets);
@@ -307,6 +316,7 @@ export function externalAdapter(opts: ExternalOptions = {}): Adapter {
 		rulesFiles: [],
 		modes: ["file-pointer"],
 		network: "detected",
+		filesystem: "open",
 		refuse(inv) {
 			const m = commonRefusals(inv, adapter);
 			if (m) return m;

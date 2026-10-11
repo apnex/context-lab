@@ -14,7 +14,7 @@ function outcome(final: string, over: Partial<Outcome> = {}): Outcome {
 
 function scripted(answer: (inv: Invocation) => Outcome): Adapter & { prompts: string[] } {
 	const prompts: string[] = [];
-	return { runtime: "scripted", rulesFiles: ["AGENTS.md"], modes: ["inline"], network: "detected", refuse: () => null, prompts,
+	return { runtime: "scripted", rulesFiles: ["AGENTS.md"], modes: ["inline"], network: "detected", filesystem: "open", refuse: () => null, prompts,
 		async invoke(inv) { prompts.push(inv.prompt); return answer(inv); } };
 }
 

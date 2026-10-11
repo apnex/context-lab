@@ -116,7 +116,8 @@ function packShape(raw: unknown, out: Defect[]): raw is Pack {
 
 function experimentShape(raw: unknown, where: string, out: Defect[]): raw is Experiment {
 	const before = out.length;
-	if (!shape(raw, where, { id: "string", declaredStatus: oneOf(STATUSES), scenarios: "string[]", factors: "object", runsPerCell: positiveInt, phases: "array" }, { instructions: "string", preamble: "string", judgeInstructions: "string", notes: "string" }, out)) return false;
+	if (!shape(raw, where, { id: "string", declaredStatus: oneOf(STATUSES), scenarios: "string[]", factors: "object", runsPerCell: positiveInt, phases: "array" }, { instructions: "string", preamble: "string", judgeInstructions: "string", judging: "object", notes: "string" }, out)) return false;
+	if (isObj(raw["judging"])) shape(raw["judging"], `${where}.judging`, {}, { judges: "string[]", guessGroups: "object", outcomesPerPrompt: positiveInt }, out);
 	shape(raw["factors"], `${where}.factors`, { arms: "string[]", population: "string[]" }, {}, out);
 	eachShape(raw["phases"], `${where}.phases`, { id: "string", session: oneOf(["new"]) }, {}, out);
 	return out.length === before;
@@ -273,6 +274,8 @@ export async function checkPack(packDir: string): Promise<CheckResult> {
 	for (const [eid, { experiment, scenarios }] of experiments) {
 		for (const a of experiment.factors.arms) if (!pack.arms.some((x) => x.id === a)) defects.push({ check: "experiment-refs", where: `experiments.${eid}`, message: `names undeclared arm ${a}` });
 		for (const m of experiment.factors.population) if (!pack.population.some((x) => x.id === m)) defects.push({ check: "experiment-refs", where: `experiments.${eid}`, message: `names undeclared population member ${m}` });
+		for (const m of experiment.judging?.judges ?? []) if (!pack.population.some((x) => x.id === m)) defects.push({ check: "experiment-refs", where: `experiments.${eid}.judging`, message: `names undeclared judge ${m}` });
+		for (const [g, as] of Object.entries(experiment.judging?.guessGroups ?? {})) for (const a of Array.isArray(as) ? as : []) if (!experiment.factors.arms.includes(String(a))) defects.push({ check: "experiment-refs", where: `experiments.${eid}.judging.guessGroups.${g}`, message: `names arm ${a}, not one of the experiment's` });
 		for (const [sid, { scenario }] of scenarios) {
 			if (typeof scenario.fixture === "string" && isContainedRelative(scenario.fixture)) {
 				const f = path.resolve(dir, scenario.fixture);

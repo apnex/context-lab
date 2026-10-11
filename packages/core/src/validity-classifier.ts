@@ -35,6 +35,19 @@ export interface Forbidden {
 	addresses: string[];
 	/** Paths inside a forbidden path that this cell may still touch: its own workspace, its arm's on-request folders. */
 	allow?: string[];
+	/**
+	 * The runtime ran in the filesystem sandbox, where a path it was not given does not exist: a forbidden
+	 * path it names is then an attempt that could not succeed, recorded by the caller and not a breach.
+	 * Forbidden addresses still are, since the network is shared.
+	 */
+	sandboxed?: boolean;
+}
+
+/** Forbidden paths a cell's tools named, whether or not they could reach them. */
+export function forbiddenPathsNamed(o: Outcome, forbidden: Forbidden): string[] {
+	const out: string[] = [];
+	for (const t of o.tools) for (const p of t.paths) if (forbidden.paths.some((f) => isInside(p, f)) && !(forbidden.allow ?? []).some((a) => isInside(p, a)) && !out.includes(p)) out.push(p);
+	return out;
 }
 
 export const RERUN: Record<Cause, boolean> = { isolation: true, infrastructure: true, behaviour: false };
@@ -64,7 +77,7 @@ export function addressPattern(address: string): RegExp {
 export function classify(o: Outcome, forbidden: Forbidden, timeouts = 1): Validity {
 	const patterns = forbidden.addresses.map((a) => ({ a, re: addressPattern(a) }));
 	for (const t of o.tools) {
-		for (const p of t.paths) {
+		for (const p of forbidden.sandboxed === true ? [] : t.paths) {
 			const hit = forbidden.paths.find((f) => isInside(p, f));
 			if (hit !== undefined && !(forbidden.allow ?? []).some((a) => isInside(p, a))) return { valid: false, cause: "isolation", detail: `${t.name} touched ${p}, inside forbidden ${hit}` };
 		}
