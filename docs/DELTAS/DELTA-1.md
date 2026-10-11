@@ -277,6 +277,38 @@ Found and fixed: the last `explain` question shown to judges carried the reader'
 Known differences from the old tools, on runs these two do not contain: the core counts an outcome complete with all its assigned votes, however few, where `adherence.mjs` required two; and it totals unrounded means, giving no total when a mean is missing, where `eval.mjs` summed rounded means and counted a missing one as 0.\
 Parity holds neither the incomplete rule nor the absent rule, since neither run contains such a case; their unit tests do.
 
+**Stage 7.**\
+The first live run of mission-kit's adherence suite stopped at probing: the pack's S15 leak pattern matched the word `sub-set`, which one on-trigger agent used in restating the question; the pattern now matches S15's sentence, as `adherence.mjs` required, and the stopped run is recorded as failed (`2026-10-11-090959-adherence`).
+
+Run `2026-10-11-092325-adherence` (E10): started by suite name, mission-kit at `fc06e1d`, opencode 1.18.35, codex-cli 0.162.1; every probe of the nine arm-member pairs and three judge setups passed before any cell ran; all 135 cells valid, none re-run; 864 votes, every outcome two votes from the other families, none missing; the run record re-tallies to its result.\
+Run `2026-10-11-102022-explain` (E11): on-trigger, readers of three families, judges of the other two; all probes passed; every reader-probe pair holds two validated votes, none absent; no judge prompt holds text after the self-explanation marker; the record re-tallies to its result.\
+Both runs are exploration: neither experiment was recorded before it ran.
+
+**Beside `adherence-03`, reported and not judged** (`0007`, M1.2).\
+Published `adherence-03` mean / core run mean, per arm:
+
+| Property | control | on-trigger | always-on |
+|---|---|---|---|
+| x1 | 0.44 / 0.33 | 1.00 / 1.00 | 1.00 / 1.00 |
+| x2 | 0.11 / 0.11 | 0.94 / 0.94 | 0.83 / 0.83 |
+| x3 | 0.00 / 0.00 | 0.39 / 0.22 | 0.44 / 0.44 |
+| x4 | 0.89 / 0.89 | 1.00 / 1.00 | 1.00 / 1.00 |
+| x5 | 0.67 / 0.72 | 1.00 / 1.00 | 0.89 / 1.00 |
+| x6 | 0.00 / 0.00 | 0.72 / 0.61 | 0.67 / 0.67 |
+| x7 | 0.89 / 1.00 | 0.94 / 0.94 | 0.94 / 1.00 |
+| a11-1 | 0.00 / 0.00 | 0.56 / 0.67 | 0.67 / 0.67 |
+| a11-2 | 0.00 / 0.11 | 0.50 / 0.61 | 0.61 / 0.56 |
+| a2-1 | 0.33 / 0.56 | 0.78 / 0.67 | 0.89 / 0.78 |
+| a2-2 | 0.44 / 0.67 | 0.89 / 0.61 | 0.89 / 0.78 |
+| a13-1 | 0.11 / 0.00 | 0.86 / 0.78 | 1.00 / 1.00 |
+| a13-2 | 0.89 / 1.00 | 0.93 / 1.00 | 0.94 / 1.00 |
+| a4-1 | 0.56 / 0.56 | 0.56 / 0.44 | 0.44 / 0.44 |
+| a4-2 | 0.50 / 0.50 | 0.56 / 0.44 | 0.39 / 0.44 |
+| a4-3 | 0.56 / 0.56 | 0.56 / 0.44 | 0.44 / 0.44 |
+
+Known differences between the two runs: local delivery instead of fetches from `main`, with network denied to GPT agents and detected for the others; the filesystem sandbox; GPT agents' web search and hosted connectors off; mission-kit's corpus a day later; masking and judge prompts rebuilt in the core; and run-to-run variation, not yet stated for this suite.\
+The `A4` trap still carries the relative date that made it measure nothing in `adherence-03` (mission-kit `B75`), because the pack carries suites as they are.
+
 ---
 
 ## Adversarial review
