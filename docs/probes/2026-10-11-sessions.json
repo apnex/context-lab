@@ -2,7 +2,9 @@
   "probedAt": "2026-10-11T11:52:21.070Z",
   "sandbox": "bubblewrap filesystem sandbox, network shared",
   "versions": {
-    "opencode": ""
+    "opencode": "1.18.35",
+    "codex": "codex-cli 0.162.1",
+    "note": "read on the host after the probe; the probe's own version read ran inside the sandbox and returned nothing, since fixed"
   },
   "results": [
     {

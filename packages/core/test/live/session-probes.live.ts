@@ -14,7 +14,7 @@
 //                 route, Codex through its app-server's thread/compact/start - then resumed and
 //                 asked for the canary planted in an instruction file and never quoted before.
 
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -199,7 +199,7 @@ async function probeCodex(): Promise<Record<string, unknown>> {
 	return r;
 }
 
-const versions = { opencode: (await runSandboxed({ install: ocBinary, writable: [], readOnly: [], home: path.join(base, "h"), cwd: "/tmp", command: [ocBinary, "--version"], env: { PATH: "/usr/bin:/bin" }, stdin: null, timeLimitSeconds: 30 })).lines.map((l) => l.text).join("").trim() };
+const versions = { opencode: execFileSync(ocBinary, ["--version"], { encoding: "utf8" }).trim(), codex: execFileSync(cxBinary, ["--version"], { encoding: "utf8" }).trim() };
 const record = { probedAt: new Date().toISOString(), sandbox: "bubblewrap filesystem sandbox, network shared", versions, results: [await probeOpencode(), await probeCodex()] };
 fs.writeFileSync(out, scrub(JSON.stringify(record, null, 2), secrets) + "\n");
 for (const r of record.results) console.log(JSON.stringify(r));
