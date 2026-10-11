@@ -11,7 +11,7 @@ export * from "./outcome.js";
 export { parseOpencode } from "./parse-opencode.js";
 export { parseCodex } from "./parse-codex.js";
 export { runSandboxed, sandboxMounts, type SandboxResult, type SandboxSpec } from "./runtime-sandbox.js";
-export { CODEX_FEATURES_OFF, Refused, codexAdapter, externalAdapter, opencodeAdapter, type Adapter, type CodexOptions, type DeliveryMode, type ExternalOptions, type Invocation, type OpencodeOptions } from "./adapters.js";
+export { CODEX_FEATURES_OFF, Refused, codexAdapter, codexVendor, which, externalAdapter, opencodeAdapter, type Adapter, type CodexOptions, type DeliveryMode, type ExternalOptions, type Invocation, type OpencodeOptions } from "./adapters.js";
 export { RERUN, classify, forbiddenPathsNamed, type Cause, type Forbidden, type Validity } from "./validity-classifier.js";
 export { CANARY_QUESTION, probeArm, type ProbeAnswer, type ProbeOptions, type ProbeResult } from "./isolation-prober.js";
 export { splitAnswers, stripSelfExplanation } from "./answer-parser.js";

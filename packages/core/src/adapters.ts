@@ -104,7 +104,7 @@ export interface OpencodeOptions {
 
 const OPENCODE_TOOLS = ["bash", "edit", "write", "read", "glob", "grep", "list", "patch", "webfetch", "websearch", "codesearch", "task", "todowrite", "todoread", "skill", "question", "lsp"];
 
-function which(name: string, env: NodeJS.ProcessEnv): string {
+export function which(name: string, env: NodeJS.ProcessEnv): string {
 	for (const d of (env["PATH"] ?? "").split(":")) {
 		const p = path.join(d, name);
 		if (d && fs.existsSync(p)) return fs.realpathSync(p);
@@ -199,7 +199,7 @@ export interface CodexOptions {
 	env?: NodeJS.ProcessEnv;
 }
 
-function codexVendor(env: NodeJS.ProcessEnv): string {
+export function codexVendor(env: NodeJS.ProcessEnv): string {
 	const js = which("codex", env);
 	const pkg = path.dirname(path.dirname(js));
 	const base = path.join(pkg, "node_modules", "@openai");

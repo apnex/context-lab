@@ -1,0 +1,57 @@
+{
+  "probedAt": "2026-10-11T11:52:21.070Z",
+  "sandbox": "bubblewrap filesystem sandbox, network shared",
+  "versions": {
+    "opencode": ""
+  },
+  "results": [
+    {
+      "runtime": "opencode",
+      "model": "litellm-netbird/claude-opus-5-5",
+      "session": true,
+      "workspaceHoldsToken": false,
+      "invocation2": {
+        "reply": "KESTREL-4471",
+        "error": null,
+        "recalled": true
+      },
+      "invocation3": {
+        "reply": "",
+        "error": null,
+        "recalled": false
+      },
+      "continuationWorks": true,
+      "compactionCommand": "opencode serve, then POST /session/<id>/summarize",
+      "compacted": true,
+      "afterCompaction": {
+        "reply": "The owl keeps the gate key.",
+        "error": null,
+        "canaryQuoted": true
+      }
+    },
+    {
+      "runtime": "codex",
+      "model": "gpt-6-astra",
+      "session": true,
+      "workspaceHoldsToken": false,
+      "invocation2": {
+        "reply": "KESTREL-4471",
+        "error": null,
+        "recalled": true
+      },
+      "invocation3": {
+        "reply": "",
+        "error": null,
+        "recalled": false
+      },
+      "continuationWorks": true,
+      "compactionCommand": "codex app-server: thread/resume, then thread/compact/start",
+      "compacted": true,
+      "afterCompaction": {
+        "reply": "The owl keeps the gate key.",
+        "error": null,
+        "canaryQuoted": true
+      }
+    }
+  ]
+}
