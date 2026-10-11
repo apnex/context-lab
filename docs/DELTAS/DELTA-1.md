@@ -1,7 +1,7 @@
 # Delta-1 - a core that runs one-phase experiments, proven isolated - a vertical slice
 
 ```yaml
-status:     ratified (docs/DECISIONS.md 0009) - revision 3, stage amendments confirmed (0010, 0011); stages 1 to 3 verified green (0012), stage 4 open
+status:     ratified (docs/DECISIONS.md 0009) - revision 3, stage amendments confirmed (0010, 0011); stages 1 to 4 verified green (0012, 0013, 0014), stage 5 open
 selected:   docs/DECISIONS.md 0007, board item M1 (M1.1, M1.2)
 from-state: docs/ARCHITECTURE-TARGET.md header - "Its current architecture is empty"
 to-state:   docs/ARCHITECTURE-TARGET.md (0006, 0008), the components fenced in section 1
@@ -241,7 +241,7 @@ The experiment register is now append-only - recording again adds an entry and n
 The run conductor passes each cell's attempt count to the classifier (`0012`). mission-kit's `explain` experiment now carries the reader framing transcribed from `tools/eval.mjs`, adapted where each probe became its own cell; the difference is recorded in the experiment.\
 An integration smoke run of the synthetic pack on the real runtimes - claude-opus-5-5 through opencode, gpt-6-astra through Codex, two scenarios, two arms, one run - reached measured with every probe passing and every cell valid, and no credential anywhere in its record or working folder.\
 It also showed each opencode invocation copying a 150 MB cache: the copy is now removed when the runtime ends.\
-E14 asks that every code score precede the blinding of its outcome; stage 4 times every score and keeps it before the run leaves measuring, and the blinder that completes the check is stage 5's - so E14 is evaluated at stages 4 and 5, a restaging for the director's confirmation.
+E14 asks that every code score precede the blinding of its outcome; stage 4 times every score and keeps it before the run leaves measuring, and the blinder that completes the check is stage 5's - so E14 is evaluated at stages 4 and 5, a restaging confirmed by the director (`0013`).
 
 **Stage 4 verification.**\
 A fresh verifier - the earlier one's session ended on a provider content filter - found E7, E14's stage-4 part, the run-record clauses of E3 and E13, the rest of E12 and `0012` green, and B13's run refusal untested.\
@@ -249,7 +249,7 @@ It found two major defects, both fixed: an agent could put a link at a scored fi
 Fixed besides: the record is written at every state and as each cell ends, a cell the core cannot complete is recorded and the run goes on, and variants are made writable even after a failure; each attempt keeps its own diff; `0012` counts open-step timeouts, not attempts, so an isolation re-run does not make a first such timeout behaviour; the refusal of a later record happens before any cell runs, and is tested; overriding runs per cell makes a run exploration; the time limit and each runtime's version are recorded; every run record, the whole working folder and every source are forbidden, except a cell's own workspace and its arm's on-request folders; the diff includes files any exclude rule would hide; the measure hook gets the final message uncut; tests now pin values, not shapes.\
 Each new protection was shown load-bearing by removing it, except the operator-excludes rule, which `--force` makes redundant and is removed.\
 Disclosed: the stage-4 commit changed E14's stage column and section 2 before the director confirmed the restaging.\
-Open for the director: the restaging of E14, and how mission-kit's `explain` suite is carried - its reader wording cannot be carried as it is while each probe is its own cell.
+Ruled by the director: the restaging of E14 (`0013`); and mission-kit's `explain` suite as one cell per reader with its wording verbatim (`0014`) - properties now name the heading their answer sits under in the scored file, the run conductor splits the file per property, and the prompt the core builds for that suite was compared with `eval.mjs`'s and is identical but for the two paths.
 
 ---
 

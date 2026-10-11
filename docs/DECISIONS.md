@@ -32,6 +32,8 @@ They are not copied here; this register starts at the vision.
 | 0010 | 2026-10-10 | Delta-1's stage amendments are confirmed: E3's run-record clause is evaluated at stage 4, and E12 is completed across stages 1, 2 and 4. | director | ratified | - |
 | 0011 | 2026-10-10 | Delta-1's stage 2 amendment is confirmed: E13's run-record clause is evaluated at stage 4. | director | ratified | amends 0010 |
 | 0012 | 2026-10-10 | An opencode cell that times out with a step open is classified infrastructure on its first attempt and behaviour on a re-run; the run conductor passes the attempt count to the classifier. | director | ratified | - |
+| 0013 | 2026-10-11 | Delta-1's E14 is evaluated at stages 4 and 5: stage 4 times every code score inside measuring; stage 5 compares each with its outcome's blinding. | director | ratified | amends 0010 |
+| 0014 | 2026-10-11 | mission-kit's explain suite is carried as one cell per reader, all four questions in one prompt with its wording verbatim, the answer file split per question for judging. | director | ratified | - |
 
 ---
 
@@ -197,4 +199,29 @@ Always the agent's behaviour - refuted because a stalled provider would count ag
 
 **Source.**\
 `[V, director ruling 2026-10-10; docs/DELTAS/DELTA-1.md Record, stage 3 verification]`
+
+### 0013
+
+**Ruling.**\
+E14's comparison of each code score with its outcome's blinding moves to stage 5, where the blinder is built.
+
+**Alternatives refuted.**\
+Holding E14 at stage 4 - refuted because no blinding exists before stage 5.
+
+**Disclosed.**\
+The delta's text was changed for this restaging before the director confirmed it.
+
+**Source.**\
+`[V, director confirmation 2026-10-11; docs/DELTAS/DELTA-1.md Record, stage 4]`
+
+### 0014
+
+**Ruling.**\
+The explain experiment runs one cell per reader, with mission-kit's reader prompt verbatim - all four questions, the answer-file and observations lines included - and its answer file split per question before judging.
+
+**Alternatives refuted.**\
+One cell per question, adapting the wording - refuted because Delta-1 carries suite wording as it is, and because it breaks comparability with mission-kit's earlier explain runs.
+
+**Source.**\
+`[V, director ruling 2026-10-11; Delta-1 stage 4 verification]`
 

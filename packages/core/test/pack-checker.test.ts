@@ -70,6 +70,7 @@ const defects: Record<CheckId, ((dir: string) => void)[]> = {
 		(d) => editJson(graft(d), (j) => { j.properties[1].measure = "trim"; }),
 	],
 	"scale": [(d) => editJson(graft(d), (j) => { j.properties[0].scale = [1, 0]; })],
+	"answer-heading": [(d) => editJson(graft(d), (j) => { j.properties[0].answerHeading = "orchard.G1"; })],
 	"suite-experiment": [(d) => editJson(packJson(d), (j) => { j.suites[0].experiment = "ghost"; })],
 	"suite-nonempty": [(d) => editJson(packJson(d), (j) => { j.suites[1].select = { allTags: ["no-such-tag"] }; })],
 	"regex": [

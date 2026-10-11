@@ -20,7 +20,7 @@ import { checkPack, selectScenarios } from "./pack-checker.js";
 import { measure, type CodeScore } from "./code-measurer.js";
 import { runStatus, type Record as RegisterRecord } from "./experiment-register.js";
 import { probeArm, type ProbeResult } from "./isolation-prober.js";
-import { stripSelfExplanation } from "./answer-parser.js";
+import { splitAnswers, stripSelfExplanation } from "./answer-parser.js";
 import type { Outcome } from "./outcome.js";
 import type { LoadedPack, Member, Scenario, Status } from "./pack-schema.js";
 import { runPhase } from "./phase-driver.js";
@@ -68,6 +68,8 @@ export interface CellRecord {
 	valid: boolean;
 	final: string | null;
 	scoredFile: { path: string; content: string | null; matchesFinal: boolean } | null;
+	/** Per property with an answer heading: its answer split from the scored file, self-explanation cut; null if absent. */
+	answers: Record<string, string | null>;
 	diff: string | null;
 	codeScores: CodeScore[];
 }
@@ -293,9 +295,15 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 			const content = readInside(lastWs.dir, c.scenario.scoredFile);
 			scored = { path: c.scenario.scoredFile, content, matchesFinal: content !== null && content.trim() === last.outcome.final.trim() };
 		}
+		const answers: Record<string, string | null> = {};
+		const headed = c.scenario.properties.filter((p) => p.answerHeading !== undefined);
+		if (headed.length && last.validity.valid) {
+			const split = splitAnswers(scored?.content ?? "", headed.map((p) => p.answerHeading!), marker);
+			for (const p of headed) answers[p.id] = split.get(p.answerHeading!) ?? null;
+		}
 		const cr: CellRecord = {
 			cell, scenario: c.scenario.id, arm: c.arm.arm, member: c.member.id, run: c.run, attempts, valid: last.validity.valid,
-			final: last.validity.valid ? stripSelfExplanation(last.outcome.final, marker) : null, scoredFile: scored, diff: last.diff, codeScores: [],
+			final: last.validity.valid ? stripSelfExplanation(last.outcome.final, marker) : null, scoredFile: scored, answers, diff: last.diff, codeScores: [],
 		};
 		cellRecords.push(cr);
 		write(path.join(recordsDir, "cells", `${cell}.json`), cr);

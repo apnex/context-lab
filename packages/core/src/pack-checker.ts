@@ -33,6 +33,7 @@ export const PACK_CHECKS = {
 	"probe-arms": "every leak probe names declared arms",
 	"property-measure": "a code-decided property names an outcome-measure hook, and a judged one names none",
 	"scale": "a property's scale runs from a lower to a higher number",
+	"answer-heading": "a property with an answer heading belongs to a scenario that names a scored file",
 	"suite-experiment": "every suite names a declared experiment",
 	"suite-nonempty": "every suite selects at least one scenario",
 	"regex": "every mask and leak pattern is a valid regular expression",
@@ -124,7 +125,7 @@ function experimentShape(raw: unknown, where: string, out: Defect[]): raw is Exp
 function scenarioShape(raw: unknown, where: string, out: Defect[]): raw is Scenario {
 	const before = out.length;
 	if (!shape(raw, where, { id: "string", tags: "string[]", fixture: fixtureShape, task: "string", properties: "array" }, { heldOut: "boolean", start: "string", scoring: "string", scoredFile: "string", notes: "string" }, out)) return false;
-	eachShape(raw["properties"], `${where}.properties`, { id: "string", type: oneOf(PROPERTY_TYPES), decidedBy: oneOf(DECIDERS), key: "string", scale: pair }, { guidance: "string[]", measure: "string", rubric: "string", notes: "string" }, out);
+	eachShape(raw["properties"], `${where}.properties`, { id: "string", type: oneOf(PROPERTY_TYPES), decidedBy: oneOf(DECIDERS), key: "string", scale: pair }, { guidance: "string[]", measure: "string", rubric: "string", notes: "string", answerHeading: "string" }, out);
 	return out.length === before;
 }
 
@@ -283,6 +284,7 @@ export async function checkPack(packDir: string): Promise<CheckResult> {
 				if (p.decidedBy === "code" && hooks.get(p.measure ?? "")?.kind !== "outcome-measure") defects.push({ check: "property-measure", where, message: "is decided by code but names no outcome-measure hook" });
 				if (p.decidedBy === "judge" && p.measure !== undefined) defects.push({ check: "property-measure", where, message: "is judged but names a measure hook" });
 				if (!(p.scale[0] < p.scale[1])) defects.push({ check: "scale", where, message: `scale ${JSON.stringify(p.scale)} does not rise` });
+				if (p.answerHeading !== undefined && scenario.scoredFile === undefined) defects.push({ check: "answer-heading", where, message: "names an answer heading, but its scenario names no scored file" });
 			}
 		}
 	}

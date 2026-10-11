@@ -22,7 +22,8 @@ export function splitAnswers(text: string, ids: string[], marker?: string): Map<
 		const nl = p.indexOf("\n");
 		const heading = (nl < 0 ? p : p.slice(0, nl)).trim();
 		const body = nl < 0 ? "" : p.slice(nl + 1);
-		const id = ids.find((x) => heading === x || heading.endsWith(`.${x}`));
+		// The exact heading first, so "explain.X1" is not taken for another id ending the same way.
+		const id = ids.find((x) => heading === x) ?? ids.find((x) => heading.endsWith(`.${x}`));
 		if (id !== undefined && out.get(id) === null) out.set(id, stripSelfExplanation(body, marker));
 	}
 	return out;

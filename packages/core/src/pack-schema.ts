@@ -129,6 +129,8 @@ export interface Property {
 	rubric?: string;
 	/** Anything a reader of the pack needs to know about the property; never shown to an agent or judge. */
 	notes?: string;
+	/** The heading in the scenario's scored file under which this property's answer is written; the answer under it is what is judged. */
+	answerHeading?: string;
 }
 
 export interface InlineFixture {

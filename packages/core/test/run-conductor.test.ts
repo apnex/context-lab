@@ -298,3 +298,19 @@ test("the measure hook gets the final message uncut", async () => {
 	assert.deepEqual(c!.codeScores.map((x) => "value" in x ? x.value : null), [1]);
 	assert.equal(c!.final, "Done.");
 });
+
+test("answers under headings in the scored file are split per property, self-explanation cut", async () => {
+	const { dir, work, records } = await setup((d) => {
+		narrow(d);
+		editJson(path.join(d, "scenarios", "graft.json"), (j) => {
+			j.scoredFile = "answers.md";
+			j.properties = [
+				{ id: "g1", type: "comprehension", decidedBy: "judge", key: "k1", scale: [0, 2], answerHeading: "orchard.G1" },
+				{ id: "g2", type: "comprehension", decidedBy: "judge", key: "k2", scale: [0, 2], answerHeading: "orchard.G2" },
+			];
+		});
+	});
+	const a = scripted("opencode", (inv) => { fs.writeFileSync(path.join(inv.workspace, "answers.md"), "### orchard.G1\nQuince.\nWHY: almanac\n### OBSERVATIONS\nnone\n"); return outcome("DONE"); });
+	await conductRun(dir, { experiment: "orchard", adapters: { opencode: a }, work, records });
+	assert.deepEqual(cellsOf(records)[0]!.answers, { g1: "Quince.", g2: null });
+});
