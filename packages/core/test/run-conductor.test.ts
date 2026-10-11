@@ -27,7 +27,7 @@ type Answer = (inv: Invocation, n: number) => Outcome;
 function scripted(runtime: string, answer: Answer = () => outcome("The rootstock is quince and the scion is pear.")): Adapter & { calls: Invocation[] } {
 	const calls: Invocation[] = [];
 	return {
-		runtime, rulesFiles: ["AGENTS.md"], modes: ["inline"], network: "detected", filesystem: "open", refuse: () => null, calls,
+		runtime, rulesFiles: ["AGENTS.md"], modes: ["inline"], network: "detected", filesystem: "open", continue: false, compaction: { onDemand: false, instructionsAfterCompaction: "unknown" }, refuse: () => null, calls,
 		async invoke(inv) {
 			calls.push(inv);
 			if (inv.prompt === CANARY_QUESTION) return outcome(inv.arm.canaries.join("\n") || "NONE");

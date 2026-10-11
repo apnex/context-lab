@@ -29,6 +29,13 @@ export interface Invocation {
 	timeLimitSeconds: number;
 	/** An empty folder for this invocation alone: configuration, home, events. */
 	work: string;
+	/** Continue an earlier invocation's session: its id, its folder, and its workspace, which this invocation must share. */
+	continueFrom?: { session: string; work: string; workspace: string };
+}
+
+export interface Compaction {
+	onDemand: boolean;
+	instructionsAfterCompaction: "when delivered again" | "carried by the session" | "unknown";
 }
 
 export interface Adapter {
@@ -40,6 +47,9 @@ export interface Adapter {
 	network: "denied" | "detected";
 	/** Whether the runtime runs in the filesystem sandbox, so a path it was not given does not exist for it. */
 	filesystem: "sandboxed" | "open";
+	/** Whether an invocation may continue an earlier one's session, and what was probed of compaction (docs/probes). */
+	continue: boolean;
+	compaction: Compaction;
 	/** Why the invocation cannot run, or null; checked before anything runs. */
 	refuse(inv: Invocation): string | null;
 	invoke(inv: Invocation): Promise<Outcome>;
@@ -87,8 +97,16 @@ function scrubOutcome(o: Outcome, secrets: string[]): Outcome {
 	return JSON.parse(scrub(JSON.stringify(o), secrets)) as Outcome;
 }
 
-const commonRefusals = (inv: Invocation, adapter: Adapter): string | null =>
-	adapter.modes.includes(inv.mode) ? null : `delivery mode ${inv.mode} is not one ${adapter.runtime} supports (${adapter.modes.join(", ")})`;
+function commonRefusals(inv: Invocation, adapter: Adapter, resumeModes: DeliveryMode[] = []): string | null {
+	if (!adapter.modes.includes(inv.mode)) return `delivery mode ${inv.mode} is not one ${adapter.runtime} supports (${adapter.modes.join(", ")})`;
+	const c = inv.continueFrom;
+	if (c === undefined) return null;
+	if (!adapter.continue) return `${adapter.runtime} does not continue sessions`;
+	if (inv.tools === "off") return "a continuing invocation cannot have tools off";
+	if (path.resolve(c.workspace) !== path.resolve(inv.workspace)) return `a continuing invocation must run in the workspace of the one it continues, ${c.workspace}`;
+	if (!resumeModes.includes(inv.mode)) return `no probe has resumed a ${adapter.runtime} session in delivery mode ${inv.mode}`;
+	return null;
+}
 
 // --- opencode -------------------------------------------------------------------------------------
 
@@ -134,9 +152,12 @@ export function opencodeAdapter(opts: OpencodeOptions = {}): Adapter {
 		modes: ["inline", "attachment"],
 		network: "detected",
 		filesystem: "sandboxed",
+		continue: true,
+		compaction: { onDemand: true, instructionsAfterCompaction: "when delivered again" },
 		refuse(inv) {
-			const m = commonRefusals(inv, adapter);
+			const m = commonRefusals(inv, adapter, ["inline"]);
 			if (m) return m;
+			if (inv.continueFrom && !fs.existsSync(path.join(inv.continueFrom.work, "data"))) return `${inv.continueFrom.work} holds no session store (data)`;
 			for (const [k, v] of Object.entries(inv.member.settings ?? {})) {
 				if (k !== "reasoningEffort") return `setting ${k} is not one opencode can apply`;
 				if (!provider().variants(inv.member.model).includes(String(v))) return `setting reasoningEffort ${v} is not a variant of ${inv.member.model}`;
@@ -148,6 +169,7 @@ export function opencodeAdapter(opts: OpencodeOptions = {}): Adapter {
 			const p = provider();
 			const xdg = path.join(inv.work, "config");
 			for (const d of ["config/opencode", "data", "state", "cache"]) fs.mkdirSync(path.join(inv.work, d), { recursive: true });
+			if (inv.continueFrom) fs.cpSync(path.join(inv.continueFrom.work, "data"), path.join(inv.work, "data"), { recursive: true });
 			if (fs.existsSync(operatorCache)) fs.cpSync(operatorCache, path.join(inv.work, "cache", "opencode"), { recursive: true });
 			const onRequest = inv.arm.onRequest.map((o) => o.path);
 			const permission = inv.tools === "off"
@@ -158,7 +180,7 @@ export function opencodeAdapter(opts: OpencodeOptions = {}): Adapter {
 			if (inv.member.settings?.["reasoningEffort"] !== undefined) config["variant"] = inv.member.settings["reasoningEffort"];
 			fs.writeFileSync(path.join(xdg, "opencode", "opencode.json"), JSON.stringify(config, null, 2));
 			const binary = opts.binary ?? which("opencode", env);
-			const args = ["run", "--format", "json", "-m", inv.member.model];
+			const args = ["run", "--format", "json", "-m", inv.member.model, ...(inv.continueFrom ? ["-s", inv.continueFrom.session] : [])];
 			if (inv.mode === "attachment") {
 				const f = path.join(inv.work, "prompt.md");
 				fs.writeFileSync(f, inv.prompt);
@@ -178,6 +200,7 @@ export function opencodeAdapter(opts: OpencodeOptions = {}): Adapter {
 			fs.rmSync(path.join(inv.work, "cache"), { recursive: true, force: true });
 			fs.rmSync(home, { recursive: true, force: true });
 			for (const f of fs.readdirSync(path.join(xdg, "opencode"))) if (f !== "opencode.json") fs.rmSync(path.join(xdg, "opencode", f), { recursive: true, force: true });
+			removeLogins(path.join(inv.work, "data"));
 			const events = writeEvents(inv, r, secrets);
 			return scrubOutcome(parseOpencode(r.lines, { workspace: inv.workspace, home, exit: r.exit, signal: r.signal, timedOut: r.timedOut, seconds: r.seconds, events }), secrets);
 		},
@@ -237,9 +260,16 @@ export function codexAdapter(opts: CodexOptions = {}): Adapter {
 		modes: ["inline", "stdin"],
 		network: "denied",
 		filesystem: "sandboxed",
+		continue: true,
+		compaction: { onDemand: true, instructionsAfterCompaction: "carried by the session" },
 		refuse(inv) {
-			const m = commonRefusals(inv, adapter);
+			const m = commonRefusals(inv, adapter, ["inline"]);
 			if (m) return m;
+			if (inv.continueFrom) {
+				const dir = path.join(inv.continueFrom.work, "codex-home", "sessions");
+				const files = fs.existsSync(dir) ? fs.readdirSync(dir, { recursive: true }).map(String) : [];
+				if (!files.some((f) => f.includes(inv.continueFrom!.session))) return `${inv.continueFrom.work} holds no session file for ${inv.continueFrom.session}`;
+			}
 			for (const [k, v] of Object.entries(inv.member.settings ?? {})) {
 				if (k !== "reasoningEffort") return `setting ${k} is not one Codex can apply`;
 				if (!efforts(inv.member.model).includes(String(v))) return `setting reasoningEffort ${v} is not supported by ${inv.member.model}`;
@@ -255,7 +285,10 @@ export function codexAdapter(opts: CodexOptions = {}): Adapter {
 			// The instructions go only into config.toml, which Codex itself must read; no second copy is made.
 			fs.rmdirSync(instr);
 			const dev = inv.arm.instructions.map((f) => `<file name="${path.basename(f.file)}">\n${fs.readFileSync(f.path, "utf8")}</file>`).join("\n\n");
-			const lines = ['approval_policy = "never"', 'web_search = "disabled"', "project_doc_fallback_filenames = []"];
+			if (inv.continueFrom) fs.cpSync(path.join(inv.continueFrom.work, "codex-home", "sessions"), path.join(codexHome, "sessions"), { recursive: true });
+			// No --ephemeral, so a session can be resumed; and the sandbox mode in configuration, since
+			// exec resume takes no --sandbox.
+			const lines = ['approval_policy = "never"', 'web_search = "disabled"', "project_doc_fallback_filenames = []", `sandbox_mode = ${toml(inv.tools === "off" ? "read-only" : "workspace-write")}`];
 			if (dev) lines.push(`developer_instructions = ${toml(dev)}`);
 			const effort = inv.member.settings?.["reasoningEffort"];
 			if (effort !== undefined) lines.push(`model_reasoning_effort = ${toml(String(effort))}`);
@@ -265,11 +298,12 @@ export function codexAdapter(opts: CodexOptions = {}): Adapter {
 			fs.writeFileSync(path.join(codexHome, "config.toml"), lines.join("\n") + "\n");
 			const vendor = opts.vendor ?? codexVendor(env);
 			const binary = opts.binary ?? path.join(vendor, "bin", "codex");
-			const args = ["exec", "--json", "--ephemeral", "--skip-git-repo-check", "--strict-config", "--ignore-rules", "-m", inv.member.model, "--sandbox", inv.tools === "off" ? "read-only" : "workspace-write", "-C", inv.workspace];
-			args.push(inv.mode === "stdin" ? "-" : inv.prompt);
+			const common = ["--json", "--skip-git-repo-check", "--strict-config", "--ignore-rules", "-m", inv.member.model];
 			// With tools off the agent's shell remains, so its workspace is an empty folder of its own.
 			const workspace = inv.tools === "off" ? fs.mkdtempSync(path.join(inv.work, "empty-")) : inv.workspace;
-			if (inv.tools === "off") args[args.indexOf(inv.workspace)] = workspace;
+			const args = inv.continueFrom
+				? ["exec", "resume", ...common, inv.continueFrom.session, inv.prompt]
+				: ["exec", ...common, "-C", workspace, inv.mode === "stdin" ? "-" : inv.prompt];
 			const secrets = authSecrets(auth);
 			const r = await runSandboxed({
 				install: vendor, writable: inv.tools === "off" ? [inv.work] : [inv.work, inv.workspace], readOnly: inv.arm.onRequest.map((o) => o.path), home, cwd: workspace,
@@ -284,6 +318,12 @@ export function codexAdapter(opts: CodexOptions = {}): Adapter {
 		},
 	};
 	return adapter;
+}
+
+/** Remove any login file a runtime wrote under a folder that is kept. */
+function removeLogins(dir: string): void {
+	if (!fs.existsSync(dir)) return;
+	for (const e of fs.readdirSync(dir, { recursive: true, withFileTypes: true })) if (e.isFile() && e.name === "auth.json") fs.rmSync(path.join(e.parentPath, e.name), { force: true });
 }
 
 /** Every long string in the login file, removed from anything written. */
@@ -317,6 +357,8 @@ export function externalAdapter(opts: ExternalOptions = {}): Adapter {
 		modes: ["file-pointer"],
 		network: "detected",
 		filesystem: "open",
+		continue: false,
+		compaction: { onDemand: false, instructionsAfterCompaction: "unknown" },
 		refuse(inv) {
 			const m = commonRefusals(inv, adapter);
 			if (m) return m;

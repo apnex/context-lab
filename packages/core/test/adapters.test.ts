@@ -148,7 +148,7 @@ test("Codex: instructions, on-request folder, isolation and network as declared"
 	await a.invoke(invocation(e, "codex"));
 	const tomlText = fs.readFileSync(path.join(e.work, "codex-home", "config.toml"), "utf8");
 	const dev = "<file name=\"ONE.md\">\nfirst instruction\n</file>\n\n<file name=\"TWO.md\">\nsecond \"instruction\"\n</file>";
-	assert.equal(tomlText, ['approval_policy = "never"', 'web_search = "disabled"', "project_doc_fallback_filenames = []", `developer_instructions = ${JSON.stringify(dev)}`, "", "[features]", ...FEATURES_OFF.map((f) => `${f} = false`), ""].join("\n"));
+	assert.equal(tomlText, ['approval_policy = "never"', 'web_search = "disabled"', "project_doc_fallback_filenames = []", 'sandbox_mode = "workspace-write"', `developer_instructions = ${JSON.stringify(dev)}`, "", "[features]", ...FEATURES_OFF.map((f) => `${f} = false`), ""].join("\n"));
 	assert.deepEqual([...CODEX_FEATURES_OFF].sort(), [...FEATURES_OFF].sort());
 	assert.equal(fs.existsSync(path.join(e.work, "codex-home", "auth.json")), false, "the login copy was left behind");
 	assert.equal(fs.existsSync(path.join(e.work, "instructions")), false, "a second copy of the instructions was made");
@@ -159,7 +159,7 @@ test("Codex: instructions, on-request folder, isolation and network as declared"
 	assert.deepEqual(r.configFiles, ["./auth.json", "./config.toml"]);
 	assert.ok(r.argv.includes("--strict-config"));
 	assert.equal(r.argv.includes("--ignore-user-config"), false);
-	assert.deepEqual(r.argv.slice(r.argv.indexOf("--sandbox"), r.argv.indexOf("--sandbox") + 2), ["--sandbox", "workspace-write"]);
+	assert.equal(r.argv.includes("--sandbox") || r.argv.includes("--ephemeral"), false);
 	assert.deepEqual(r.sentinels.sort(), [...e.sentinels.map((s) => `absent ${s}`), `readable ${e.workspace}`, `readable ${path.join(e.onRequest, "ENTRY.md")}`].sort());
 });
 
@@ -224,7 +224,8 @@ test("Codex: tools off runs read-only in an empty workspace of its own", async (
 	const empty = fs.readdirSync(e.work).find((d) => d.startsWith("empty-"));
 	assert.ok(empty);
 	const r = readRecord(path.join(e.work, empty!));
-	assert.deepEqual(r.argv.slice(r.argv.indexOf("--sandbox"), r.argv.indexOf("--sandbox") + 2), ["--sandbox", "read-only"]);
+	assert.equal(r.argv.includes("--sandbox") || r.argv.includes("--ephemeral"), false);
+	assert.match(fs.readFileSync(path.join(e.work, "codex-home", "config.toml"), "utf8"), /^sandbox_mode = "read-only"$/m);
 	assert.deepEqual(r.sentinels, [`unreadable ${path.join(e.workspace, "task.txt")}`]);
 	assert.match(fs.readFileSync(path.join(e.work, "codex-home", "config.toml"), "utf8"), /web_search = "disabled"/);
 });
@@ -263,4 +264,65 @@ test("an external harness that never answers times out", async () => {
 	const o = await externalAdapter({ pollMs: 50 }).invoke({ ...invocation(e, "opencode", { mode: "file-pointer" }), timeLimitSeconds: 1 });
 	assert.equal(o.stop.reason, "timeout");
 	assert.equal(o.final, "");
+});
+
+// C20-C25: continuation.
+test("each adapter declares continuation and compaction as probed", () => {
+	assert.deepEqual([opencodeAdapter().continue, opencodeAdapter().compaction], [true, { onDemand: true, instructionsAfterCompaction: "when delivered again" }]);
+	assert.deepEqual([codexAdapter().continue, codexAdapter().compaction], [true, { onDemand: true, instructionsAfterCompaction: "carried by the session" }]);
+	assert.deepEqual([externalAdapter().continue, externalAdapter().compaction], [false, { onDemand: false, instructionsAfterCompaction: "unknown" }]);
+});
+
+function earlierFolder(e: Env, kind: Kind, session: string): string {
+	const earlier = path.join(e.dir, "earlier");
+	if (kind === "opencode") {
+		fs.mkdirSync(path.join(earlier, "data", "opencode"), { recursive: true });
+		fs.writeFileSync(path.join(earlier, "data", "opencode", "opencode.db"), `store of ${session}\n`);
+	} else {
+		fs.mkdirSync(path.join(earlier, "codex-home", "sessions", "2026"), { recursive: true });
+		fs.writeFileSync(path.join(earlier, "codex-home", "sessions", "2026", `rollout-${session}.jsonl`), `store of ${session}\n`);
+	}
+	fs.writeFileSync(path.join(earlier, "SENTINEL"), "s\n");
+	return earlier;
+}
+const snapshot = (dir: string): string => JSON.stringify(fs.readdirSync(dir, { recursive: true }).map(String).sort().map((f) => [f, fs.statSync(path.join(dir, f)).isFile() ? fs.readFileSync(path.join(dir, f), "utf8") : ""]));
+
+for (const kind of ["opencode", "codex"] as const) {
+	test(`${kind}: a continuing invocation resumes from a copied store, the earlier folder unseen and unchanged`, async () => {
+		const e = setup();
+		const session = kind === "opencode" ? "ses_abc" : "0000-thread-1";
+		const earlier = earlierFolder(e, kind, session);
+		const before = snapshot(earlier);
+		const store = kind === "opencode" ? ["data", "opencode", "opencode.db"] : ["codex-home", "sessions", "2026", `rollout-${session}.jsonl`];
+		const a = adapterFor(kind, e, { stream: path.join(STREAMS, `${kind}-notext.synthetic.jsonl`), sentinels: [path.join(earlier, "SENTINEL")], visible: [path.join(e.work, ...store)] });
+		await a.invoke(invocation(e, kind, { continueFrom: { session, work: earlier, workspace: e.workspace } }));
+		const r = readRecord(e.workspace);
+		const want = kind === "opencode"
+			? ["run", "--format", "json", "-m", "test/m", "-s", session, "--", "Do the task.\nSecond line."]
+			: ["exec", "resume", "--json", "--skip-git-repo-check", "--strict-config", "--ignore-rules", "-m", "m", session, "Do the task.\nSecond line."];
+		assert.deepEqual(r.argv, want);
+		assert.equal(r.env.get("PWD"), e.workspace);
+		assert.equal(fs.readFileSync(path.join(e.work, ...store), "utf8"), `store of ${session}\n`);
+		assert.deepEqual(r.sentinels.sort(), [`absent ${path.join(earlier, "SENTINEL")}`, `readable ${path.join(e.work, ...store)}`].sort());
+		assert.equal(snapshot(earlier), before, "the earlier folder changed");
+		assert.equal(fs.readdirSync(e.work, { recursive: true }).map(String).some((f) => f.endsWith("auth.json")), false, "a login file was left behind");
+	});
+
+	test(`${kind}: continuation is refused, before anything runs, for each unmet condition`, () => {
+		const e = setup();
+		const session = kind === "opencode" ? "ses_abc" : "0000-thread-1";
+		const earlier = earlierFolder(e, kind, session);
+		const a = adapterFor(kind, e, { stream: path.join(STREAMS, `${kind}-notext.synthetic.jsonl`) });
+		const c = { session, work: earlier, workspace: e.workspace };
+		assert.match(a.refuse(invocation(e, kind, { continueFrom: c, tools: "off" })) ?? "", /tools off/);
+		assert.match(a.refuse(invocation(e, kind, { continueFrom: { ...c, workspace: path.join(e.dir, "other") } })) ?? "", /workspace/);
+		assert.match(a.refuse(invocation(e, kind, { continueFrom: { ...c, work: path.join(e.dir, "empty") } })) ?? "", /no session/);
+		assert.match(a.refuse(invocation(e, kind, { continueFrom: c, mode: kind === "opencode" ? "attachment" : "stdin" })) ?? "", /no probe has resumed/);
+		assert.equal(a.refuse(invocation(e, kind, { continueFrom: c })), null);
+	});
+}
+
+test("external: continuation is refused", () => {
+	const e = setup();
+	assert.match(externalAdapter().refuse(invocation(e, "opencode", { mode: "file-pointer", continueFrom: { session: "s", work: e.dir, workspace: e.workspace } })) ?? "", /does not continue/);
 });

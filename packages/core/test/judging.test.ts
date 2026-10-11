@@ -20,7 +20,7 @@ function agent(a: Agent): Adapter & { judged: string[]; workCalls: Invocation[] 
 	const judged: string[] = [];
 	const workCalls: Invocation[] = [];
 	return {
-		runtime: a.runtime, rulesFiles: ["AGENTS.md"], modes: ["inline", "stdin"], network: "detected", filesystem: a.sandboxed ? "sandboxed" : "open", refuse: () => null, judged, workCalls,
+		runtime: a.runtime, rulesFiles: ["AGENTS.md"], modes: ["inline", "stdin"], network: "detected", filesystem: a.sandboxed ? "sandboxed" : "open", continue: false, compaction: { onDemand: false, instructionsAfterCompaction: "unknown" }, refuse: () => null, judged, workCalls,
 		async invoke(inv) {
 			if (inv.prompt === CANARY_QUESTION) return outcome(inv.arm.canaries.join("\n") || "NONE");
 			if (inv.tools === "off" && isJudgePrompt(inv.prompt)) { judged.push(inv.prompt); return a.judgeOutcome ? a.judgeOutcome(inv.prompt, judged.length) : outcome(a.judge ? a.judge(inv.prompt, judged.length) : judgeReply(inv.prompt)); }

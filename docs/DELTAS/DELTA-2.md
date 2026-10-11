@@ -156,6 +156,18 @@ The pack changes are authorised by mission-kit's `0087`, as Delta-1's were; the 
 
 **Settled at ratification (`0019`):** the gate's shape - one run with base and head as arms, as recommended and drafted, or two runs; the reading of mission-kit's gate rule as the largest standardised drop over `m` properties at the ninetieth percentile, a flag being one property or more, with persistence tested on nested sets; and the stated variation and default of the A/A and handoff experiments - 0.25 pooled, defaulting to no change indicated.
 
+## Record
+
+**Stage 1.**\
+Probed live, inside the filesystem sandbox, and recorded in `docs/probes/2026-10-11-sessions.json` by `packages/core/test/live/session-probes.live.ts`, on opencode 1.18.35 and codex-cli 0.162.1.\
+Continuation: both runtimes resumed a session from a copied store in the same git workspace, with no tool call, and returned the token; a folder with its own store could not resume or list it.\
+A first probe resumed in a fresh workspace and opencode failed: it runs a resumed session in the directory it began in, so a continuing invocation shares its predecessor's workspace.\
+Compaction: both compact on demand - opencode through its server's summarize route, Codex through its app-server's `thread/compact/start`.\
+After compaction, opencode quoted an instruction file's canary when the file was delivered again and not otherwise; Codex quoted it without the file delivered again - its session carries its instructions - and once declined to quote "internal instructions" when it was delivered.\
+One sample each.\
+So mission-kit's backlog row `B3`'s question has an answer for these versions: instruction delivery survives compaction on both runtimes, by different means.\
+The adapter conformance cases gained C20 to C25 for continuation, accepted by the verifier after three reviews before any adapter changed; the adapters then gained continuation from a copied store, Codex runs without `--ephemeral` and takes its sandbox mode from configuration, and Delta-1's live configuration checks were re-run under the new configuration and all pass, with a new check that a Codex agent's shell writes only its workspace.
+
 ---
 
 ## Adversarial review

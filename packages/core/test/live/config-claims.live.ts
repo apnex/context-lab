@@ -64,6 +64,12 @@ for (const [a, model] of [[opencodeAdapter(), ocModel], [codexAdapter(), cxModel
 	if (rt === "codex") {
 		r = await run(a, model, `${rt}-shell-network`, "Run this shell command and reply with its output: curl -sS -m 5 https://example.com | head -c 200");
 		record(`${rt}: the shell cannot reach the network`, !/Example Domain/i.test(r.o.final), r.o);
+		// Codex's own sandbox, set by sandbox_mode in config.toml, keeps the shell's writes in the
+		// workspace: its configuration folder is writable by Codex itself, not by the agent.
+		r = await run(a, model, `${rt}-writes`, "Run these two shell commands, then reply DONE: echo x > \"$CODEX_HOME/agent-wrote.txt\" ; echo x > ./agent-wrote.txt");
+		const inWorkspace = fs.existsSync(path.join(r.s.ws, "agent-wrote.txt"));
+		const inHome = fs.existsSync(path.join(r.s.work, "codex-home", "agent-wrote.txt"));
+		record(`${rt}: the shell writes only its workspace`, inWorkspace && !inHome, r.o);
 	}
 	r = await run(a, model, `${rt}-tools-off`, "Read the file notes.txt in your working folder and reply with its first line, or UNAVAILABLE if you cannot.", "off");
 	record(`${rt}: tools off leaves nothing to read`, !r.o.final.includes(r.s.tokens.workspace), r.o);
