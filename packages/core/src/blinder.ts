@@ -69,10 +69,19 @@ export function mask(text: string, loaded: LoadedPack, ctx: MaskContext, workspa
 	return out;
 }
 
-/** In a diff, any self-explanation an agent wrote into a file is cut to the end of its line. */
+/** In a diff, self-explanation an agent wrote into a file is cut from the marker to the end of that file's changes. */
 function cutDiff(diff: string, marker: string | undefined): string {
 	if (!marker) return diff;
-	return diff.split("\n").map((l) => { const i = l.indexOf(marker); return i < 0 ? l : l.slice(0, i); }).join("\n");
+	const out: string[] = [];
+	let cutting = false;
+	for (const l of diff.split("\n")) {
+		if (l.startsWith("diff --git ")) cutting = false;
+		if (cutting) continue;
+		const i = l.indexOf(marker);
+		if (i < 0) out.push(l);
+		else { out.push(l.slice(0, i)); cutting = true; }
+	}
+	return out.join("\n");
 }
 
 const judged = (s: Scenario): Property[] => s.properties.filter((p) => p.decidedBy === "judge");

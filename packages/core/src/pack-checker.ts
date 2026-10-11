@@ -126,7 +126,7 @@ function experimentShape(raw: unknown, where: string, out: Defect[]): raw is Exp
 function scenarioShape(raw: unknown, where: string, out: Defect[]): raw is Scenario {
 	const before = out.length;
 	if (!shape(raw, where, { id: "string", tags: "string[]", fixture: fixtureShape, task: "string", properties: "array" }, { heldOut: "boolean", start: "string", scoring: "string", scoredFile: "string", notes: "string" }, out)) return false;
-	eachShape(raw["properties"], `${where}.properties`, { id: "string", type: oneOf(PROPERTY_TYPES), decidedBy: oneOf(DECIDERS), key: "string", scale: pair }, { guidance: "string[]", measure: "string", rubric: "string", notes: "string", answerHeading: "string" }, out);
+	eachShape(raw["properties"], `${where}.properties`, { id: "string", type: oneOf(PROPERTY_TYPES), decidedBy: oneOf(DECIDERS), key: "string", scale: pair }, { guidance: "string[]", measure: "string", rubric: "string", notes: "string", answerHeading: "string", question: "string" }, out);
 	return out.length === before;
 }
 

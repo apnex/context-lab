@@ -131,6 +131,8 @@ export interface Property {
 	notes?: string;
 	/** The heading in the scenario's scored file under which this property's answer is written; the answer under it is what is judged. */
 	answerHeading?: string;
+	/** The question a judge is shown for an answer; the task's text under the answer heading if not given. */
+	question?: string;
 }
 
 export interface InlineFixture {

@@ -15,12 +15,12 @@ function outcome(final: string, over: Partial<Outcome> = {}): Outcome {
 	return { final, exit: 0, signal: null, stop: { reason: "completed", inFlight: "none" }, cost: { seconds: 0, inputTokens: null, cachedInputTokens: null, outputTokens: null, toolCalls: 0 }, tools: [], filtered: false, error: null, session: null, trace: [], events: "/dev/null", ...over };
 }
 
-interface Agent { runtime: string; work?: (inv: Invocation) => Outcome; judge?: (prompt: string, n: number) => string; judgeOutcome?: (prompt: string, n: number) => Outcome }
+interface Agent { runtime: string; sandboxed?: boolean; work?: (inv: Invocation) => Outcome; judge?: (prompt: string, n: number) => string; judgeOutcome?: (prompt: string, n: number) => Outcome }
 function agent(a: Agent): Adapter & { judged: string[]; workCalls: Invocation[] } {
 	const judged: string[] = [];
 	const workCalls: Invocation[] = [];
 	return {
-		runtime: a.runtime, rulesFiles: ["AGENTS.md"], modes: ["inline", "stdin"], network: "detected", filesystem: "open", refuse: () => null, judged, workCalls,
+		runtime: a.runtime, rulesFiles: ["AGENTS.md"], modes: ["inline", "stdin"], network: "detected", filesystem: a.sandboxed ? "sandboxed" : "open", refuse: () => null, judged, workCalls,
 		async invoke(inv) {
 			if (inv.prompt === CANARY_QUESTION) return outcome(inv.arm.canaries.join("\n") || "NONE");
 			if (inv.tools === "off" && isJudgePrompt(inv.prompt)) { judged.push(inv.prompt); return a.judgeOutcome ? a.judgeOutcome(inv.prompt, judged.length) : outcome(a.judge ? a.judge(inv.prompt, judged.length) : judgeReply(inv.prompt)); }
@@ -130,7 +130,7 @@ test("the guess rate counts each judge's guess once per outcome, against the con
 
 test("judges see no canary, no run folder, and no self-explanation written into a file", async () => {
 	const { rd } = await run(undefined, { runtime: "opencode", work: (inv) => {
-		fs.writeFileSync(path.join(inv.workspace, "EXPLAIN.md"), "Grafted. WHY: the almanac said so\n");
+		fs.writeFileSync(path.join(inv.workspace, "EXPLAIN.md"), "Grafted. WHY: the almanac said so\n- GUIDE.md section 3\n");
 		return outcome(`The heron counts eleven stones. See ${inv.arm.instructions[0]?.path ?? "nothing"}.`);
 	} });
 	const units = read<{ units: { text: string; member: string }[] }>(rd, "sealed/units.json").units.filter((u) => u.member === "p1");
@@ -138,7 +138,7 @@ test("judges see no canary, no run folder, and no self-explanation written into 
 		assert.equal(u.text.includes("The heron counts eleven stones."), false, "a canary reached a judge");
 		const m = /\/variants\/|context-lab-work|cl-test-/.exec(u.text);
 		assert.equal(m, null, `a run folder reached a judge: ${m ? u.text.slice(Math.max(0, m.index - 80), m.index + 40) : ""}`);
-		assert.equal(u.text.includes("the almanac said so"), false, "self-explanation in a file reached a judge");
+		assert.equal(u.text.includes("the almanac said so") || u.text.includes("GUIDE.md section 3"), false, "self-explanation in a file reached a judge");
 	}
 });
 
@@ -189,7 +189,7 @@ test("answers under headings are judged in the comprehension form, and an empty 
 			j.scoredFile = "answers.md";
 			j.properties = [
 				{ id: "g1", type: "comprehension", decidedBy: "judge", key: "Quince.", scale: [0, 2], rubric: "2 if quince", answerHeading: "orchard.G1" },
-				{ id: "g2", type: "comprehension", decidedBy: "judge", key: "Pear.", scale: [0, 2], rubric: "2 if pear", answerHeading: "orchard.G2" },
+				{ id: "g2", type: "comprehension", decidedBy: "judge", key: "Pear.", scale: [0, 2], rubric: "2 if pear", answerHeading: "orchard.G2", question: "What scion?" },
 			];
 		});
 	};
@@ -197,6 +197,7 @@ test("answers under headings are judged in the comprehension form, and an empty 
 	const prompt = A.judged.find((p) => p.includes("--- answer a1 ---"))!;
 	assert.ok(prompt.startsWith("You are scoring answers to a comprehension test against an answer key."));
 	assert.match(prompt, /PROBE orchard\.G1\n\nQuestion:\nWhat rootstock\?\n\nKey:\nQuince\.\n\nRubric:\n2 if quince/);
+	assert.match(prompt, /PROBE orchard\.G2\n\nQuestion:\nWhat scion\?\n\nKey:/, "the last question carried the reader's instructions");
 	assert.equal(prompt.includes("give your guess") || prompt.includes('"guess"'), false);
 	const r = read<{ absent: { cell: string; property: string }[]; cellValues: Record<string, Record<string, unknown>> }>(rd, "RESULT.json");
 	assert.deepEqual(r.absent, [{ cell: "graft.bare.p1.1", property: "g2" }]);
@@ -223,4 +224,23 @@ test("the tally keys guesses by unit and judge, whatever characters a unit id ho
 	const votes = units.flatMap((u) => ["j1", "j2"].map((j) => ({ unit: u.id, property: "p", judge: j, family: j, value: 1, reason: "", guess: "a", prompt: "x" })));
 	const r = tally({ run: "r", status: "s", arms: ["a", "b"], members: ["m"], scenarios: new Map([["s", sc]]), cells, units, absent: [], votes, assigned: () => ["j1", "j2"], guessGroups: { a: ["a"], b: ["b"] } });
 	assert.deepEqual([r.guesses.all, r.guesses.right, r.guesses.baseRate], [4, 2, 0.5]);
+});
+
+test("agreement counts two valid votes that agree, and not one", async () => {
+	const { tally } = await import("../src/index.js");
+	const sc = { id: "s", tags: [], fixture: null, task: "", properties: [{ id: "p", type: "adherence" as const, decidedBy: "judge" as const, key: "", scale: [0, 1] as [number, number] }] };
+	const mk = (id: string): CellRecord => ({ cell: id, scenario: "s", arm: "a", member: "m", run: 1, valid: true, final: "", scoredFile: null, answers: {}, diff: null, codeScores: [], attempts: [{ attempt: 1, validity: { valid: true }, outcome: { final: "", exit: 0, signal: null, stop: { reason: "completed", inFlight: "none" }, cost: { seconds: 0, inputTokens: null, cachedInputTokens: null, outputTokens: null, toolCalls: 0 }, tools: [], filtered: false, error: null, session: null, trace: [], events: "" }, diff: null }] });
+	const cells = [mk("c1"), mk("c2")];
+	const units = cells.map((c) => ({ id: `u-${c.cell}`, cell: c.cell, scenario: "s", arm: "a", member: "m", family: "f", properties: ["p"], text: "", blindedAt: "" }));
+	const votes = [{ u: "u-c1", j: "j1", v: 1 }, { u: "u-c1", j: "j2", v: 1 }, { u: "u-c2", j: "j1", v: 1 }].map((x) => ({ unit: x.u, property: "p", judge: x.j, family: x.j, value: x.v, reason: "", guess: null, prompt: "x" }));
+	const r = tally({ run: "r", status: "s", arms: ["a"], members: ["m"], scenarios: new Map([["s", sc]]), cells, units, absent: [], votes, assigned: (u) => (u.id === "u-c1" ? ["j1", "j2"] : ["j1"]), guessGroups: {} });
+	assert.deepEqual(r.properties[0]!.agreement, { agree: 1, of: 1 });
+});
+
+test("sandboxed path attempts are reported in the result", async () => {
+	const { rd } = await run(undefined, { runtime: "opencode", sandboxed: true, work: (inv) => outcome("Grafted.", { tools: [{ name: "read", input: {}, status: "error", paths: [path.join(path.dirname(inv.workspace), "w-other", "NOTES.txt")], addresses: [] }] }) });
+	const r = read<{ unreachable: string[]; excluded: unknown[] }>(rd, "RESULT.json");
+	assert.ok(r.unreachable.length > 0 && r.unreachable.every((c) => c.endsWith(".p1.1")));
+	assert.deepEqual(r.excluded, []);
+	assert.match(fs.readFileSync(path.join(rd, "RESULT.md"), "utf8"), /named forbidden paths/);
 });

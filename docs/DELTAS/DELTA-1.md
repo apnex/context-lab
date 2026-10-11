@@ -271,6 +271,12 @@ The first parity run found a defect in the core's tally: it keyed guesses by joi
 What parity cannot show: neither run has an incomplete vote, so the tally's incomplete rule is held by its unit tests alone - a change to that rule left all 643 values equal.\
 The parity script runs by hand, since the run records are local to this machine and never published.
 
+**Stage 6 verification.**\
+E8 and E9 green: all 643 values compared, the script failing under every tally change it should catch; the readers do format conversion only and count what the old tools counted on every record a published run can hold.\
+Found and fixed: the last `explain` question shown to judges carried the reader's answer-file and reply-DONE lines, because the question was read from the task - properties may now carry the question, and mission-kit's pack carries each verbatim; self-explanation over several lines of a file still reached judges, now cut to the end of that file's changes; the comprehension judge prompt had dropped `eval.mjs`'s sentence forbidding other files, now restored; the agreement and unreachable-path rules gained tests that fail without them.\
+Known differences from the old tools, on runs these two do not contain: the core counts an outcome complete with all its assigned votes, however few, where `adherence.mjs` required two; and it totals unrounded means, giving no total when a mean is missing, where `eval.mjs` summed rounded means and counted a missing one as 0.\
+Parity holds neither the incomplete rule nor the absent rule, since neither run contains such a case; their unit tests do.
+
 ---
 
 ## Adversarial review
