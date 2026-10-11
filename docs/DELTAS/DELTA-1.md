@@ -64,8 +64,8 @@ Each stage lands with its own tests, and its criteria are green, before the next
 1. **Pack and record.** The workspace; pack schema; both packs written statically; pack checker; hook runner; experiment register; selector and suites. Criteria E1, E2, E3 except its run-record clause, E12 for its bounds and the declaration-check failure result, E16.
 2. **Context.** Variant builder, arm composer, workspace builder. Criteria E13 except its run-record clause, and E12's variant-transform failure result as far as the arm not being built.
 3. **Runtimes.** The three adapters and their conformance suite, accepted by the verifier before the adapters are built; isolation prober; validity classifier. Criteria E5, E6.
-4. **One-phase runs.** Phase driver, run conductor - passing each cell's attempt count to the classifier (`0012`) - answer parser, code measurer. Criteria E7, E14, the run-record clauses of E3 and E13, and the rest of E12: an unbuilt arm not run, the outcome-measure failure result, and the synthetic pack's transform and measure hooks run on their success paths.
-5. **Judging.** Blinder, judge panel, tally. Criterion E15.
+4. **One-phase runs.** Phase driver, run conductor - passing each cell's attempt count to the classifier (`0012`) - answer parser, code measurer. Criteria E7, E14's timing of code scores, the run-record clauses of E3 and E13, and the rest of E12: an unbuilt arm not run, the outcome-measure failure result, and the synthetic pack's transform and measure hooks run on their success paths.
+5. **Judging.** Blinder, judge panel, tally. Criteria E15, and E14's comparison with the blinding time.
 6. **Parity.** Legacy-record readers; the tally against two past runs. Criteria E8, E9.
 7. **mission-kit's pack, live.** Criteria E4, E10, E11.
 
@@ -125,7 +125,7 @@ Evaluated by an agent that built none of the code the criterion exercises, holdi
 | E11 | 7 | A live run of mission-kit's `explain` suite on both driven runtimes, readers from three families and judges from the other two, reaches tallied; every reader-probe pair holds two validated votes or a recorded absence scored 0; and no judge prompt contains text that followed the self-explanation marker. |
 | E12 | 1, 2, 4 | For each of the three hooks, in contract tests and in the synthetic pack, a hook that attempts the network, reads outside its inputs, writes outside its folder or exceeds its time limit is stopped and gives its failure result - the pack failed; the arm not built and not run; the properties incomplete - and each hook's success path is used in the E7 tests. |
 | E13 | 2, 4 | A built variant contains no occurrence of any address the pack declares for its source, and the run record names the source revision the variant was built from. |
-| E14 | 4 | In the run record, every code score carries a time earlier than the blinding of its outcome. |
+| E14 | 4, 5 | In the run record, every code score carries a time earlier than the blinding of its outcome. |
 | E15 | 5 | The judge panel refuses to assign a judge of an outcome's own family, and its test fails when that refusal is removed. |
 | E16 | every | `tsc -b` exits 0 with `strict` enabled and no file excluded from type checking, and `node --test` runs every test against the built output. |
 
@@ -234,6 +234,14 @@ It also found three major defects, all fixed and re-checked: twelve copies of th
 Re-verification: E6 green, E5 green as written; all eleven live checks pass with the wider Codex features table.\
 An opencode timeout with a step open is now `unknown`: infrastructure on a first attempt, behaviour on a re-run - a classification policy E5 does not settle, ruled by the director (`0012`).\
 Known limits, stated in the classifier: addresses assembled at run time, percent-encoded, or reached through another program or mirror are not found; a mere mention of a forbidden address counts as reaching it.
+
+**Stage 4.**\
+Built: the phase driver, one phase in a new session; the run conductor, through validated, recorded, built, probed, executed and measured, each state's time kept, writing a run record with the pack, the register entry it rests on, the method's version, every variant's revision, the scenarios resolved, every probe answer and every attempt of every cell; the answer parser; the code measurer with the outcome-measure hook; a `run` command.\
+The experiment register is now append-only - recording again adds an entry and never replaces one - and a run refuses a record made after it began (`B13`).\
+The run conductor passes each cell's attempt count to the classifier (`0012`). mission-kit's `explain` experiment now carries the reader framing transcribed from `tools/eval.mjs`, adapted where each probe became its own cell; the difference is recorded in the experiment.\
+An integration smoke run of the synthetic pack on the real runtimes - claude-opus-5-5 through opencode, gpt-6-astra through Codex, two scenarios, two arms, one run - reached measured with every probe passing and every cell valid, and no credential anywhere in its record or working folder.\
+It also showed each opencode invocation copying a 150 MB cache: the copy is now removed when the runtime ends.\
+E14 asks that every code score precede the blinding of its outcome; stage 4 times every score and keeps it before the run leaves measuring, and the blinder that completes the check is stage 5's - so E14 is evaluated at stages 4 and 5, a restaging for the director's confirmation.
 
 ---
 

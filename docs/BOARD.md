@@ -27,7 +27,6 @@ Order on the higher: a mandate breach ranks with S2 and a signal with S4; ties g
 | `B1` | S3 | A3 mandate | M1.1 | The duty this component exists for is implemented twice, outside it, and diverging. |
 | `B11` | S3 | A3 mandate | M1.2 | Neither first user has a project pack. |
 | `B2` | S3 | A8 signal | M2.1 | Session continuation under isolation is unprobed on both driven runtimes. |
-| `B13` | S3 | A8 signal | M1.1 | Re-recording an experiment after its outcomes were seen restores its declared status. |
 | `B3` | S4 | A8 signal | M2.1 | Whether each runtime's compaction keeps instruction files is unknown. |
 | `B4` | S4 | A9 signal | M4.1 | No failure injection exercises the validity classifier. |
 | `B5` | S4 | A8 signal | M4.3 | Blinding to arm was not achieved on one trap. |
@@ -48,7 +47,7 @@ It carries mission-kit's adherence suite and one comprehension suite as single-p
 
 | Item | Move | Cites | Depends on |
 |---|---|---|---|
-| M1.1 | Core for one-phase experiments, with a run record's time checked against its experiment's record (`B13`): pack checker, experiment register, variant builder, arm composer, workspace builder, adapters, isolation prober, validity classifier, code measurer, blinder, judge panel, tally, run conductor | `B1` | - |
+| M1.1 | Core for one-phase experiments, with a run record's time checked against its experiment's record (B13, closed): pack checker, experiment register, variant builder, arm composer, workspace builder, adapters, isolation prober, validity classifier, code measurer, blinder, judge panel, tally, run conductor | `B1` | - |
 | M1.2 | mission-kit's pack: its adherence suite and its `explain` comprehension suite as one-phase experiments, run on the core, with the differences from their last results on mission-kit's own tools reported | `B11` | M1.1 |
 
 ## M2 - Multi-phase episodes and the change gate `OPEN`

@@ -156,6 +156,8 @@ export function opencodeAdapter(opts: OpencodeOptions = {}): Adapter {
 			};
 			for (const v of p.credentialVars) if (env[v] !== undefined) runEnv[v] = env[v]!;
 			const r = await runSandboxed({ install: binary, writable: [inv.work, inv.workspace], readOnly: onRequest, home, cwd: inv.workspace, command: [binary, ...args], env: runEnv, stdin: null, timeLimitSeconds: inv.timeLimitSeconds });
+			// The cache copy is about 150 MB and part of no record, so it goes as soon as the runtime ends.
+			fs.rmSync(path.join(inv.work, "cache"), { recursive: true, force: true });
 			const events = writeEvents(inv, r, secrets);
 			return scrubOutcome(parseOpencode(r.lines, { workspace: inv.workspace, home, exit: r.exit, signal: r.signal, timedOut: r.timedOut, seconds: r.seconds, events }), secrets);
 		},

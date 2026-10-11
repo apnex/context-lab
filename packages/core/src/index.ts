@@ -1,7 +1,7 @@
 export * from "./pack-schema.js";
 export { PACK_CHECKS, checkPack, entryView, selectScenarios, type CheckId, type CheckResult, type Defect } from "./pack-checker.js";
 export { HOOK_FAILURE_RESULT, runHook, sandboxArgs, type HookResult, type HookRun } from "./hook-runner.js";
-export { contentHash, hashedParts, readRecord, recordExperiment, runStatus, type Record } from "./experiment-register.js";
+export { contentHash, hashedParts, readRecord, recordExperiment, recordHistory, runStatus, type Record } from "./experiment-register.js";
 export { resolveSuite, select, type ResolvedSuite } from "./selector.js";
 export { CANARY_FILE, VARIANT_MANIFEST, buildVariant, exportAt, makeReadOnly, makeWritable, rewriteAddresses, type BuiltVariant, type VariantManifest } from "./variant-builder.js";
 export { composeArm, type ComposeResult, type ComposedArm } from "./arm-composer.js";
@@ -14,3 +14,7 @@ export { runSandboxed, sandboxMounts, type SandboxResult, type SandboxSpec } fro
 export { CODEX_FEATURES_OFF, Refused, codexAdapter, externalAdapter, opencodeAdapter, type Adapter, type CodexOptions, type DeliveryMode, type ExternalOptions, type Invocation, type OpencodeOptions } from "./adapters.js";
 export { RERUN, classify, type Cause, type Forbidden, type Validity } from "./validity-classifier.js";
 export { CANARY_QUESTION, probeArm, type ProbeAnswer, type ProbeOptions, type ProbeResult } from "./isolation-prober.js";
+export { splitAnswers, stripSelfExplanation } from "./answer-parser.js";
+export { promptFor, runPhase, type PhaseRun } from "./phase-driver.js";
+export { measure, type CodeScore, type MeasuredOutcome } from "./code-measurer.js";
+export { METHOD, STATES, conductRun, type Attempt, type CellRecord, type RunOptions, type RunRecord, type State } from "./run-conductor.js";

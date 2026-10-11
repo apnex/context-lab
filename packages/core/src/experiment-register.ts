@@ -91,30 +91,51 @@ export function contentHash(loaded: LoadedPack, experimentId: string): string {
 
 // The register lives with the pack, not with run records: it is the evidence that an experiment was
 // fixed before its outcomes existed, so the project keeps it alongside the experiment itself.
+// The register lives with the pack, not with run records: it is the evidence that an experiment was
+// fixed before its outcomes existed, so the project keeps it alongside the experiment itself.
+// It is append-only: recording again adds an entry and never replaces one, so every recording, and
+// when it was made, stays visible against the runs that followed it (B13).
 const registerFile = (loaded: LoadedPack, experimentId: string): string =>
 	path.resolve(loaded.dir, "register", `${experimentId}.json`);
+
+interface RegisterFile {
+	experiment: string;
+	records: Record[];
+}
+
+export function recordHistory(loaded: LoadedPack, experimentId: string): Record[] {
+	const file = registerFile(loaded, experimentId);
+	if (!fs.existsSync(file)) return [];
+	const raw = JSON.parse(fs.readFileSync(file, "utf8")) as RegisterFile | Record;
+	// A register written before the history form held a single record.
+	return "records" in raw ? raw.records : [raw];
+}
 
 export function recordExperiment(loaded: LoadedPack, experimentId: string, now: Date = new Date()): Record {
 	const e = loaded.experiments.get(experimentId);
 	if (!e) throw new Error(`no experiment ${experimentId}`);
 	const rec: Record = { experiment: experimentId, hash: contentHash(loaded, experimentId), recordedAt: now.toISOString(), declaredStatus: e.experiment.declaredStatus };
+	const history = recordHistory(loaded, experimentId);
+	const last = history[history.length - 1];
+	if (last !== undefined && last.recordedAt >= rec.recordedAt) throw new Error(`a record of ${experimentId} at ${last.recordedAt} is not earlier than ${rec.recordedAt}`);
 	const file = registerFile(loaded, experimentId);
 	fs.mkdirSync(path.dirname(file), { recursive: true });
-	fs.writeFileSync(file, JSON.stringify(rec, null, 2) + "\n");
+	fs.writeFileSync(file, JSON.stringify({ experiment: experimentId, records: [...history, rec] }, null, 2) + "\n");
 	return rec;
 }
 
+/** The latest record, which governs runs made now. */
 export function readRecord(loaded: LoadedPack, experimentId: string): Record | null {
-	const file = registerFile(loaded, experimentId);
-	return fs.existsSync(file) ? (JSON.parse(fs.readFileSync(file, "utf8")) as Record) : null;
+	const h = recordHistory(loaded, experimentId);
+	return h.length ? h[h.length - 1]! : null;
 }
 
-/** The status a run of this experiment carries now. */
-export function runStatus(loaded: LoadedPack, experimentId: string): { status: Status; reason: string } {
+/** The status a run of this experiment carries now, and the record it rests on. */
+export function runStatus(loaded: LoadedPack, experimentId: string): { status: Status; reason: string; record: Record | null } {
 	const e = loaded.experiments.get(experimentId);
 	if (!e) throw new Error(`no experiment ${experimentId}`);
 	const rec = readRecord(loaded, experimentId);
-	if (rec === null) return { status: "exploration", reason: "the experiment is not recorded" };
-	if (rec.hash !== contentHash(loaded, experimentId)) return { status: "exploration", reason: "the experiment changed after it was recorded" };
-	return { status: e.experiment.declaredStatus, reason: "recorded, unchanged" };
+	if (rec === null) return { status: "exploration", reason: "the experiment is not recorded", record: null };
+	if (rec.hash !== contentHash(loaded, experimentId)) return { status: "exploration", reason: "the experiment changed after it was recorded", record: rec };
+	return { status: e.experiment.declaredStatus, reason: "recorded, unchanged", record: rec };
 }

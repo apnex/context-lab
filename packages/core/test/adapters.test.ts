@@ -136,6 +136,7 @@ test("opencode: instructions, on-request folder, isolation and network as declar
 		["CL_TEST_KEY", "HOME", "OPENCODE_DISABLE_CLAUDE_CODE", "PATH", "PWD", "XDG_CACHE_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"]);
 	assert.equal(r.env.get("PWD"), e.workspace);
 	assert.deepEqual(r.configFiles, ["./opencode/opencode.json"]);
+	assert.equal(fs.existsSync(path.join(e.work, "cache")), false, "the cache copy was left behind");
 	assert.deepEqual(r.sentinels.sort(), [...e.sentinels.map((s) => `absent ${s}`), `readable ${e.workspace}`, `readable ${path.join(e.onRequest, "ENTRY.md")}`].sort());
 });
 
