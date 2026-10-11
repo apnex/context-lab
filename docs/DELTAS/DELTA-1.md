@@ -1,7 +1,7 @@
 # Delta-1 - a core that runs one-phase experiments, proven isolated - a vertical slice
 
 ```yaml
-status:     ratified (docs/DECISIONS.md 0009) - revision 3, stage amendments confirmed (0010, 0011); stages 1 to 4 verified green (0012, 0013, 0014), stage 5 open
+status:     ratified (docs/DECISIONS.md 0009) - revision 3, stage amendments confirmed (0010, 0011); stages 1 to 5 verified green (0012 to 0016), stage 6 open
 selected:   docs/DECISIONS.md 0007, board item M1 (M1.1, M1.2)
 from-state: docs/ARCHITECTURE-TARGET.md header - "Its current architecture is empty"
 to-state:   docs/ARCHITECTURE-TARGET.md (0006, 0008), the components fenced in section 1
@@ -262,7 +262,7 @@ The E7 literal list holds short property ids; one, `x6`, matched a hexadecimal c
 **Stage 5 verification.**\
 The stage 4 verifier found E15 and E14's stage-5 part green, most stage 4 findings fixed, and four major defects in judging, all fixed: a scored file reachable through a linked folder, now read only when its real path is a regular file in the workspace; re-tallying that depended on the pack as it is now, now from a snapshot the run record keeps; judges shown the variant's path, the canary and self-explanation written into a file, now masked; and a guess rate that would read 0 of 0 for mission-kit's adherence suite, whose judges guess guided or unguided, now declared in its pack.\
 Fixed besides: one judge failing no longer stops the run; the seed alone fixes the blinding; a reply missing one outcome keeps the rest and asks again for the missing one; agreement needs two votes; a total needs every property's mean; the base rate is taken over the guesses made; an empty answer is absent; a judge reply reached with a tool is discarded; judges have their own time limit; judges are not asked to guess between one condition; and an arm may touch only the files it was given, not the rest of its variant.\
-Answer units are judged in the comprehension form carried from `eval.mjs`'s scorer prompt, its lines verbatim but for one: its scorer wrote a file and replied DONE, and a judge here has no tools, so it replies with the lines - for the director's ruling, with the rule that a sandboxed runtime naming a forbidden path outside its sandbox is recorded and does not invalidate the cell.
+Answer units are judged in the comprehension form carried from `eval.mjs`'s scorer prompt, its lines verbatim but for one: its scorer wrote a file and replied DONE, and a judge here has no tools, so it replies with the lines (`0016`); and a sandboxed runtime naming a forbidden path outside its sandbox is recorded and does not invalidate the cell (`0015`).
 
 ---
 

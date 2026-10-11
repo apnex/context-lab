@@ -34,6 +34,8 @@ They are not copied here; this register starts at the vision.
 | 0012 | 2026-10-10 | An opencode cell that times out with a step open is classified infrastructure on its first attempt and behaviour on a re-run; the run conductor passes the attempt count to the classifier. | director | ratified | - |
 | 0013 | 2026-10-11 | Delta-1's E14 is evaluated at stages 4 and 5: stage 4 times every code score inside measuring; stage 5 compares each with its outcome's blinding. | director | ratified | amends 0010 |
 | 0014 | 2026-10-11 | mission-kit's explain suite is carried as one cell per reader, all four questions in one prompt with its wording verbatim, the answer file split per question for judging. | director | ratified | - |
+| 0015 | 2026-10-11 | For a runtime in the filesystem sandbox, a forbidden path the agent names is recorded and does not invalidate the cell; a forbidden address still does, the network being shared. | director | ratified | - |
+| 0016 | 2026-10-11 | Comprehension answers are judged in eval.mjs's scorer form verbatim but for one change: judges reply with their score lines instead of writing a file and replying DONE. | director | ratified | - |
 
 ---
 
@@ -224,4 +226,26 @@ One cell per question, adapting the wording - refuted because Delta-1 carries su
 
 **Source.**\
 `[V, director ruling 2026-10-11; Delta-1 stage 4 verification]`
+
+### 0015
+
+**Ruling.**\
+A path outside the sandbox does not exist for a sandboxed agent, so naming it is an attempt that cannot succeed: it is recorded and reported, and the cell stands.
+
+**Alternatives refuted.**\
+Voiding the cell on any attempt - refuted because curious agents would spend their re-run and be excluded for something that could not happen.
+
+**Source.**\
+`[V, director ruling 2026-10-11; Delta-1 stage 5 smoke run and verification]`
+
+### 0016
+
+**Ruling.**\
+The comprehension judge prompt keeps eval.mjs's scorer lines, replacing only the instruction to write a file and reply DONE with an instruction to reply with the lines.
+
+**Alternatives refuted.**\
+Letting judges write a file - refuted because it gives judges tools, which the tools-off rule exists to prevent.
+
+**Source.**\
+`[V, director ruling 2026-10-11; Delta-1 stage 5 verification]`
 
