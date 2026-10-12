@@ -46,6 +46,9 @@ test("F7: the link's four rates per member, arm and guidance id, a property nami
 		prop("a1", "adherence", ["G"]),
 		prop("a2", "adherence", ["H"]),
 		prop("x", "precision", ["G"]),
+		// K is named only as a second id.
+		prop("c3", "comprehension", ["G", "K"]),
+		prop("a3", "adherence", ["H", "K"]),
 	] };
 	const cells = [
 		{ cell: "e1", scenario: "s", arm: "on", member: "m" },
@@ -54,22 +57,27 @@ test("F7: the link's four rates per member, arm and guidance id, a property nami
 	];
 	const values = {
 		// c1 on [0,2]: 1 is the midpoint, so met; c2 0 not met; a1 met; a2 not met.
-		e1: { c1: 1, c2: 0, a1: 1, a2: 0, x: 1 },
+		e1: { c1: 1, c2: 0, a1: 1, a2: 0, x: 1, c3: 1, a3: 0 },
 		// c1 0.5 not met; c2 1 met; a1 incomplete makes no pair; a2 met.
-		e2: { c1: 0.5, c2: 1, a1: "incomplete" as const, a2: 1, x: 0 },
-		e3: { c1: 2, c2: 1, a1: 0, a2: 1, x: 1 },
+		e2: { c1: 0.5, c2: 1, a1: "incomplete" as const, a2: 1, x: 0, c3: 0, a3: 1 },
+		e3: { c1: 2, c2: 1, a1: 0, a2: 1, x: 1, c3: "incomplete" as const, a3: 1 },
 	};
 	const rows = linkRates(cells, values, new Map([["s", s]]), propertiesOf);
-	// m/on/G: e1 pairs (c1 met, a1 met) -> met,met; (c2 not, a1 met) -> not,met; e2 has no adherence
-	//   value for G. 2 pairs: metMet 1/2, notMet 1/2.
-	// m/on/H: e1 (c2 not, a2 not) -> neither; e2 (c2 met, a2 met) -> met,met. 2 pairs: 1/2, 1/2.
-	// m/off/G: (c1 met, a1 not) -> met,not; (c2 met, a1 not) -> met,not. 2 pairs: metNot 1.
-	// m/off/H: (c2 met, a2 met) -> met,met. 1 pair.
+	// Comprehension by id: G c1 c2 c3; H c2; K c3. Adherence: G a1; H a2 a3; K a3.
+	// m/on/G: e1 - c1 met, c2 not, c3 met, each with a1 met: met,met x2, not,met x1; e2 - a1
+	//   incomplete, no pair. 3 pairs: metMet 2/3, notMet 1/3.
+	// m/on/H: e1 - c2 not with a2 not, a3 not: neither x2; e2 - c2 met with a2 met, a3 met: met,met
+	//   x2. 4 pairs: metMet 1/2, neither 1/2.
+	// m/on/K: e1 - c3 met, a3 not: met,not; e2 - c3 not, a3 met: not,met. 2 pairs: 1/2, 1/2.
+	// m/off/G: e3 - c1 met, c2 met, c3 incomplete, with a1 not: met,not x2. 2 pairs: metNot 1.
+	// m/off/H: e3 - c2 met with a2 met, a3 met: met,met x2. 2 pairs: metMet 1.
+	// m/off/K: c3 incomplete - no pair, so no row.
 	assert.deepEqual(rows, [
 		{ member: "m", arm: "off", guidance: "G", pairs: 2, metMet: 0, metNot: 1, notMet: 0, neither: 0 },
-		{ member: "m", arm: "off", guidance: "H", pairs: 1, metMet: 1, metNot: 0, notMet: 0, neither: 0 },
-		{ member: "m", arm: "on", guidance: "G", pairs: 2, metMet: 0.5, metNot: 0, notMet: 0.5, neither: 0 },
-		{ member: "m", arm: "on", guidance: "H", pairs: 2, metMet: 0.5, metNot: 0, notMet: 0, neither: 0.5 },
+		{ member: "m", arm: "off", guidance: "H", pairs: 2, metMet: 1, metNot: 0, notMet: 0, neither: 0 },
+		{ member: "m", arm: "on", guidance: "G", pairs: 3, metMet: 2 / 3, metNot: 0, notMet: 1 / 3, neither: 0 },
+		{ member: "m", arm: "on", guidance: "H", pairs: 4, metMet: 0.5, metNot: 0, notMet: 0, neither: 0.5 },
+		{ member: "m", arm: "on", guidance: "K", pairs: 2, metMet: 0, metNot: 0.5, notMet: 0.5, neither: 0 },
 	]);
 });
 
@@ -78,6 +86,16 @@ test("F7: the link's four rates per member, arm and guidance id, a property nami
 test("F8: words are runs of letters, digits and apostrophes, lowercased, with markdown dropped", () => {
 	assert.deepEqual(words("**Don't** see [the guide](https://x.invalid/a/b.md), `code_x` #3 <b>bold</b> <https://y.invalid/z>"), ["don't", "see", "the", "guide", "code", "x", "3", "bold"]);
 	assert.deepEqual(words("It\u2019s ![alt text](img.png) | cell |"), ["it's", "alt", "text", "cell"]);
+	// Each step of "markdown dropped", as the comment on words lists them.
+	assert.deepEqual(words("```bash\nls -la\n```"), ["ls", "la"]);
+	assert.deepEqual(words("[ref]: https://x.invalid/y\nsee[^1] text"), ["see", "text"]);
+	assert.deepEqual(words("don&#39;t &amp; &#x41;&#66; &lt;tag&gt; &#xD800;z"), ["don't", "ab", "tag", "z"]);
+	assert.deepEqual(words("\\*not\\* emphasis"), ["not", "emphasis"]);
+	assert.deepEqual(words("1. first\n  2) second\n2026 is a year"), ["first", "second", "2026", "is", "a", "year"]);
+	assert.deepEqual(words("un*believ*able and **bold**"), ["unbelievable", "and", "bold"]);
+	// An HTML tag is a common element's, on one line: text that merely holds < and > keeps its words.
+	assert.deepEqual(words("<span class=\"x\">hi</span> <BR/> <div\nnot>"), ["hi", "div", "not"]);
+	assert.deepEqual(words("a<b and then x -> y, Map<string, number>"), ["a", "b", "and", "then", "x", "y", "map", "string", "number"]);
 	const twelve = "one two three four five six seven eight nine ten eleven twelve";
 	assert.equal(sharedRun(`Intro. ${twelve.toUpperCase()}!`, `# Head\n\n- ${twelve.split(" ").join(" **")} end`), twelve);
 	const eleven = twelve.split(" ").slice(0, 11).join(" ");
@@ -153,6 +171,9 @@ test("F9: recordExperiment refuses a result with no variation or no default, and
 	editJson(path.join(dir, "experiments", "orchard.json"), (j) => { j.variation = { difference: 0.25, scope: "pooled" }; delete j.default; });
 	L = await loadPack(dir);
 	assert.throws(() => recordExperiment(L, "orchard"), /states no default/);
+	editJson(path.join(dir, "experiments", "orchard.json"), (j) => { j.default = "  "; });
+	L = await loadPack(dir);
+	assert.throws(() => recordExperiment(L, "orchard"), /states no default/, "a blank default was accepted");
 	assert.equal(fs.existsSync(path.join(dir, "register", "orchard.json")), false);
 	assert.equal(recordExperiment(L, "relay").declaredStatus, "exploration");
 	// Both are covered by the hash: changing either after recording makes a run exploration.
@@ -190,6 +211,18 @@ test("F9: the detectable difference per scope, by section 1's formula, beside th
 	assert.deepEqual([r.variation.pooled.p.toFixed(4), r.variation.pooled.n, r.variation.pooled.difference.toFixed(2)], ["0.8333", 12, "0.43"]);
 	assert.deepEqual(r.variation.byProperty.map((x) => [x.property, x.detectable.n]), [["graft-1", 4], ["graft-2", 4], ["prune-1", 4]]);
 	assert.match(fs.readFileSync(path.join(rd, "RESULT.md"), "utf8"), /Stated: a difference of 0\.25 in pass rate, pooled; default when none is detected: no change indicated\.\nDetectable at 80% power, 5% two-sided, pooled: 0\.43 \(p 0\.83, n 12\)\./);
+	// Per-property scope: the warning compares each property's detectable difference, not the pooled
+	// one. Stated 0.5: pooled 0.43 is below it; prune-1 (p 0.5, n 4): 2.8 sqrt(0.5 / 4) = 0.99 is
+	// above it, graft-1 and graft-2 (p 1) are 0. So one of three properties warns, and pooled does not.
+	const runJson = path.join(rd, "run.json");
+	const original = fs.readFileSync(runJson, "utf8");
+	editJson(runJson, (j) => { j.snapshot.experiment.variation = { difference: 0.5, scope: "property" }; });
+	tallyRun(rd);
+	const mdProp = fs.readFileSync(path.join(rd, "RESULT.md"), "utf8");
+	assert.match(mdProp, /For 1 of 3 properties the stated difference is smaller than the detectable one/);
+	assert.equal(mdProp.includes("smaller than the pooled detectable one"), false);
+	fs.writeFileSync(runJson, original);
+	tallyRun(rd);
 	// The result keeps the stated variation from the record, not the pack: a re-tally is the same.
 	editJson(path.join(dir, "experiments", "orchard.json"), (j) => { j.variation.difference = 0.9; });
 	const before = fs.readFileSync(path.join(rd, "RESULT.json"), "utf8");
@@ -225,6 +258,14 @@ test("F10: held-out properties appear only in the held-out section and in no tot
 	assert.deepEqual(r1.properties.map((p) => p.property), ["graft-1", "graft-2"]);
 	assert.deepEqual(r1.heldOut.map((p) => p.property), ["prune-1", "prune-2"]);
 	assert.deepEqual(r1.link, [], "a held-out scenario counted toward the link");
+	// Held-out values and guesses are kept apart from cellValues and the guess count.
+	const raw1 = read<{ cellValues: Record<string, unknown>; heldOutCellValues: Record<string, unknown>; guesses: { all: number }; heldOutGuesses: { all: number } }>(first, "RESULT.json");
+	const rawControl = read<{ guesses: { all: number } }>(control, "RESULT.json");
+	assert.equal(Object.keys(raw1.cellValues).some((c) => c.startsWith("prune.")), false, "held-out cells in cellValues");
+	assert.equal(Object.keys(raw1.heldOutCellValues).length, 8);
+	assert.ok(Object.keys(raw1.heldOutCellValues).every((c) => c.startsWith("prune.")));
+	assert.ok(raw1.heldOutGuesses.all > 0);
+	assert.equal(raw1.guesses.all + raw1.heldOutGuesses.all, rawControl.guesses.all, "held-out guesses counted in the main count");
 	// Totals: graft-1 (top 1) + graft-2 (1) = 2 per arm; prune-1 (top 2) would make 4.
 	assert.deepEqual(r1.totals, { bare: 2, almanac: 2 });
 	assert.deepEqual(r1.variation.byProperty.map((p) => p.property), ["graft-1", "graft-2"]);
@@ -243,6 +284,12 @@ test("F10: held-out properties appear only in the held-out section and in no tot
 	assert.deepEqual(after.subarray(0, bytes.length), bytes, "an earlier entry was rewritten");
 	assert.throws(() => recordExposure(C, "prune", "rev-0", new Date("2026-10-12T09:00:00Z")), /not earlier/);
 	assert.deepEqual(readExposures(C).map((e) => e.change), ["rev-1", "rev-2"]);
+	// A register whose last line is unterminated was edited by hand: refused, and left as it is.
+	const good = fs.readFileSync(exposureFile(C), "utf8");
+	fs.writeFileSync(exposureFile(C), good.trimEnd());
+	assert.throws(() => recordExposure(C, "prune", "rev-3", new Date("2026-10-12T12:00:00Z")), /does not end with a newline/);
+	assert.equal(fs.readFileSync(exposureFile(C), "utf8"), good.trimEnd());
+	fs.writeFileSync(exposureFile(C), good);
 
 	const second = await run();
 	assert.deepEqual(read<R>(second, "RESULT.json").exposed.map((e) => [e.scenario, e.change]), [["prune", "rev-1"], ["prune", "rev-2"]]);

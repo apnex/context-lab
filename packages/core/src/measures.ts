@@ -6,19 +6,45 @@ import type { Property, Scenario } from "./pack-schema.js";
 
 // ---------------------------------------------------------------- words and restated guidance
 
+const HTML_TAGS = "a|abbr|b|blockquote|br|code|dd|del|details|div|dl|dt|em|figcaption|figure|h[1-6]|hr|i|img|ins|kbd|li|mark|ol|p|pre|q|s|samp|small|span|strong|sub|summary|sup|table|tbody|td|tfoot|th|thead|tr|u|ul|var";
+const HTML_TAG = new RegExp(`<\\/?(?:${HTML_TAGS})(?:[ \\t]+[a-zA-Z_:][a-zA-Z0-9_.:-]*(?:[ \\t]*=[ \\t]*(?:"[^"\\n]*"|'[^'\\n]*'|[^\\s"'<>=\`]+))?)*[ \\t]*\\/?>`, "gi");
+const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: "\"", apos: "'", nbsp: " ", rsquo: "'", lsquo: "'" };
+
 /**
  * The words of a text, as section 1 defines them: markdown dropped, then lowercased, then maximal
- * runs of letters, digits and apostrophes. Markdown dropped means: a link or image keeps its text
- * and loses its target - `[text](target)` and `![text](target)` become `text` - and an autolink
- * `<scheme:...>` or an HTML tag `<...>` is removed. Every other markdown mark is neither letter,
- * digit nor apostrophe, so it already separates words. A typographic apostrophe counts as one and
- * is written as the plain one.
+ * runs of letters, digits and apostrophes. "Markdown dropped" is read as exactly these steps, and
+ * no other mark is claimed to be handled:
+ *   - a fenced code block's opening line loses its info string (```bash);
+ *   - a reference-link definition line ([id]: target) is removed, and a footnote reference [^id];
+ *   - a link or image keeps its text and loses its target: [text](target) and ![text](target);
+ *   - an autolink <scheme:...> is removed, and an HTML tag of a common element, on one line;
+ *   - an HTML entity is decoded: named ones for &, <, >, quotes, apostrophes and a space, and
+ *     numeric ones;
+ *   - a backslash escape loses its backslash;
+ *   - an ordered-list number at the start of a line is removed (1. or 1));
+ *   - an asterisk is removed, so emphasis inside a word joins it (un*believ*able).
+ * Other marks - #, |, -, >, backticks, underscores - are neither letter, digit nor apostrophe, so
+ * they separate words as any punctuation does; that splits a word only where such a mark sits
+ * inside it. A typographic apostrophe counts as one and is written as the plain one.
  */
 export function words(text: string): string[] {
 	const dropped = text
+		.replace(/^(\s*(?:`{3,}|~{3,}))[^\n]*$/gm, "$1")
+		.replace(/^\s{0,3}\[[^\]\n]+\]:[^\n]*$/gm, " ")
+		.replace(/\[\^[^\]\n]*\]/g, " ")
 		.replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
 		.replace(/<[a-zA-Z][a-zA-Z0-9+.-]*:[^>\s]*>/g, " ")
-		.replace(/<\/?[a-zA-Z][^>]*>/g, " ");
+		.replace(HTML_TAG, " ")
+		.replace(/&(#x[0-9a-fA-F]{1,6}|#[0-9]{1,7}|[a-zA-Z]+);/g, (m, e: string) => {
+			if (!e.startsWith("#")) return ENTITIES[e.toLowerCase()] ?? m;
+			const cp = e.startsWith("#x") ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
+			// A code point that is not a character - a surrogate (55296 to 57343), or past the last plane
+			// (1114111) - becomes a space.
+			return cp > 0 && cp <= 1114111 && (cp < 55296 || cp > 57343) ? String.fromCodePoint(cp) : " ";
+		})
+		.replace(/\\([!-\/:-@\[-`{-~])/g, "$1")
+		.replace(/^(\s*)\d{1,9}[.)](?=\s)/gm, "$1")
+		.replace(/\*/g, "");
 	return (dropped.toLowerCase().replace(/\u2019/g, "'").match(/[\p{L}\p{N}']+/gu) ?? []);
 }
 

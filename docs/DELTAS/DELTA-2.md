@@ -203,6 +203,9 @@ Stated variation: `recordExperiment` refuses a result without `variation` or `de
 Held-out scenarios: their properties appear only in the result's held-out section, and count toward no total, link or detectable difference; `context-lab expose <pack> <scenario> <change>` appends one line to the pack's `register/exposure.jsonl`, refusing a scenario not held out; a run snapshots the exposures of its held-out scenarios when it begins, so a later result lists them and a re-tally of an earlier one does not change.\
 The stated variation and exposures are read from the run record, so a re-tally does not depend on the pack.\
 Open, for the director, when it is next recorded: mission-kit's `explain` experiment is declared result and states no variation or default, so recording it again is now refused.\
+Verification, by a fresh verifier after the first one's session failed on a malformed request, found F7, F8 and F9 green and F10's result clause partial: held-out values remained in the result's per-cell values, and held-out guesses in the guess count.\
+Both are now kept apart; the HTML-tag step no longer crosses lines or swallows text between a stray `<` and `>`; "markdown dropped" is now a stated list of steps - an info string, reference definitions and footnote markers, link targets, autolinks and common-element tags, entities, backslash escapes, ordered-list numbers and asterisks - each tested, and the comment no longer claims more; a blank default is refused; a per-property scope warns per property; an exposure register whose last line is unterminated is refused, not merged; and the link fixture names an id only as a second id.\
+The pooled detectable difference counts the outcomes of one cell run as independent, which they are not, so it understates the difference truly detectable; the result says so.\
 293 tests.
 
 ---

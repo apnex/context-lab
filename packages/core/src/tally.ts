@@ -45,6 +45,10 @@ export interface Result {
 	cellValues: Record<string, Record<string, number | "incomplete">>;
 	/** Properties of held-out scenarios, reported here only, and in no total. */
 	heldOut: PropertyResult[];
+	/** Held-out scenarios' cells' values, kept apart from cellValues so nothing summing those mixes them in. */
+	heldOutCellValues: Record<string, Record<string, number | "incomplete">>;
+	/** Judges' guesses on held-out outcomes, kept apart from the guess count above. */
+	heldOutGuesses: { right: number; all: number };
 	/** Held-out scenarios of this run exposed to a change, as recorded before the run began. */
 	exposed: Exposure[];
 	/** The comprehension-behaviour link, per member, arm and guidance id. */
@@ -135,19 +139,24 @@ export function tally(t: TallyInput): Result {
 		});
 	}
 	const isHeldOut = (sid: string): boolean => t.scenarios.get(sid)?.heldOut === true;
+	const heldOutCellValues: Result["heldOutCellValues"] = {};
+	for (const c of t.cells) if (isHeldOut(c.scenario) && cellValues[c.cell] !== undefined) { heldOutCellValues[c.cell] = cellValues[c.cell]!; delete cellValues[c.cell]; }
 	const properties = all.filter((p) => !isHeldOut(p.scenario));
 	const heldOut = all.filter((p) => isHeldOut(p.scenario));
 	// A total is shown only when every property has a mean for that arm; it sums each property's own scale.
 	const totals = Object.fromEntries(t.arms.map((a) => [a, properties.every((p) => p.byArm[a]!.mean !== null) ? properties.reduce((sum, p) => sum + p.byArm[a]!.mean!, 0) : null]));
 	const groupOf = (arm: string): string | undefined => Object.entries(t.guessGroups).find(([, arms]) => arms.includes(arm))?.[0];
 	const guesses = { right: 0, all: 0, byGuess: {} as Record<string, number>, baseRate: null as number | null };
+	const heldOutGuesses = { right: 0, all: 0 };
 	// Keyed by unit and judge as a pair, not a joined string: a unit id may contain the separator.
 	const seen = new Map<string, Unit>();
+	const heldSeen = new Set<string>();
 	for (const v of t.votes) {
 		const key = JSON.stringify([v.unit, v.judge]);
-		if (v.guess === null || seen.has(key)) continue;
-		seen.set(key, t.units.find((u) => u.id === v.unit)!);
+		if (v.guess === null || seen.has(key) || heldSeen.has(key)) continue;
 		const unit = t.units.find((u) => u.id === v.unit)!;
+		if (isHeldOut(unit.scenario)) { heldSeen.add(key); heldOutGuesses.all++; if (groupOf(unit.arm) === v.guess) heldOutGuesses.right++; continue; }
+		seen.set(key, unit);
 		guesses.all++;
 		guesses.byGuess[v.guess] = (guesses.byGuess[v.guess] ?? 0) + 1;
 		if (groupOf(unit.arm) === v.guess) guesses.right++;
@@ -169,7 +178,16 @@ export function tally(t: TallyInput): Result {
 	};
 	const restated = t.cells.flatMap((c) => c.restated ?? []);
 	const exposed = (t.exposed ?? []).filter((e) => isHeldOut(e.scenario));
-	return { run: t.run, status: t.status, arms: t.arms, members: t.members, properties, totals, excluded, absent: t.absent, guesses, unreachable, cellValues, heldOut, exposed, link, restated, variation };
+	return { run: t.run, status: t.status, arms: t.arms, members: t.members, properties, totals, excluded, absent: t.absent, guesses, unreachable, cellValues, heldOut, heldOutCellValues, heldOutGuesses, exposed, link, restated, variation };
+}
+
+/** A warning where a difference of the stated size would usually go undetected, in the stated scope. */
+function undetectable(r: Result): string[] {
+	const st = r.variation.stated;
+	if (!st) return [];
+	if (st.scope === "pooled") return r.variation.pooled && r.variation.pooled.difference > st.difference ? ["", "The stated difference is smaller than the pooled detectable one, so a difference of the stated size would usually go undetected here."] : [];
+	const over = r.variation.byProperty.filter((x) => x.detectable !== null && x.detectable.difference > st.difference);
+	return over.length ? ["", `For ${over.length} of ${r.variation.byProperty.length} properties the stated difference is smaller than the detectable one, so a difference of the stated size in them would usually go undetected here.`] : [];
 }
 
 const dd = (d: Detectable | null): string => (d === null ? "- (an arm has no outcome)" : `${d.difference.toFixed(2)} (p ${d.p.toFixed(2)}, n ${d.n})`);
@@ -193,10 +211,11 @@ export function resultMarkdown(r: Result, limits: string[]): string {
 		r.variation.stated ? `Stated: a difference of ${r.variation.stated.difference} in pass rate, ${r.variation.stated.scope}; default when none is detected: ${r.variation.default ?? "-"}.` : "No variation stated: the experiment is not declared result.",
 		`Detectable at 80% power, 5% two-sided, pooled: ${dd(r.variation.pooled)}.`,
 		...(r.variation.stated?.scope === "property" || r.variation.byProperty.length <= 30 ? ["", "| Scenario | Property | detectable (p, n per arm) |", "|---|---|---|", ...r.variation.byProperty.map((x) => `| ${x.scenario} | ${x.property} | ${dd(x.detectable)} |`)] : []),
-		...(r.variation.stated && r.variation.pooled && r.variation.pooled.difference > r.variation.stated.difference ? ["", `The stated difference is smaller than the pooled detectable one, so a difference of the stated size would usually go undetected here.`] : []),
+		"Outcomes of one cell run are counted as independent, which they are not, so the pooled figure understates the difference truly detectable.",
+		...undetectable(r),
 		"",
 		"## Held-out scenarios", "",
-		...(r.heldOut.length ? [`| Scenario | Property | ${r.arms.join(" | ")} |`, `|---|---|${r.arms.map(() => "---").join("|")}|`, ...r.heldOut.map((p) => `| ${p.scenario} | ${p.property} | ${r.arms.map((a) => fmt(p.byArm[a]!)).join(" | ")} |`), "", "Counted in no total."] : ["None in this run."]),
+		...(r.heldOut.length ? [`| Scenario | Property | ${r.arms.join(" | ")} |`, `|---|---|${r.arms.map(() => "---").join("|")}|`, ...r.heldOut.map((p) => `| ${p.scenario} | ${p.property} | ${r.arms.map((a) => fmt(p.byArm[a]!)).join(" | ")} |`), "", `Counted in no total; judges guessed the condition of these outcomes right ${r.heldOutGuesses.right} of ${r.heldOutGuesses.all} times, counted apart from the guesses above.`] : ["None in this run."]),
 		...(r.exposed.length ? ["", `Exposed to a change: ${r.exposed.map((e) => `${e.scenario} to ${e.change} (recorded ${e.recordedAt})`).join("; ")}.`] : []),
 		"",
 		"## Comprehension and behaviour", "",

@@ -116,7 +116,7 @@ export function recordExperiment(loaded: LoadedPack, experimentId: string, now: 
 	if (!e) throw new Error(`no experiment ${experimentId}`);
 	// A result states, before its outcomes exist, what it means to detect and what it decides if it
 	// detects nothing (Delta-2); both sit in the experiment's declaration, so the hash covers them.
-	if (e.experiment.declaredStatus === "result" && (e.experiment.variation === undefined || e.experiment.default === undefined)) {
+	if (e.experiment.declaredStatus === "result" && (e.experiment.variation === undefined || e.experiment.default === undefined || e.experiment.default.trim() === "")) {
 		throw new Error(`experiment ${experimentId} is declared result but states no ${e.experiment.variation === undefined ? "variation" : "default"}: a result states the smallest difference it means to detect, and the decision taken when none is detected`);
 	}
 	const rec: Record = { experiment: experimentId, hash: contentHash(loaded, experimentId), recordedAt: now.toISOString(), declaredStatus: e.experiment.declaredStatus };
@@ -174,6 +174,8 @@ export function recordExposure(loaded: LoadedPack, scenario: string, change: str
 	const last = history[history.length - 1];
 	if (last !== undefined && last.recordedAt >= e.recordedAt) throw new Error(`an exposure at ${last.recordedAt} is not earlier than ${e.recordedAt}`);
 	const f = exposureFile(loaded);
+	// An unterminated last line means the file was edited by hand; appending would join two entries.
+	if (fs.existsSync(f) && fs.statSync(f).size > 0 && !fs.readFileSync(f, "utf8").endsWith("\n")) throw new Error(`${f} does not end with a newline, so it was edited by hand; restore it before recording an exposure`);
 	fs.mkdirSync(path.dirname(f), { recursive: true });
 	fs.appendFileSync(f, JSON.stringify(e) + "\n");
 	return e;
