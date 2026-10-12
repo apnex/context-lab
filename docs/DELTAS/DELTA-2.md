@@ -206,6 +206,7 @@ Open, for the director, when it is next recorded: mission-kit's `explain` experi
 Verification, by a fresh verifier after the first one's session failed on a malformed request, found F7, F8 and F9 green and F10's result clause partial: held-out values remained in the result's per-cell values, and held-out guesses in the guess count.\
 Both are now kept apart; the HTML-tag step no longer crosses lines or swallows text between a stray `<` and `>`; "markdown dropped" is now a stated list of steps - an info string, reference definitions and footnote markers, link targets, autolinks and common-element tags, entities, backslash escapes, ordered-list numbers and asterisks - each tested, and the comment no longer claims more; a blank default is refused; a per-property scope warns per property; an exposure register whose last line is unterminated is refused, not merged; and the link fixture names an id only as a second id.\
 The pooled detectable difference counts the outcomes of one cell run as independent, which they are not, so it understates the difference truly detectable; the result says so.\
+A second pass found held-out absent answers still in the main absent list, now kept apart; and two word steps reaching past markdown - a line merely beginning with a bracketed label read as a reference definition, and a number starting a line mid-paragraph read as a list item - now held to markdown's own conditions; each with a test that fails under its mutant.\
 293 tests.
 
 ---

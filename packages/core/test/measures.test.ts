@@ -88,10 +88,15 @@ test("F8: words are runs of letters, digits and apostrophes, lowercased, with ma
 	assert.deepEqual(words("It\u2019s ![alt text](img.png) | cell |"), ["it's", "alt", "text", "cell"]);
 	// Each step of "markdown dropped", as the comment on words lists them.
 	assert.deepEqual(words("```bash\nls -la\n```"), ["ls", "la"]);
-	assert.deepEqual(words("[ref]: https://x.invalid/y\nsee[^1] text"), ["see", "text"]);
+	assert.deepEqual(words("[ref]: https://x.invalid/y\nsee[^1] text\n[b]: <https://z.invalid> \"Title\""), ["see", "text"]);
+	// A line that merely begins with a bracketed label is prose, not a definition.
+	assert.deepEqual(words("[2026-10-12]: graft in spring"), ["2026", "10", "12", "graft", "in", "spring"]);
 	assert.deepEqual(words("don&#39;t &amp; &#x41;&#66; &lt;tag&gt; &#xD800;z"), ["don't", "ab", "tag", "z"]);
-	assert.deepEqual(words("\\*not\\* emphasis"), ["not", "emphasis"]);
+	assert.deepEqual(words("\\*not\\* emphasis, don\\'t"), ["not", "emphasis", "don't"]);
 	assert.deepEqual(words("1. first\n  2) second\n2026 is a year"), ["first", "second", "2026", "is", "a", "year"]);
+	// A number starting a line mid-paragraph is not a list item, unless it numbers itself 1.
+	assert.deepEqual(words("Graft in spring\n2026. Then prune.\nAnd\n1. one"), ["graft", "in", "spring", "2026", "then", "prune", "and", "one"]);
+	assert.deepEqual(words("text\n\n3. three\n4. four\n- bullet\n5. five"), ["text", "three", "four", "bullet", "five"]);
 	assert.deepEqual(words("un*believ*able and **bold**"), ["unbelievable", "and", "bold"]);
 	// An HTML tag is a common element's, on one line: text that merely holds < and > keeps its words.
 	assert.deepEqual(words("<span class=\"x\">hi</span> <BR/> <div\nnot>"), ["hi", "div", "not"]);
@@ -210,6 +215,7 @@ test("F9: the detectable difference per scope, by section 1's formula, beside th
 	// p = 20 / 24 = 0.8333; difference = 2.8 sqrt(2 * 0.8333 * 0.1667 / 12) = 2.8 * 0.15215 = 0.43.
 	assert.deepEqual([r.variation.pooled.p.toFixed(4), r.variation.pooled.n, r.variation.pooled.difference.toFixed(2)], ["0.8333", 12, "0.43"]);
 	assert.deepEqual(r.variation.byProperty.map((x) => [x.property, x.detectable.n]), [["graft-1", 4], ["graft-2", 4], ["prune-1", 4]]);
+	assert.match(fs.readFileSync(path.join(rd, "RESULT.md"), "utf8"), /Outcomes of one cell run are counted as independent, which they are not/);
 	assert.match(fs.readFileSync(path.join(rd, "RESULT.md"), "utf8"), /Stated: a difference of 0\.25 in pass rate, pooled; default when none is detected: no change indicated\.\nDetectable at 80% power, 5% two-sided, pooled: 0\.43 \(p 0\.83, n 12\)\./);
 	// Per-property scope: the warning compares each property's detectable difference, not the pooled
 	// one. Stated 0.5: pooled 0.43 is below it; prune-1 (p 0.5, n 4): 2.8 sqrt(0.5 / 4) = 0.99 is
@@ -239,6 +245,9 @@ test("F10: held-out properties appear only in the held-out section and in no tot
 	editJson(path.join(dir, "scenarios", "prune.json"), (j) => {
 		j.properties[0].guidance = ["prune-rule"];
 		j.properties.push({ id: "prune-2", type: "adherence", decidedBy: "judge", key: "Prunes in winter.", scale: [0, 1], guidance: ["prune-rule"] });
+		// An answer no agent writes, so every cell has an absent answer.
+		j.scoredFile = "answers.md";
+		j.properties.push({ id: "prune-ans", type: "comprehension", decidedBy: "judge", key: "k", scale: [0, 1], answerHeading: "prune.A1" });
 	});
 	commitAll(dir);
 	const control = (await conductRun(dir, { experiment: "orchard", adapters: { opencode: agent("opencode", () => "done"), codex: agent("codex", () => "done") }, work: path.join(scratch(), "w"), records: path.join(scratch(), "r") })).dir;
@@ -256,10 +265,14 @@ test("F10: held-out properties appear only in the held-out section and in no tot
 	type R = { properties: { property: string }[]; heldOut: { property: string }[]; totals: Record<string, number>; exposed: { scenario: string; change: string }[]; variation: { byProperty: { property: string }[] }; link: unknown[] };
 	const r1 = read<R>(first, "RESULT.json");
 	assert.deepEqual(r1.properties.map((p) => p.property), ["graft-1", "graft-2"]);
-	assert.deepEqual(r1.heldOut.map((p) => p.property), ["prune-1", "prune-2"]);
+	assert.deepEqual(r1.heldOut.map((p) => p.property), ["prune-1", "prune-2", "prune-ans"]);
 	assert.deepEqual(r1.link, [], "a held-out scenario counted toward the link");
 	// Held-out values and guesses are kept apart from cellValues and the guess count.
-	const raw1 = read<{ cellValues: Record<string, unknown>; heldOutCellValues: Record<string, unknown>; guesses: { all: number }; heldOutGuesses: { all: number } }>(first, "RESULT.json");
+	const raw1 = read<{ cellValues: Record<string, unknown>; heldOutCellValues: Record<string, unknown>; guesses: { all: number }; heldOutGuesses: { all: number }; absent: unknown[]; heldOutAbsent: { property: string }[] }>(first, "RESULT.json");
+	assert.equal(read<{ absent: unknown[] }>(control, "RESULT.json").absent.length, 8, "the control run has no absent answers to move");
+	assert.deepEqual(raw1.absent, [], "held-out absent answers in the main absent list");
+	assert.equal(raw1.heldOutAbsent.length, 8);
+	assert.ok(raw1.heldOutAbsent.every((a) => a.property === "prune-ans"));
 	const rawControl = read<{ guesses: { all: number } }>(control, "RESULT.json");
 	assert.equal(Object.keys(raw1.cellValues).some((c) => c.startsWith("prune.")), false, "held-out cells in cellValues");
 	assert.equal(Object.keys(raw1.heldOutCellValues).length, 8);
@@ -272,7 +285,7 @@ test("F10: held-out properties appear only in the held-out section and in no tot
 	assert.deepEqual(r1.exposed, []);
 	const md = fs.readFileSync(path.join(first, "RESULT.md"), "utf8");
 	const [main, held] = md.split("## Held-out scenarios");
-	assert.equal(main!.includes("prune-1") || main!.includes("prune-2"), false, "a held-out property appears outside its section");
+	assert.equal(/prune-(1|2|ans)/.test(main!), false, "a held-out property appears outside its section");
 	assert.ok(held!.includes("| prune | prune-1 |"));
 
 	// Exposure: appended, never rewriting an earlier entry.

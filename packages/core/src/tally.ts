@@ -47,6 +47,8 @@ export interface Result {
 	heldOut: PropertyResult[];
 	/** Held-out scenarios' cells' values, kept apart from cellValues so nothing summing those mixes them in. */
 	heldOutCellValues: Record<string, Record<string, number | "incomplete">>;
+	/** Held-out properties' absent answers, kept apart from the absent list above. */
+	heldOutAbsent: Absent[];
 	/** Judges' guesses on held-out outcomes, kept apart from the guess count above. */
 	heldOutGuesses: { right: number; all: number };
 	/** Held-out scenarios of this run exposed to a change, as recorded before the run began. */
@@ -177,8 +179,9 @@ export function tally(t: TallyInput): Result {
 		byProperty: mainProps.map((x) => ({ scenario: x.scenario, property: x.property.id, detectable: detectable([x], t.arms) })),
 	};
 	const restated = t.cells.flatMap((c) => c.restated ?? []);
+	const heldCell = (cell: string): boolean => isHeldOut(t.cells.find((c) => c.cell === cell)?.scenario ?? "");
 	const exposed = (t.exposed ?? []).filter((e) => isHeldOut(e.scenario));
-	return { run: t.run, status: t.status, arms: t.arms, members: t.members, properties, totals, excluded, absent: t.absent, guesses, unreachable, cellValues, heldOut, heldOutCellValues, heldOutGuesses, exposed, link, restated, variation };
+	return { run: t.run, status: t.status, arms: t.arms, members: t.members, properties, totals, excluded, absent: t.absent.filter((a) => !heldCell(a.cell)), guesses, unreachable, cellValues, heldOut, heldOutCellValues, heldOutAbsent: t.absent.filter((a) => heldCell(a.cell)), heldOutGuesses, exposed, link, restated, variation };
 }
 
 /** A warning where a difference of the stated size would usually go undetected, in the stated scope. */
@@ -215,7 +218,7 @@ export function resultMarkdown(r: Result, limits: string[]): string {
 		...undetectable(r),
 		"",
 		"## Held-out scenarios", "",
-		...(r.heldOut.length ? [`| Scenario | Property | ${r.arms.join(" | ")} |`, `|---|---|${r.arms.map(() => "---").join("|")}|`, ...r.heldOut.map((p) => `| ${p.scenario} | ${p.property} | ${r.arms.map((a) => fmt(p.byArm[a]!)).join(" | ")} |`), "", `Counted in no total; judges guessed the condition of these outcomes right ${r.heldOutGuesses.right} of ${r.heldOutGuesses.all} times, counted apart from the guesses above.`] : ["None in this run."]),
+		...(r.heldOut.length ? [`| Scenario | Property | ${r.arms.join(" | ")} |`, `|---|---|${r.arms.map(() => "---").join("|")}|`, ...r.heldOut.map((p) => `| ${p.scenario} | ${p.property} | ${r.arms.map((a) => fmt(p.byArm[a]!)).join(" | ")} |`), "", `${r.heldOutAbsent.length ? `Absent answers, scored at the bottom of their scale: ${r.heldOutAbsent.map((a) => `${a.cell} ${a.property}`).join(", ")}. ` : ""}Counted in no total; judges guessed the condition of these outcomes right ${r.heldOutGuesses.right} of ${r.heldOutGuesses.all} times, counted apart from the guesses above.`] : ["None in this run."]),
 		...(r.exposed.length ? ["", `Exposed to a change: ${r.exposed.map((e) => `${e.scenario} to ${e.change} (recorded ${e.recordedAt})`).join("; ")}.`] : []),
 		"",
 		"## Comprehension and behaviour", "",

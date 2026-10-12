@@ -15,13 +15,15 @@ const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: "\"
  * runs of letters, digits and apostrophes. "Markdown dropped" is read as exactly these steps, and
  * no other mark is claimed to be handled:
  *   - a fenced code block's opening line loses its info string (```bash);
- *   - a reference-link definition line ([id]: target) is removed, and a footnote reference [^id];
+ *   - a reference-link definition line - a label, a colon and one target, with an optional quoted
+ *     title, and nothing else: [id]: https://x "Title" - is removed, and a footnote reference [^id];
  *   - a link or image keeps its text and loses its target: [text](target) and ![text](target);
  *   - an autolink <scheme:...> is removed, and an HTML tag of a common element, on one line;
  *   - an HTML entity is decoded: named ones for &, <, >, quotes, apostrophes and a space, and
  *     numeric ones;
  *   - a backslash escape loses its backslash;
- *   - an ordered-list number at the start of a line is removed (1. or 1));
+ *   - an ordered-list number is removed (1. or 1)) where markdown starts a list item: at the start
+ *     of a line that begins the text, follows a blank line or another item, or numbers itself 1;
  *   - an asterisk is removed, so emphasis inside a word joins it (un*believ*able).
  * Other marks - #, |, -, >, backticks, underscores - are neither letter, digit nor apostrophe, so
  * they separate words as any punctuation does; that splits a word only where such a mark sits
@@ -30,7 +32,7 @@ const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: "\"
 export function words(text: string): string[] {
 	const dropped = text
 		.replace(/^(\s*(?:`{3,}|~{3,}))[^\n]*$/gm, "$1")
-		.replace(/^\s{0,3}\[[^\]\n]+\]:[^\n]*$/gm, " ")
+		.replace(/^ {0,3}\[[^\]\n]+\]:[ \t]*\S+(?:[ \t]+(?:"[^"\n]*"|'[^'\n]*'|\([^)\n]*\)))?[ \t]*$/gm, " ")
 		.replace(/\[\^[^\]\n]*\]/g, " ")
 		.replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
 		.replace(/<[a-zA-Z][a-zA-Z0-9+.-]*:[^>\s]*>/g, " ")
@@ -42,10 +44,22 @@ export function words(text: string): string[] {
 			// (1114111) - becomes a space.
 			return cp > 0 && cp <= 1114111 && (cp < 55296 || cp > 57343) ? String.fromCodePoint(cp) : " ";
 		})
-		.replace(/\\([!-\/:-@\[-`{-~])/g, "$1")
-		.replace(/^(\s*)\d{1,9}[.)](?=\s)/gm, "$1")
-		.replace(/\*/g, "");
-	return (dropped.toLowerCase().replace(/\u2019/g, "'").match(/[\p{L}\p{N}']+/gu) ?? []);
+		.replace(/\\([!-\/:-@\[-`{-~])/g, "$1");
+	return (dropListNumbers(dropped).replace(/\*/g, "").toLowerCase().replace(/\u2019/g, "'").match(/[\p{L}\p{N}']+/gu) ?? []);
+}
+
+const LIST_ITEM = /^([ \t]*)(\d{1,9})[.)](?=[ \t])/;
+const BULLET = /^[ \t]*[-+*][ \t]/;
+function dropListNumbers(text: string): string {
+	const lines = text.split("\n");
+	let prevItem = false;
+	return lines.map((line, i) => {
+		const m = LIST_ITEM.exec(line);
+		const prev = i === 0 ? "" : lines[i - 1]!;
+		const starts = m !== null && (i === 0 || prev.trim() === "" || prevItem || BULLET.test(prev) || Number(m[2]) === 1);
+		prevItem = starts || (prevItem && line.trim() !== "" && /^[ \t]/.test(line));
+		return starts ? line.replace(LIST_ITEM, "$1") : line;
+	}).join("\n");
 }
 
 export const RESTATED_RUN = 12;
