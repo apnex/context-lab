@@ -102,7 +102,7 @@ function packShape(raw: unknown, out: Defect[]): raw is Pack {
 	}, { comparisons: "array" }, out)) return false;
 	eachShape(raw["comparisons"], "comparisons", { id: "string", experiment: "string", rule: oneOf(["aa", "tolerance", "improve"]), base: "string", head: "string" }, { m: positiveInt, tolerance: "number" }, out);
 	eachShape(raw["sources"], "sources", { id: "string", path: "string", addresses: "string[]" }, { exclude: "string[]" }, out);
-	eachShape(raw["variants"], "variants", { id: "string", source: "string", canaries: "string[]" }, { include: "string[]", transform: "string" }, out);
+	eachShape(raw["variants"], "variants", { id: "string", source: "string", canaries: "string[]" }, { include: "string[]", transform: "string", revision: "string" }, out);
 	eachShape(raw["arms"], "arms", { id: "string", deliver: "array" }, {}, out);
 	if (Array.isArray(raw["arms"])) raw["arms"].forEach((a, i) => { if (isObj(a)) eachShape(a["deliver"], `arms[${i}].deliver`, { variant: "string", file: "string", as: oneOf(DELIVERY_KINDS) }, {}, out); });
 	eachShape(raw["population"], "population", { id: "string", family: "string", runtime: "string", model: "string" }, { settings: "object" }, out);

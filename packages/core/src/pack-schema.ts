@@ -44,6 +44,8 @@ export interface Variant {
 	/** The id of a variant-transform hook. */
 	transform?: string;
 	canaries: string[];
+	/** The source revision this variant is built from, overriding the run's: a gate's base and head may be two variants of one source at two revisions. */
+	revision?: string;
 }
 
 export interface Delivery {

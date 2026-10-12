@@ -263,9 +263,10 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 	const variantIds = [...new Set(loaded.pack.arms.filter((a) => armIds.includes(a.id)).flatMap((a) => a.deliver.map((d) => d.variant)))];
 	const variants = record.variants;
 	for (const v of variantIds) {
-		const source = loaded.pack.variants.find((x) => x.id === v)!.source;
+		const decl = loaded.pack.variants.find((x) => x.id === v)!;
+		const source = decl.source;
 		const sourceDir = path.resolve(loaded.dir, loaded.pack.sources.find((s) => s.id === source)!.path);
-		const rev = opts.revision ?? execFileSync("git", ["rev-parse", "HEAD"], { cwd: sourceDir, encoding: "utf8" }).trim();
+		const rev = decl.revision ?? opts.revision ?? execFileSync("git", ["rev-parse", "HEAD"], { cwd: sourceDir, encoding: "utf8" }).trim();
 		const b = await buildVariant(loaded, v, rev, path.join(work, "variants", v));
 		built.set(v, b);
 		variants[v] = b.ok ? b.manifest : { failed: b.reason };
@@ -469,11 +470,19 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 }
 
 /** Re-tally a run from its record alone: the same files give the same result, whatever the pack is now. */
-export function tallyRun(recordsDir: string): Result {
+export interface TallyOptions {
+	/** Count only cell runs 1 to this number, so a nine-run record reads as a shorter one. */
+	runs?: number;
+	/** Write RESULT.json and RESULT.md; true unless runs is given, since a restricted tally is not the run's result. */
+	write?: boolean;
+}
+
+export function tallyRun(recordsDir: string, opts: TallyOptions = {}): Result {
 	const read = <T>(f: string): T => JSON.parse(fs.readFileSync(path.join(recordsDir, f), "utf8")) as T;
 	const record = read<RunRecord>("run.json");
 	const scenarios = new Map(record.snapshot.scenarios.map((x) => [x.id, x]));
-	const cells = record.cells.map((c) => read<CellRecord>(path.join("cells", `${c}.json`)));
+	if (opts.runs !== undefined && !(Number.isInteger(opts.runs) && opts.runs >= 1)) throw new Error(`runs must be a whole number from 1, not ${opts.runs}`);
+	const cells = record.cells.map((c) => read<CellRecord>(path.join("cells", `${c}.json`))).filter((c) => opts.runs === undefined || c.run <= opts.runs);
 	const blinded = read<Blinded>(path.join("sealed", "units.json"));
 	const votes = read<Vote[]>(path.join("judging", "votes.json"));
 	const judges = record.judges.map((id) => record.snapshot.population.find((m) => m.id === id)!);
@@ -482,6 +491,7 @@ export function tallyRun(recordsDir: string): Result {
 		units: blinded.units, absent: blinded.absent, votes, assigned: (u) => assignJudges(u, judges).map((j) => j.id), guessGroups: record.guessGroups,
 		...(record.snapshot.experiment !== undefined ? { experiment: record.snapshot.experiment } : {}), exposed: record.snapshot.exposed ?? [],
 	});
+	if (!(opts.write ?? opts.runs === undefined)) return result;
 	write(path.join(recordsDir, "RESULT.json"), result);
 	const limits = [
 		`${record.runsPerCell} run(s) per cell: one outcome moves a cell's mean by up to 1/${record.runsPerCell} of the scale.`,

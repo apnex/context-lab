@@ -23,3 +23,4 @@ export { EMPTY_ARM, assignJudges, judgeAll, validate, type PanelOptions, type Vo
 export { resultMarkdown, tally, type PropertyResult, type Rate, type Result, type TallyInput } from "./tally.js";
 export { NO_NOTE, assignTraps, phasePrompt, propertyPhase, runEpisode, Ledger, type EpisodeResult, type EpisodeRun, type PhaseRecord, type TrapAssignment } from "./episode.js";
 export { RESTATED_RUN, detectable, detectableDifference, linkRates, met, sharedRun, words, type Detectable, type LinkRow, type RestatedFlag } from "./measures.js";
+export { MIN_POOL, SIZES, SPLITS, compare, deriveThresholds, readTable, readThresholds, recordThresholds, standardisedDrop, thresholdFile, type CompareInput, type ComparisonResult, type Flag, type Side, type Table, type ThresholdSet } from "./comparison.js";

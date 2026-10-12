@@ -212,6 +212,14 @@ A third pass found F7 to F10's result clause green; two behaviours it found unte
 Known divergences of the list-number step from markdown, accepted as minor for a twelve-word copy check: an item's unindented wrapped line does not carry the item, so a following number is kept; a year starting a line after a bullet loses its number; a reference definition with a space inside angle brackets is kept.\
 Stage 3 is complete.
 
+**Stage 4.**\
+The threshold deriver and the comparator are `packages/core/src/comparison.ts`; both read a run record as a table of present cell runs, each value a fraction of its property's scale.\
+Choices section 1 left open, made here: the standardised drop uses `sqrt(p (1 - p) (1/nA + 1/nB))`, which is section 1's form when the sets are equal, as every split's are, and differs only for the drift check's actual arms when a run is excluded; a pool is ordered by arm then run, ids by code point; one generator per size, the blinder's seeded `<hash>:<k>`, is consumed split by split and pool by pool, each pool shuffled by Fisher-Yates as the blinder does; the two-stage rate reads the size-9 splits, their size-3 sets the first three runs of each side of each pool; `m` must equal the properties held outside held-out scenarios; a property absent from the head - none of its cell runs present - or with no mean there counts as a drop under every rule, not only tolerance; the improve rule flags a property where the head's rate is below the base's in any family; held-out properties are compared under the same rule and reported only in the held-out section.\
+Threshold sets are appended to the pack's `register/thresholds/<comparison>.jsonl`; `context-lab thresholds` derives and records one, and `context-lab compare` compares, reading the latest set; `tallyRun` takes `runs`, a restricted tally writing no result; `context-lab run` takes `--revision`, and a variant may declare its own `revision`, overriding the run's.\
+F11 is tested against `packages/core/test/comparison/derive_thresholds.py`, an implementation written from section 1 sharing no code with the core, on a run with an excluded and a behaviour-invalid cell run and on a table of continuous values with incomplete values, where the thresholds' neighbours differ so the percentile is pinned; the first fixture's largest drops tie heavily, which let a mutant taking the 901st value pass until the second was added.\
+mission-kit's `aa-gate` declares `m = 16`, and its experiment holds sixteen properties.\
+301 tests.
+
 ---
 
 ## Adversarial review

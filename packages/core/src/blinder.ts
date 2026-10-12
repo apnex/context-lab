@@ -36,7 +36,8 @@ export interface Blinded {
 	absent: Absent[];
 }
 
-function rng(seed: string): () => number {
+/** The blinder's generator: mulberry32, its state the first 32 bits of the seed's SHA-256. */
+export function rng(seed: string): () => number {
 	let a = parseInt(createHash("sha256").update(seed).digest("hex").slice(0, 8), 16) >>> 0;
 	return () => {
 		a = (a + 1831565813) >>> 0; // the mulberry32 increment, in decimal
@@ -48,7 +49,11 @@ function rng(seed: string): () => number {
 }
 
 export function shuffle<T>(xs: T[], seed: string): T[] {
-	const rand = rng(seed);
+	return shuffleWith(xs, rng(seed));
+}
+
+/** A Fisher-Yates shuffle drawing from a generator: from the last place down, swap with a place drawn from those up to it. */
+export function shuffleWith<T>(xs: T[], rand: () => number): T[] {
 	const a = xs.slice();
 	for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [a[i], a[j]] = [a[j]!, a[i]!]; }
 	return a;
