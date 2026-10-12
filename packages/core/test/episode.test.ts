@@ -347,3 +347,9 @@ test("0020: behaviour in one branch, then infrastructure in the other, re-runs t
 	const v = read<{ cellValues: Record<string, Record<string, unknown>> }>(rd, "RESULT.json").cellValues["relay.bare.p1.1"]!;
 	assert.deepEqual([v["relay-1"], v["relay-2"], v["relay-3"]], [1, 0, 1]);
 });
+
+test("endedAt names the first phase whose behaviour failure ended its line, when both branches fail", async () => {
+	const { rd } = await run(undefined, { work: (inv) => (inv.prompt.includes("NOTE-MARKER") || inv.prompt.includes("Files changed in the earlier session") ? outcome("") : null) });
+	const c = read<CellRecord>(rd, "cells/relay.bare.p1.1.json");
+	assert.equal(c.attempts[0]!.endedAt, "resume-own");
+});

@@ -1,7 +1,7 @@
 # Delta-2 - multi-phase episodes and the change gate - a vertical slice
 
 ```yaml
-status:     ratified (docs/DECISIONS.md 0019, amended 0020) - revision 3; stage 2 in verification
+status:     ratified (docs/DECISIONS.md 0019, amended 0020) - revision 3; stage 3 open
 selected:   docs/DECISIONS.md 0018, board items M2.1, M2.2, M2.3
 from-state: Delta-1's to-state (0017): one-phase experiments, isolation probed, judged, tallied
 to-state:   docs/ARCHITECTURE-TARGET.md (0006), the parts fenced in section 1
@@ -191,7 +191,9 @@ Ruled (`0020`): a behaviour failure ends only the phases that follow from it, an
 A second verification pass found F3, F5 and F6 green, `0020` correct in every case probed, and F4 partial on its text: a branch holding a trap's position also gains that version's files, as the stage-2 fix intends, which "less exactly its withheld files" did not allow.\
 F4's text now names them, an author's amendment for the director to confirm, and F3's last sentence takes `0020`'s wording.\
 Its other findings are fixed and tested, each test failing under a mutant: behaviour in one branch then infrastructure in the other re-runs the whole episode and records no behaviour ending; forbidden paths named are recorded per attempt; a first phase with its own task or withheld files has a checker fixture.\
-284 tests.
+285 tests.
+A third, narrow pass found F3 and F4 green, F4 pending the director's confirmation of its trap-file clause, and one diagnostic untested - which phase `endedAt` names when two branches fail - now tested.\
+Stage 2 is complete.
 
 ---
 
