@@ -159,6 +159,28 @@
         1
       ],
       "phase": "resume-gen"
+    },
+    {
+      "id": "relay-5",
+      "type": "precision",
+      "decidedBy": "code",
+      "key": "The work phase's final message is its own.",
+      "scale": [
+        0,
+        1
+      ],
+      "phase": "work",
+      "measure": "relay-measure"
+    },
+    {
+      "id": "relay-6",
+      "type": "adherence",
+      "decidedBy": "judge",
+      "key": "Says whether the cover is on.",
+      "scale": [
+        0,
+        1
+      ]
     }
   ]
 }

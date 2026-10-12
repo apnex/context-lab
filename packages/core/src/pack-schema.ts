@@ -191,7 +191,7 @@ export interface TrapVersion {
 	id: string;
 	/** Text placed at the trap's position, a {SLOT:<position>} marker in a phase's task. */
 	text: string;
-	/** Files added to the starting workspace. */
+	/** Files added to the starting workspace of the phase holding the trap's position, and no earlier one. */
 	files?: Record<string, string>;
 }
 

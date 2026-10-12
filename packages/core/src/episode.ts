@@ -177,15 +177,19 @@ export async function runEpisode(r: EpisodeRun): Promise<EpisodeResult> {
 	const traps = assignTraps(r.scenario, phases, r.run, r.memberIndex);
 	const base = path.join(r.work, "workspaces");
 	const first = createWorkspace(r.loaded, r.scenario, r.arm, { base, rulesFiles: r.adapter.rulesFiles });
-	// Files of the trap versions this cell meets are part of its starting state.
-	const extra = traps.flatMap((t) => Object.entries((r.scenario.trapPairs ?? []).find((p) => p.id === t.pair)!.versions.find((v) => v.id === t.version)!.files ?? {}));
-	for (const [rel, body] of extra) {
-		const f = path.resolve(first.dir, rel);
-		if (!isInside(f, first.dir) || f === first.dir) throw new Error(`trap file ${rel} escapes the workspace`);
-		fs.mkdirSync(path.dirname(f), { recursive: true });
-		fs.writeFileSync(f, body);
-	}
-	if (extra.length) { git(first.dir, "add", "-A", "--force"); git(first.dir, "commit", "-q", "--amend", "-m", "initial"); }
+	// A trap version's files join the starting state of the phase that holds the trap's position,
+	// and no earlier one: for the first phase, the initial state.
+	const placeTrapFiles = (ws: string, phase: string): number => {
+		const files = traps.filter((t) => t.phase === phase).flatMap((t) => Object.entries((r.scenario.trapPairs ?? []).find((p) => p.id === t.pair)!.versions.find((v) => v.id === t.version)!.files ?? {}));
+		for (const [rel, body] of files) {
+			const f = path.resolve(ws, rel);
+			if (!isInside(f, ws) || f === ws) throw new Error(`trap file ${rel} escapes the workspace`);
+			fs.mkdirSync(path.dirname(f), { recursive: true });
+			fs.writeFileSync(f, body);
+		}
+		return files.length;
+	};
+	if (placeTrapFiles(first.dir, phases[0]!.id)) { git(first.dir, "add", "-A", "--force"); git(first.dir, "commit", "-q", "--amend", "-m", "initial"); }
 	const ledger = new Ledger(path.join(r.work, "ledgers", r.key));
 	const init = ledger.tree(first.dir);
 
@@ -225,6 +229,7 @@ export async function runEpisode(r: EpisodeRun): Promise<EpisodeResult> {
 				if (isInside(f, rec.workspace) && f !== rec.workspace) fs.rmSync(f, { recursive: true, force: true });
 			}
 		}
+		if (prev !== undefined) placeTrapFiles(rec.workspace, ph.id);
 		if (prev !== undefined && ph.session === "new") freshHistory(rec.workspace);
 		rec.startTree = ledger.tree(rec.workspace);
 		// Withheld paths are left out of the changes a judge may be shown, since the session never saw them.

@@ -181,6 +181,12 @@ So a new session following another now gets fresh history of one commit, and eve
 The author then replaced the scenario's story, which reused the `A4` trap's call notes almost verbatim against this plan's "a new fixture, not the A4 trap's"; the auditor's re-check ran the core's episode code on the revised scenario against a hostile first phase, confirmed the leak closed, and returned record after fixes with nothing blocking; every finding is disposed of in the audit file.\
 Left open for the director: with one arm and one run per cell, as F13 fixes the experiment, three outcomes per branch cannot detect the stated 0.25 difference.\
 Synthetic fixture: scenario `relay` (four phases, two branches, two trap pairs); 275 tests.
+Verification (first pass) found F3, F5 and F6 green and F4 partial, on its tree-hash clause, which predates withholding.\
+Its untested behaviours are now tested, each shown load-bearing by a mutant: the generated note in its prompt, the default last phase, trap properties on their trap's phase, each judge prompt's own task, code properties on their own phase, infrastructure re-running the whole episode, `0012` across phases, and trap files.\
+Trap files had joined the initial state wherever their trap sat; they now join only the start of the phase holding it.\
+A first phase given its own task or withheld files is now a pack defect, and forbidden paths named are kept per attempt.\
+Open, for the director: a behaviour failure in one branch ends the episode, so the sibling branch scores the bottom of its scale, as section 1's wording has it, which biases the handoff experiment's own-versus-generated comparison; and F4's tree-hash clause needs restating for withheld files.\
+278 tests.
 
 ---
 

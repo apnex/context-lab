@@ -312,6 +312,7 @@ export async function checkPack(packDir: string, options: CheckOptions = {}): Pr
 				if (i === 0) {
 					if (ph.session !== "new") pd(`the first phase, ${ph.id}, continues a session`);
 					if (ph.after !== undefined || ph.note !== undefined) pd(`the first phase, ${ph.id}, follows or takes a note from another`);
+					if (ph.task !== undefined || ph.withhold !== undefined) pd(`the first phase, ${ph.id}, has a task or withholds files; its task is the scenario's`);
 					return;
 				}
 				const after = ph.after ?? phases[i - 1]!.id;

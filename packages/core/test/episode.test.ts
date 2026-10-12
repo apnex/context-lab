@@ -118,6 +118,7 @@ test("F4: branches start from the same state; own and generated notes; a missing
 	assert.equal(ph["resume-own"]!.note, NO_NOTE);
 	assert.match(ph["resume-gen"]!.note ?? "", /^Files changed in the earlier session: FIELD\.txt\.$/);
 	assert.ok(A.calls[1]!.prompt.includes(NO_NOTE));
+	assert.ok(A.calls[2]!.prompt.includes("Files changed in the earlier session: FIELD.txt."), "the generated note is not in its branch's prompt");
 });
 
 test("F4: a note hook that fails leaves its branch incomplete and the other branch judged", async () => {
@@ -163,9 +164,17 @@ test("F6: each property is judged on its phase; no other phase's outcome reaches
 		for (const [ph, marker] of Object.entries(others)) if (ph !== u.phase) assert.equal(u.text.includes(marker), false, `${marker} reached a unit of ${u.phase}`);
 		if (u.properties.includes("relay-1")) assert.equal(u.phase, "work");
 		if (u.properties.includes("relay-2")) { assert.equal(u.phase, "resume-own"); assert.match(u.text, /NOTE THIS SESSION WAS GIVEN ---\nNOTE-MARKER/); }
+		if (u.properties.includes("relay-6")) assert.equal(u.phase, "wrap", "a property naming no phase was not judged on the last");
 		if (u.properties.includes("relay-3")) { assert.equal(u.phase, "resume-gen"); assert.match(u.text, /CHANGES THIS SESSION STARTED FROM/); assert.equal(u.text.includes("PLAN.txt"), false, "a withheld path reached a judge"); }
 	}
 	assert.ok(prompts.length > 0);
+	// Each judge prompt shows the task of the phase it judges.
+	const tasks: Record<string, string> = { "WORK-FINAL-MARKER": "Plant the rows", "RESUME-OWN-FINAL": "Continue the planting", "RESUME-GEN-FINAL": "Continue the planting", "WRAP-FINAL-MARKER": "Say whether the frost cover" };
+	for (const p of prompts) for (const [m, t] of Object.entries(tasks)) if (p.includes(m)) assert.ok(p.includes(t), `a prompt judging ${m} shows another phase's task`);
+	for (const [m, t] of Object.entries(tasks)) if (m !== "WORK-FINAL-MARKER") for (const p of prompts.filter((x) => x.includes("WORK-FINAL-MARKER"))) assert.equal(p.includes(t), false, `a work prompt shows ${t}`);
+	// Code-decided properties are measured on their own phase's outcome.
+	const res = read<{ cellValues: Record<string, Record<string, unknown>> }>(rd, "RESULT.json");
+	assert.equal(res.cellValues["relay.bare.p1.1"]!["relay-5"], 1, "a code property was not measured on its phase");
 	// A unit shows a note or starting changes only where every property in it names them.
 	const named = new Map([["relay-2", ["note"]], ["relay-3", ["note", "start"]]]);
 	assert.ok(units.some((u) => u.properties.includes("relay-4")), "no unit of the property that names nothing");
@@ -224,3 +233,56 @@ for (const [name, body] of [
 		}
 	});
 }
+
+test("F5: trap properties are judged on their trap's phase, and trap files join only that phase's start", async () => {
+	const dir = copyPack();
+	commitAll(dir);
+	const { dir: rd, record } = await conductRun(dir, { experiment: "relay", adapters: { opencode: agent("opencode"), codex: agent("codex") }, work: path.join(scratch(), "work"), records: path.join(scratch(), "records") });
+	const units = read<{ units: { cell: string; phase: string; properties: string[] }[] }>(rd, "sealed/units.json").units;
+	let placed = 0;
+	for (const cell of record.cells) {
+		const c = read<CellRecord>(rd, `cells/${cell}.json`);
+		const last = c.attempts[c.attempts.length - 1]!;
+		for (const t of c.traps!) {
+			const prop = t.pair === "frost" ? "frost-1" : "wasp-1";
+			for (const u of units.filter((x) => x.cell === cell && x.properties.includes(prop))) assert.equal(u.phase, t.phase, `${prop} of ${cell} judged on ${u.phase}, not ${t.phase}`);
+		}
+		const frost = c.traps!.find((t) => t.pair === "frost")!;
+		const order = ["work", "resume-own", "resume-gen", "wrap"];
+		for (const p of last.phases!.filter((x) => x.status === "run")) {
+			const has = execFileSync("git", ["--git-dir", last.ledger!, "ls-tree", "-r", "--name-only", p.startTree], { encoding: "utf8" }).split("\n").includes("FORECAST.txt");
+			// The file is present from the trap's phase on, along that phase's line: resume-gen does not follow resume-own.
+			const line: Record<string, string[]> = { work: ["work"], "resume-own": ["work", "resume-own"], "resume-gen": ["work", "resume-gen"], wrap: ["work", "resume-own", "wrap"] };
+			const expected = frost.version === "b" && line[p.phase]!.includes(frost.phase);
+			assert.equal(has, expected, `${cell} ${p.phase}: FORECAST.txt ${has ? "present" : "absent"}, trap at ${frost.phase} version ${frost.version}`);
+			if (has) placed++;
+			void order;
+		}
+	}
+	assert.ok(placed > 0, "no trap file was placed in any cell");
+});
+
+test("an infrastructure failure in a later phase re-runs the whole episode, from its first phase", async () => {
+	let failed = false;
+	const { rd, A } = await run(undefined, { work: (inv) => (inv.prompt.includes("NOTE-MARKER") && !failed ? (failed = true, outcome("", { filtered: true })) : null) });
+	const c = read<CellRecord>(rd, "cells/relay.bare.p1.1.json");
+	assert.equal(c.attempts.length, 2);
+	assert.equal(c.attempts[0]!.validity.valid === false && c.attempts[0]!.validity.cause, "infrastructure");
+	assert.equal(c.valid, true);
+	assert.deepEqual(A.calls.map((x) => (x.prompt.includes("Plant the rows") ? "work" : x.prompt.includes("Say whether") ? "wrap" : "resume")), ["work", "resume", "work", "resume", "resume", "wrap"]);
+});
+
+test("0012 counts open-step timeouts across phases and attempts: the second, in another phase, is behaviour", async () => {
+	let n = 0;
+	const timeout = (): Outcome => outcome("", { exit: null, stop: { reason: "timeout", inFlight: "unknown" } });
+	const { rd } = await run(undefined, { work: (inv) => {
+		if (inv.prompt.includes("NOTE-MARKER") && n === 0) { n++; return timeout(); }
+		if (inv.prompt.includes("Plant the rows") && n === 1) { n++; return timeout(); }
+		return null;
+	} });
+	const c = read<CellRecord>(rd, "cells/relay.bare.p1.1.json");
+	assert.equal(c.attempts.length, 2);
+	assert.equal(c.attempts[0]!.validity.valid === false && c.attempts[0]!.validity.cause, "infrastructure");
+	assert.equal(c.attempts[1]!.validity.valid === false && c.attempts[1]!.validity.cause, "behaviour");
+	assert.equal(c.attempts[1]!.endedAt, "work");
+});

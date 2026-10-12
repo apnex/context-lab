@@ -81,6 +81,12 @@
       "kind": "note-generator",
       "file": "hooks/relay-note.mjs",
       "timeLimitSeconds": 20
+    },
+    {
+      "id": "relay-measure",
+      "kind": "outcome-measure",
+      "file": "hooks/relay-measure.mjs",
+      "timeLimitSeconds": 20
     }
   ],
   "masks": {

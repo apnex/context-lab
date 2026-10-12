@@ -70,6 +70,8 @@ export interface Attempt {
 	phases?: PhaseRecord[];
 	/** The phase whose agent-behaviour failure ended the episode. */
 	endedAt?: string;
+	/** The episode's ledger: a repository holding the tree of every phase's start and end. */
+	ledger?: string;
 	/** Set when the attempt could not be completed by the core itself: the adapter or the workspace failed. */
 	failure?: string;
 }
@@ -317,9 +319,9 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 		// paths, which rewritten links in them point at, and its on-request folders - and nothing else
 		// of its variants; and, per phase, its own workspace and invocation folder.
 		const given = [...c.arm.instructions.map((f) => f.path), ...c.arm.folderFiles.map((f) => f.path), ...c.arm.onRequest.map((o) => o.path)];
-		const unreachable: string[] = [];
 		for (let attempt = 1; ; attempt++) {
 			let a: Attempt;
+			const unreachable: string[] = [];
 			try {
 				const ep = await runEpisode({
 					loaded, experiment: exp.experiment, scenario: c.scenario, arm: c.arm, member: c.member, memberIndex: members.indexOf(c.member), run: c.run,
@@ -337,7 +339,7 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 				const lastRan = ran[ran.length - 1];
 				a = {
 					attempt, validity: ep.validity, outcome: lastRan?.outcome ?? EMPTY_OUTCOME, diff: lastRan?.diff ?? null, workspace: lastRan?.workspace ?? "",
-					phases: ep.phases, ...(ep.endedAt !== undefined ? { endedAt: ep.endedAt } : {}), ...(unreachable.length ? { unreachable: [...new Set(unreachable)] } : {}),
+					phases: ep.phases, ledger: ep.ledger, ...(ep.endedAt !== undefined ? { endedAt: ep.endedAt } : {}), ...(unreachable.length ? { unreachable: [...new Set(unreachable)] } : {}),
 				};
 			} catch (e) {
 				// The core could not complete the attempt; it is recorded, and the run goes on.
