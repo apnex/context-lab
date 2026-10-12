@@ -72,6 +72,11 @@ test("F3: phases run in order - a new session from a note file, and a continuing
 	assert.notEqual(own!.workspace, work!.workspace);
 	assert.notEqual(gen!.workspace, own!.workspace);
 	assert.equal(fs.existsSync(path.join(own!.workspace, "PLAN.txt")), false, "a withheld file was left");
+	// Nor can it be read from history or from any object in the repository.
+	const objects = execFileSync("git", ["cat-file", "--batch-all-objects", "--batch"], { cwd: own!.workspace, encoding: "utf8" });
+	assert.equal(objects.includes("frost cover goes on after the second row"), false, "a withheld file is readable from git");
+	assert.equal(objects.includes("NOTE-MARKER"), false, "the withheld own note is readable from git");
+	assert.equal(execFileSync("git", ["log", "--oneline"], { cwd: own!.workspace, encoding: "utf8" }).trim().split("\n").length, 1);
 	assert.deepEqual(phasesOf(c).map((p) => [p.phase, p.status]), [["work", "run"], ["resume-own", "run"], ["resume-gen", "run"], ["wrap", "run"]]);
 });
 
@@ -149,7 +154,7 @@ test("F6: each property is judged on its phase; no other phase's outcome reaches
 		for (const [ph, marker] of Object.entries(others)) if (ph !== u.phase) assert.equal(u.text.includes(marker), false, `${marker} reached a unit of ${u.phase}`);
 		if (u.properties.includes("relay-1")) assert.equal(u.phase, "work");
 		if (u.properties.includes("relay-2")) { assert.equal(u.phase, "resume-own"); assert.match(u.text, /NOTE THIS SESSION WAS GIVEN ---\nNOTE-MARKER/); }
-		if (u.properties.includes("relay-3")) { assert.equal(u.phase, "resume-gen"); assert.match(u.text, /CHANGES THIS SESSION STARTED FROM/); }
+		if (u.properties.includes("relay-3")) { assert.equal(u.phase, "resume-gen"); assert.match(u.text, /CHANGES THIS SESSION STARTED FROM/); assert.equal(u.text.includes("PLAN.txt"), false, "a withheld path reached a judge"); }
 	}
 	assert.ok(prompts.length > 0);
 	const first = fs.readFileSync(path.join(rd, "RESULT.json"), "utf8");
@@ -162,5 +167,4 @@ test("a continuing phase on an adapter that cannot continue refuses the run at t
 	commitAll(dir);
 	const noCont = { ...agent("opencode"), continue: false };
 	await assert.rejects(conductRun(dir, { experiment: "relay", adapters: { opencode: noCont, codex: agent("codex") }, work: path.join(scratch(), "w"), records: path.join(scratch(), "r") }), /cannot/);
-	void execFileSync;
 });

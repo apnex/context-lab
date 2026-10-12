@@ -13,8 +13,13 @@
 // is attempted again by the caller; a note hook that fails leaves its branch, and every phase
 // following it, incomplete, and the episode goes on.
 //
-// Agents never see the copies: they live under the run's working folder, which is forbidden to
-// every cell but for its own workspace and invocation folder.
+// Every state is recorded as a tree in a ledger repository of the episode's own, kept beside the
+// copies, and every diff is taken there: nothing depends on an agent's repository, which it may
+// rewrite or break. A new session following another gets fresh history of one commit, since the
+// copied history would let it read withheld files (a key audit found the leak).
+//
+// Agents never see the copies or the ledger: they live under the run's working folder, which is
+// forbidden to every cell but for its own workspace and invocation folder.
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -52,7 +57,6 @@ export interface PhaseRecord {
 	/** For a new session, the tree it was copied with, before anything was withheld. */
 	copiedTree: string | null;
 	startTree: string;
-	startCommit: string;
 	/** The changes from the episode's initial state to this phase's start. */
 	startDiff: string;
 	endTree: string | null;
@@ -72,23 +76,43 @@ export interface EpisodeResult {
 	validity: Validity;
 	endedAt?: string;
 	timeouts: number;
+	/** The tree of the episode's initial state, in the ledger. */
 	init: string;
+	ledger: string;
 }
 
 const GIT = ["-c", "user.name=context-lab", "-c", "user.email=fixture@context-lab.invalid", "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "-c", "core.quotepath=off"];
 const git = (cwd: string, ...args: string[]): string => execFileSync("git", [...GIT, ...args], { cwd, encoding: "utf8", maxBuffer: 1 << 28, stdio: ["ignore", "pipe", "pipe"] });
 
-/** The tree of the workspace as it stands, every file included, ignored ones too. */
-export function treeOf(ws: string): string {
-	git(ws, "add", "-A", "--force");
-	return git(ws, "write-tree").trim();
+/** A ledger: a bare repository holding the trees of an episode's states, apart from any workspace. */
+export class Ledger {
+	constructor(readonly dir: string) {
+		fs.mkdirSync(dir, { recursive: true });
+		execFileSync("git", ["init", "-q", "--bare", dir], { stdio: "ignore" });
+	}
+	/** The tree of a workspace as it stands, every file included, ignored ones too; its .git left out. */
+	tree(ws: string): string {
+		const index = path.join(this.dir, `index-${process.pid}-${Math.random().toString(36).slice(2)}`);
+		const env = { ...process.env, GIT_INDEX_FILE: index };
+		try {
+			execFileSync("git", [...GIT, "--git-dir", this.dir, "--work-tree", ws, "add", "-A", "--force"], { env, stdio: "ignore", maxBuffer: 1 << 28 });
+			return execFileSync("git", [...GIT, "--git-dir", this.dir, "write-tree"], { env, encoding: "utf8" }).trim();
+		} finally {
+			fs.rmSync(index, { force: true });
+		}
+	}
+	/** The changes from one tree to another, leaving out the paths given. */
+	diff(from: string, to: string, exclude: string[] = []): string {
+		return execFileSync("git", [...GIT, "--git-dir", this.dir, "diff", from, to, ...(exclude.length ? ["--", ...exclude.map((w) => `:(exclude)${w}`)] : [])], { encoding: "utf8", maxBuffer: 1 << 28 });
+	}
 }
-function commitOf(ws: string, tree: string): string {
-	return git(ws, "commit-tree", tree, "-p", "HEAD", "-m", "phase start").trim();
-}
-function diffFrom(ws: string, commit: string): string {
+
+/** Replaces a workspace's repository with one commit of what it holds. */
+function freshHistory(ws: string): void {
+	fs.rmSync(path.join(ws, ".git"), { recursive: true, force: true });
+	git(ws, "init", "-q", "--template=");
 	git(ws, "add", "-A", "--force");
-	return git(ws, "diff", "--cached", commit);
+	git(ws, "commit", "-q", "--allow-empty", "-m", "initial");
 }
 
 function readInside(dir: string, rel: string): string | null {
@@ -161,8 +185,9 @@ export async function runEpisode(r: EpisodeRun): Promise<EpisodeResult> {
 		fs.mkdirSync(path.dirname(f), { recursive: true });
 		fs.writeFileSync(f, body);
 	}
-	let init = first.init;
-	if (extra.length) { git(first.dir, "add", "-A", "--force"); git(first.dir, "commit", "-q", "--amend", "-m", "initial"); init = git(first.dir, "rev-parse", "HEAD").trim(); }
+	if (extra.length) { git(first.dir, "add", "-A", "--force"); git(first.dir, "commit", "-q", "--amend", "-m", "initial"); }
+	const ledger = new Ledger(path.join(r.work, "ledgers", r.key));
+	const init = ledger.tree(first.dir);
 
 	const records: PhaseRecord[] = [];
 	let timeouts = r.timeouts;
@@ -179,7 +204,7 @@ export async function runEpisode(r: EpisodeRun): Promise<EpisodeResult> {
 		fs.rmdirSync(inv);
 		const rec: PhaseRecord = {
 			phase: ph.id, session: ph.session, after: afterId, status: "not-run", prompt: "", note: null, noteSource: null, workspace: "", invocation: inv,
-			copiedTree: null, startTree: "", startCommit: "", startDiff: "", endTree: null, snapshot: null, endDiff: null, outcome: null, validity: null, diff: null,
+			copiedTree: null, startTree: "", startDiff: "", endTree: null, snapshot: null, endDiff: null, outcome: null, validity: null, diff: null,
 			traps: traps.filter((t) => t.phase === ph.id),
 		};
 		records.push(rec);
@@ -194,15 +219,16 @@ export async function runEpisode(r: EpisodeRun): Promise<EpisodeResult> {
 		else {
 			rec.workspace = fs.mkdtempSync(path.join(base, "w-"));
 			fs.cpSync(prev.snapshot!, rec.workspace, { recursive: true });
-			rec.copiedTree = treeOf(rec.workspace);
+			rec.copiedTree = ledger.tree(rec.workspace);
 			for (const w of ph.withhold ?? []) {
 				const f = path.resolve(rec.workspace, w);
 				if (isInside(f, rec.workspace) && f !== rec.workspace) fs.rmSync(f, { recursive: true, force: true });
 			}
 		}
-		rec.startTree = treeOf(rec.workspace);
-		rec.startCommit = commitOf(rec.workspace, rec.startTree);
-		rec.startDiff = git(rec.workspace, "diff", init, rec.startCommit);
+		if (prev !== undefined && ph.session === "new") freshHistory(rec.workspace);
+		rec.startTree = ledger.tree(rec.workspace);
+		// Withheld paths are left out of the changes a judge may be shown, since the session never saw them.
+		rec.startDiff = ledger.diff(init, rec.startTree, ph.withhold ?? []);
 		// The note.
 		if (ph.note !== undefined && prev !== undefined) {
 			if ("file" in ph.note) {
@@ -238,9 +264,9 @@ export async function runEpisode(r: EpisodeRun): Promise<EpisodeResult> {
 		if (outcome.stop.reason === "timeout" && outcome.stop.inFlight === "unknown") timeouts++;
 		rec.validity = r.classify(outcome, rec.workspace, inv, Math.max(1, timeouts));
 		try {
-			rec.diff = diffFrom(rec.workspace, rec.startCommit);
-			rec.endTree = treeOf(rec.workspace);
-			rec.endDiff = diffFrom(rec.workspace, init);
+			rec.endTree = ledger.tree(rec.workspace);
+			rec.diff = ledger.diff(rec.startTree, rec.endTree);
+			rec.endDiff = ledger.diff(init, rec.endTree);
 			rec.snapshot = path.join(snapDir, ph.id);
 			fs.mkdirSync(path.dirname(rec.snapshot), { recursive: true });
 			fs.cpSync(rec.workspace, rec.snapshot, { recursive: true });
@@ -255,7 +281,7 @@ export async function runEpisode(r: EpisodeRun): Promise<EpisodeResult> {
 	}
 	for (const p of phases) if (!records.some((x) => x.phase === p.id)) records.push({
 		phase: p.id, session: p.session, after: null, status: "not-run", reason: "the episode ended before it", prompt: "", note: null, noteSource: null, workspace: "", invocation: "",
-		copiedTree: null, startTree: "", startCommit: "", startDiff: "", endTree: null, snapshot: null, endDiff: null, outcome: null, validity: null, diff: null, traps: traps.filter((t) => t.phase === p.id),
+		copiedTree: null, startTree: "", startDiff: "", endTree: null, snapshot: null, endDiff: null, outcome: null, validity: null, diff: null, traps: traps.filter((t) => t.phase === p.id),
 	});
-	return { phases: records, validity: episode, ...(endedAt !== undefined ? { endedAt } : {}), timeouts, init };
+	return { phases: records, validity: episode, ...(endedAt !== undefined ? { endedAt } : {}), timeouts, init, ledger: ledger.dir };
 }

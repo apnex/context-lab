@@ -21,4 +21,4 @@ export { METHOD, STATES, conductRun, tallyRun, type Attempt, type CellRecord, ty
 export { blind, mask, shuffle, type Absent, type Blinded, type Unit } from "./blinder.js";
 export { EMPTY_ARM, assignJudges, judgeAll, validate, type PanelOptions, type Vote } from "./judge-panel.js";
 export { resultMarkdown, tally, type PropertyResult, type Rate, type Result, type TallyInput } from "./tally.js";
-export { NO_NOTE, assignTraps, phasePrompt, propertyPhase, runEpisode, treeOf, type EpisodeResult, type EpisodeRun, type PhaseRecord, type TrapAssignment } from "./episode.js";
+export { NO_NOTE, assignTraps, phasePrompt, propertyPhase, runEpisode, Ledger, type EpisodeResult, type EpisodeRun, type PhaseRecord, type TrapAssignment } from "./episode.js";
