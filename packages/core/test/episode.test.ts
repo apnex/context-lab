@@ -100,13 +100,36 @@ test("F3: a phase invalid for behaviour ends its episode - later phases get no c
 	for (const p of ["relay-1", "relay-2", "relay-3", "relay-4", "frost-1", "wasp-1"]) assert.equal(r.cellValues["relay.bare.p1.1"]![p], 0);
 });
 
-test("F3: a later phase failing for behaviour keeps the earlier phases' judged values", async () => {
-	const { rd } = await run(undefined, { work: (inv) => (inv.prompt.includes("NOTE-MARKER") ? outcome("") : null) });
-	const r = read<{ cellValues: Record<string, Record<string, unknown>> }>(rd, "RESULT.json");
-	const v = r.cellValues["relay.bare.p1.1"]!;
+test("F3 (0020): a branch failing for behaviour ends what follows from it; the other branch is judged", async () => {
+	const { rd, A } = await run(undefined, { work: (inv) => (inv.prompt.includes("NOTE-MARKER") ? outcome("") : null) });
+	assert.equal(A.calls.length, 3, "the phase following the failure ran, or the other branch did not");
+	const c = read<CellRecord>(rd, "cells/relay.bare.p1.1.json");
+	assert.equal(c.attempts.length, 1, "agent behaviour was re-run");
+	assert.deepEqual(phasesOf(c).map((p) => [p.phase, p.status]), [["work", "run"], ["resume-own", "run"], ["resume-gen", "run"], ["wrap", "not-run"]]);
+	const v = read<{ cellValues: Record<string, Record<string, unknown>> }>(rd, "RESULT.json").cellValues["relay.bare.p1.1"]!;
 	assert.equal(v["relay-1"], 1, "a property of the phase before the failure lost its judged value");
-	assert.equal(v["relay-2"], 0);
-	assert.equal(v["relay-3"], 0);
+	assert.equal(v["relay-2"], 0, "the failed phase's property did not score the bottom");
+	assert.equal(v["relay-6"], 0, "the phase following the failure did not score the bottom");
+	assert.equal(v["relay-3"], 1, "the other branch was not judged");
+	assert.equal(v["relay-4"], 1, "the other branch was not judged");
+});
+
+test("F3 (0020): the rule is the same whichever branch fails - the earlier-listed branch is not favoured", async () => {
+	const { rd, A } = await run(undefined, { work: (inv) => (inv.prompt.includes("Files changed in the earlier session") ? outcome("") : null) });
+	assert.equal(A.calls.length, 4);
+	const v = read<{ cellValues: Record<string, Record<string, unknown>> }>(rd, "RESULT.json").cellValues["relay.bare.p1.1"]!;
+	assert.deepEqual([v["relay-2"], v["relay-6"], v["relay-3"], v["relay-4"]], [1, 1, 0, 0]);
+});
+
+test("F4 (0020): each branch starts from the earlier phase's ending tree less exactly its withheld files", async () => {
+	const { rd } = await run();
+	const c = read<CellRecord>(rd, "cells/relay.bare.p1.1.json");
+	const ledger = c.attempts[c.attempts.length - 1]!.ledger!;
+	const ph = Object.fromEntries(phasesOf(c).map((p) => [p.phase, p]));
+	for (const b of ["resume-own", "resume-gen"]) {
+		const changes = execFileSync("git", ["--git-dir", ledger, "diff", "--name-status", ph["work"]!.endTree!, ph[b]!.startTree], { encoding: "utf8" }).trim();
+		assert.equal(changes, "D\tNOTE.md\nD\tPLAN.txt", `${b} started from something other than work's end less its withheld files`);
+	}
 });
 
 test("F4: branches start from the same state; own and generated notes; a missing own note", async () => {

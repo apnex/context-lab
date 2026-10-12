@@ -39,6 +39,7 @@ They are not copied here; this register starts at the vision.
 | 0017 | 2026-10-11 | Delta-1 is complete: every exit criterion was evaluated green by an agent that built none of the code. | executor, evaluated by the verifier | recorded | - |
 | 0018 | 2026-10-11 | Milestone M2, multi-phase episodes and the change gate, is the next move, opened as Delta-2. | director | ratified | - |
 | 0019 | 2026-10-11 | Delta-2 is ratified, revision 3: a gate runs base and head as two arms of one run; the gate rule is the largest standardised drop over m properties against a threshold exceeded one time in ten under A/A, persistence tested on nested sets; mission-kit's handoff and A/A experiments state a pooled detectable difference of 0.25 in pass rate, with the default that no change is indicated. | director | ratified | - |
+| 0020 | 2026-10-12 | In a multi-phase episode, a phase invalid for agent behaviour ends only the phases that follow from it; phases on other branches run and are judged. Delta-2's episode rule and F4 are restated to match, F4 for withheld files. | director | ratified | amends 0019 |
 
 ---
 
@@ -284,3 +285,19 @@ Two separate runs for a gate - refuted because provider drift between runs would
 **Source.**\
 `[V, director ruling 2026-10-11]`
 
+### 0020
+
+**Ruling.**\
+A phase invalid for agent behaviour ends the phases that follow from it, directly or through others, and their properties score the bottom of their scale; phases on other branches run and are judged.\
+A phase invalid for any other cause still makes the whole episode invalid for that cause, to be attempted again.\
+Delta-2's episode rule reads "properties of phases that follow from it" where it read "properties of later phases", and F4 reads that each branch starts from the ending tree of the phase before, less exactly its withheld files.
+
+**Alternatives refuted.**\
+Keeping the rule as built, where a behaviour failure ends the whole episode - refuted because it ties independent branches together by their order in the list: a failure in the first-listed branch scored the other at the bottom, while a failure in the second left the first standing, biasing the handoff experiment's comparison of an agent's own note against a generated one.
+
+**Disclosed.**\
+The rule as built was the author's reading of "later phases" as later in the list; verification measured its effect.\
+The director replied "continue" to a list whose first pick was this option, and it is recorded as that pick.
+
+**Source.**\
+`[V, director ruling 2026-10-12; docs/DELTAS/DELTA-2.md Record, stage 2]`

@@ -68,7 +68,7 @@ export interface Attempt {
 	unreachable?: string[];
 	/** Every phase of the episode, as it ran. */
 	phases?: PhaseRecord[];
-	/** The phase whose agent-behaviour failure ended the episode. */
+	/** The first phase whose agent-behaviour failure ended its line of the episode (0020). */
 	endedAt?: string;
 	/** The episode's ledger: a repository holding the tree of every phase's start and end. */
 	ledger?: string;

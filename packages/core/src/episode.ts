@@ -8,10 +8,11 @@
 // Phases sharing the phase they follow are branches. Every phase's ending state is copied aside as
 // it ends, so a branch, a later continuing phase, or the scored file can read it unchanged.
 //
-// Episode rules: a phase invalid for agent behaviour ends the episode, and no later phase runs; a
-// phase invalid for any other cause makes the attempt invalid for that cause, and the whole episode
-// is attempted again by the caller; a note hook that fails leaves its branch, and every phase
-// following it, incomplete, and the episode goes on.
+// Episode rules (0020): a phase invalid for agent behaviour ends what follows from it - no phase
+// that follows it, directly or through others, runs - while phases on other branches run and are
+// judged; a phase invalid for any other cause makes the attempt invalid for that cause, and the
+// whole episode is attempted again by the caller; a note hook that fails leaves its branch, and
+// every phase following it, incomplete, and the episode goes on.
 //
 // Every state is recorded as a tree in a ledger repository of the episode's own, kept beside the
 // copies, and every diff is taken there: nothing depends on an agent's repository, which it may
@@ -74,6 +75,7 @@ export interface PhaseRecord {
 export interface EpisodeResult {
 	phases: PhaseRecord[];
 	validity: Validity;
+	/** The first phase whose agent-behaviour failure ended its line. */
 	endedAt?: string;
 	timeouts: number;
 	/** The tree of the episode's initial state, in the ledger. */
@@ -279,7 +281,12 @@ export async function runEpisode(r: EpisodeRun): Promise<EpisodeResult> {
 			if (rec.validity.valid) rec.validity = { valid: false, cause: "behaviour", detail: "the workspace's changes could not be read: the agent removed or broke its repository" };
 		}
 		if (!rec.validity.valid) {
-			if (rec.validity.cause === "behaviour") endedAt = ph.id;
+			// Behaviour ends this phase's line only; the episode is invalid for behaviour, and goes on.
+			if (rec.validity.cause === "behaviour") {
+				endedAt ??= ph.id;
+				if (episode.valid) episode = rec.validity;
+				continue;
+			}
 			episode = rec.validity;
 			break;
 		}
