@@ -34,7 +34,12 @@ function agent(runtime: string, o: Opts = {}): Adapter & { calls: Invocation[]; 
 			if (custom) return { ...custom, session };
 			if (inv.prompt.includes("Plant the rows")) {
 				fs.writeFileSync(path.join(inv.workspace, "FIELD.txt"), "rows: 2\n");
-				if (!o.noNote) fs.writeFileSync(path.join(inv.workspace, "NOTE.md"), "NOTE-MARKER: frost cover after row two.\n");
+				if (!o.noNote) {
+					fs.writeFileSync(path.join(inv.workspace, "NOTE.md"), "NOTE-MARKER: frost cover after row two.\n");
+					execFileSync("git", ["-c", "user.name=a", "-c", "user.email=a@a.invalid", "commit", "-qam", "handoff", "--allow-empty"], { cwd: inv.workspace });
+					execFileSync("git", ["-c", "user.name=a", "-c", "user.email=a@a.invalid", "add", "NOTE.md"], { cwd: inv.workspace });
+					execFileSync("git", ["-c", "user.name=a", "-c", "user.email=a@a.invalid", "commit", "-qm", "handoff note"], { cwd: inv.workspace });
+				}
 				return outcome("WORK-FINAL-MARKER", { session });
 			}
 			if (inv.prompt.includes("Say whether")) return outcome("WRAP-FINAL-MARKER", { session });
@@ -72,11 +77,15 @@ test("F3: phases run in order - a new session from a note file, and a continuing
 	assert.notEqual(own!.workspace, work!.workspace);
 	assert.notEqual(gen!.workspace, own!.workspace);
 	assert.equal(fs.existsSync(path.join(own!.workspace, "PLAN.txt")), false, "a withheld file was left");
-	// Nor can it be read from history or from any object in the repository.
-	const objects = execFileSync("git", ["cat-file", "--batch-all-objects", "--batch"], { cwd: own!.workspace, encoding: "utf8" });
-	assert.equal(objects.includes("frost cover goes on after the second row"), false, "a withheld file is readable from git");
-	assert.equal(objects.includes("NOTE-MARKER"), false, "the withheld own note is readable from git");
-	assert.equal(execFileSync("git", ["log", "--oneline"], { cwd: own!.workspace, encoding: "utf8" }).trim().split("\n").length, 1);
+	// Nor can it be read from history or from any object in either branch's repository, though the
+	// work phase committed its note (the stub's work phase commits NOTE.md).
+	for (const ws of [own!.workspace, gen!.workspace]) {
+		const objects = execFileSync("git", ["cat-file", "--batch-all-objects", "--batch"], { cwd: ws, encoding: "utf8" });
+		assert.equal(objects.includes("frost cover goes on after the second row"), false, "a withheld file is readable from git");
+		assert.equal(objects.includes("NOTE-MARKER"), false, "the withheld own note is readable from git");
+		assert.equal(execFileSync("git", ["log", "--oneline", "--all"], { cwd: ws, encoding: "utf8" }).trim().split("\n").length, 1);
+	}
+	assert.match(execFileSync("git", ["log", "--oneline"], { cwd: work!.workspace, encoding: "utf8" }), /handoff/, "the stub did not commit its note");
 	assert.deepEqual(phasesOf(c).map((p) => [p.phase, p.status]), [["work", "run"], ["resume-own", "run"], ["resume-gen", "run"], ["wrap", "run"]]);
 });
 
