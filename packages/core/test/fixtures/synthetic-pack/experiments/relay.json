@@ -1,0 +1,24 @@
+{
+  "id": "relay",
+  "declaredStatus": "exploration",
+  "scenarios": [
+    "scenarios/relay.json"
+  ],
+  "factors": {
+    "arms": [
+      "bare"
+    ],
+    "population": [
+      "p1",
+      "p2",
+      "p3"
+    ]
+  },
+  "runsPerCell": 3,
+  "phases": [
+    {
+      "id": "work",
+      "session": "new"
+    }
+  ]
+}

@@ -21,7 +21,7 @@ import path from "node:path";
 import type { Adapter, DeliveryMode, Invocation } from "./adapters.js";
 import type { ComposedArm } from "./arm-composer.js";
 import { shuffle, type Unit } from "./blinder.js";
-import type { Experiment, LoadedPack, Member, Property, Scenario } from "./pack-schema.js";
+import { phasesOf, propertiesOf, type Experiment, type LoadedPack, type Member, type Property, type Scenario } from "./pack-schema.js";
 import { createWorkspace } from "./workspace-builder.js";
 
 export interface Vote {
@@ -42,7 +42,7 @@ export function assignJudges(unit: Unit, judges: Member[]): Member[] {
 
 export const EMPTY_ARM: ComposedArm = { arm: "judges", instructions: [], folderFiles: [], onRequest: [], canaries: [], negativeCanaries: [], revisions: {} };
 
-const isAnswer = (u: Unit, s: Scenario): boolean => u.properties.length === 1 && s.properties.find((p) => p.id === u.properties[0])?.answerHeading !== undefined;
+const isAnswer = (u: Unit, s: Scenario): boolean => u.properties.length === 1 && propertiesOf(s).find((p) => p.id === u.properties[0])?.answerHeading !== undefined;
 
 /** The part of a task under one "### heading", up to the next blank line before a heading or the end. */
 export function questionUnder(task: string, heading: string): string {
@@ -58,16 +58,24 @@ export function questionUnder(task: string, heading: string): string {
 	return out.join("\n").trim();
 }
 
-const neutral = (t: string): string => t.split("{WORKSPACE}").join("(the agent's working folder)").split("{ON_REQUEST}").join("(the agent's reference folder)");
+const neutral = (t: string): string => t.split("{WORKSPACE}").join("(the agent's working folder)").split("{ON_REQUEST}").join("(the agent's reference folder)")
+	.split("{NOTE}").join("(a note from the earlier session)").replace(/\{SLOT:[^}]+\}/g, "(a passage placed here in some outcomes)");
+
+/** The task of the phase a unit was judged on: the scenario's for its first phase, else the phase's own. */
+export function taskOf(scenario: Scenario, experiment: Experiment, phase: string | undefined): string {
+	const phases = phasesOf(scenario, experiment);
+	const i = phase === undefined ? 0 : phases.findIndex((p) => p.id === phase);
+	return i <= 0 ? scenario.task : phases[i]!.task ?? "";
+}
 
 function outcomePrompt(exp: Experiment, scenario: Scenario, units: Unit[], guessOptions: string[]): { text: string; local: Map<string, Unit> } {
-	const props = scenario.properties.filter((p) => p.decidedBy === "judge" && units.some((u) => u.properties.includes(p.id)));
+	const props = propertiesOf(scenario).filter((p) => p.decidedBy === "judge" && units.some((u) => u.properties.includes(p.id)));
 	const local = new Map(units.map((u, i) => [`o${i + 1}`, u]));
 	const guessing = guessOptions.length > 1;
 	const example = { outcomes: [{ id: "o1", scores: Object.fromEntries(units[0]!.properties.map((p) => [p, { v: 0, reason: "..." }])), ...(guessing ? { guess: guessOptions[0] } : {}) }] };
 	const lines = [
 		exp.judgeInstructions ?? "You are judging what an agent produced, against the properties listed. Judge only the outcomes given.",
-		"", `THE TASK EACH AGENT WAS GIVEN:\n${neutral(scenario.task)}`,
+		"", `THE TASK EACH AGENT WAS GIVEN:\n${neutral(taskOf(scenario, exp, units[0]!.phase))}`,
 		scenario.start ? `\nSTARTING STATE: ${scenario.start}` : "",
 		scenario.scoring ? `\nWHAT TO SCORE: ${scenario.scoring}` : "",
 		"\nPROPERTIES:",
@@ -94,9 +102,9 @@ function answerPrompt(exp: Experiment, scenario: Scenario, units: Unit[], record
 		'Each line exactly: {"item": "<answer id>", "score": 0|1|2, "reason": "<one sentence>"}',
 	];
 	const props: Property[] = [];
-	for (const u of units) { const p = scenario.properties.find((x) => x.id === u.properties[0])!; if (!props.includes(p)) props.push(p); }
+	for (const u of units) { const p = propertiesOf(scenario).find((x) => x.id === u.properties[0])!; if (!props.includes(p)) props.push(p); }
 	for (const p of props) {
-		lines.push("", "=".repeat(70), `PROBE ${p.answerHeading}`, "", "Question:", p.question ?? questionUnder(scenario.task, p.answerHeading!), "", "Key:", p.key, "", "Rubric:", p.rubric ?? "");
+		lines.push("", "=".repeat(70), `PROBE ${p.answerHeading}`, "", "Question:", p.question ?? questionUnder(taskOf(scenario, exp, units[0]!.phase), p.answerHeading!), "", "Key:", p.key, "", "Rubric:", p.rubric ?? "");
 		for (const [id, u] of local) if (u.properties[0] === p.id) lines.push("", `--- answer ${id} ---`, u.text.replace(/^--- ANSWER ---\n/, "").trimEnd());
 	}
 	return { text: lines.join("\n") + "\n", local };
@@ -132,7 +140,7 @@ export function validate(reply: Reply | null, local: Map<string, Unit>, scenario
 		if (!o) continue;
 		const mine: Vote[] = [];
 		for (const pid of u.properties) {
-			const p = scenario.properties.find((x) => x.id === pid)!;
+			const p = propertiesOf(scenario).find((x) => x.id === pid)!;
 			const sc = o.scores?.[pid] ?? o.scores?.["*"];
 			const v = sc?.v;
 			if (typeof v !== "number" || !Number.isInteger(v) || v < p.scale[0] || v > p.scale[1]) { mine.length = 0; break; }
@@ -170,9 +178,12 @@ export async function judgeAll(o: PanelOptions): Promise<Vote[]> {
 	for (const judge of o.judges) {
 		for (const [sid, scenario] of o.scenarios) {
 			const mine = o.units.filter((u) => u.scenario === sid && assignJudges(u, o.judges).some((j) => j.id === judge.id));
-			for (const answers of [false, true]) {
-				const group = shuffle(mine.filter((u) => isAnswer(u, scenario) === answers), `${o.seed}:${judge.id}:${sid}:${answers}`);
-				for (let k = 0; k * per < group.length; k++) jobs.push({ judge, scenario, units: group.slice(k * per, (k + 1) * per), name: `${sid}.${answers ? "answers" : "outcomes"}.${judge.id}.${k + 1}`, answers });
+			// One prompt holds units of one phase, so the task shown is the one those agents were given.
+			const phaseKeys = [...new Set(mine.map((u) => u.phase ?? ""))].sort();
+			for (const ph of phaseKeys) for (const answers of [false, true]) {
+				const group = shuffle(mine.filter((u) => (u.phase ?? "") === ph && isAnswer(u, scenario) === answers), `${o.seed}:${judge.id}:${sid}:${ph}:${answers}`);
+				const tag = ph ? `${sid}.${ph}` : sid;
+				for (let k = 0; k * per < group.length; k++) jobs.push({ judge, scenario, units: group.slice(k * per, (k + 1) * per), name: `${tag}.${answers ? "answers" : "outcomes"}.${judge.id}.${k + 1}`, answers });
 			}
 		}
 	}

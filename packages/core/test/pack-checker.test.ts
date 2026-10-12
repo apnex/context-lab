@@ -12,6 +12,7 @@ import { copyPack, editJson, syntheticPack } from "./helpers.js";
 const packJson = (d: string): string => path.join(d, "pack.json");
 const expJson = (d: string): string => path.join(d, "experiments", "orchard.json");
 const graft = (d: string): string => path.join(d, "scenarios", "graft.json");
+const relay = (d: string): string => path.join(d, "scenarios", "relay.json");
 
 // Several checks have more than one part; each part has its own fixture, so removing any part of a
 // check, not only the whole check, leaves a fixture accepted.
@@ -70,6 +71,24 @@ const defects: Record<CheckId, ((dir: string) => void)[]> = {
 		(d) => editJson(graft(d), (j) => { j.properties[1].measure = "trim"; }),
 	],
 	"scale": [(d) => editJson(graft(d), (j) => { j.properties[0].scale = [1, 0]; })],
+	"phases": [
+		(d) => editJson(relay(d), (j) => { j.phases[0].session = "continue"; }),
+		(d) => editJson(relay(d), (j) => { j.phases[1].after = "wrap"; }),
+		(d) => editJson(relay(d), (j) => { j.phases[3].note = { file: "NOTE.md" }; }),
+		(d) => editJson(relay(d), (j) => { j.phases.push({ id: "wrap-2", session: "continue", after: "resume-own", task: "x" }); }),
+		(d) => editJson(relay(d), (j) => { j.phases[2].note = { generator: "count-words" }; }),
+		(d) => editJson(relay(d), (j) => { delete j.phases[2].task; }),
+		(d) => editJson(relay(d), (j) => { j.properties[0].phase = "ghost"; }),
+	],
+	"trap-pairs": [
+		(d) => editJson(relay(d), (j) => { j.trapPairs[0].positions.push("nowhere"); }),
+		(d) => editJson(relay(d), (j) => { j.trapPairs[1].versions = [j.trapPairs[1].versions[0]]; }),
+		(d) => editJson(relay(d), (j) => { j.trapPairs[1].properties[0].id = "frost-1"; }),
+	],
+	"comparison-refs": [
+		(d) => editJson(packJson(d), (j) => { j.comparisons = [{ id: "c", experiment: "ghost", rule: "aa", base: "bare", head: "bare" }]; }),
+		(d) => editJson(packJson(d), (j) => { j.comparisons = [{ id: "c", experiment: "orchard", rule: "aa", base: "bare", head: "ghost" }]; }),
+	],
 	"answer-heading": [(d) => editJson(graft(d), (j) => { j.properties[0].answerHeading = "orchard.G1"; })],
 	"suite-experiment": [(d) => editJson(packJson(d), (j) => { j.suites[0].experiment = "ghost"; })],
 	"suite-nonempty": [(d) => editJson(packJson(d), (j) => { j.suites[1].select = { allTags: ["no-such-tag"] }; })],
@@ -114,4 +133,11 @@ test("a defect a declaration-check hook returns is reported as it was written", 
 	(defects["declaration-check"][0] as (d: string) => void)(dir);
 	const r = await checkPack(dir);
 	assert.deepEqual(r.defects, [{ check: "declaration-check", where: "orchard", message: "planted defect" }]);
+});
+
+test("a continuing phase on a runtime that cannot continue is a defect, when runtimes are given", async () => {
+	const r = await checkPack(syntheticPack, { continueRuntimes: { opencode: true, codex: false } });
+	assert.equal(r.ok, false);
+	assert.ok(r.defects.every((d) => d.check === "phases") && r.defects.some((d) => /p2's runtime codex cannot/.test(d.message)), JSON.stringify(r.defects));
+	assert.equal((await checkPack(syntheticPack, { continueRuntimes: { opencode: true, codex: true } })).ok, true);
 });

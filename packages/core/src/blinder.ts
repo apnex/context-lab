@@ -9,7 +9,7 @@
 
 import { createHash } from "node:crypto";
 import type { CellRecord } from "./run-conductor.js";
-import type { LoadedPack, Property, Scenario } from "./pack-schema.js";
+import { propertiesOf, type LoadedPack, type Property, type Scenario } from "./pack-schema.js";
 
 export interface Unit {
 	id: string;
@@ -19,6 +19,8 @@ export interface Unit {
 	member: string;
 	family: string;
 	properties: string[];
+	/** The phase whose outcome the unit holds; absent for a one-phase record made before phases existed. */
+	phase?: string;
 	text: string;
 	blindedAt: string;
 }
@@ -93,9 +95,37 @@ export function blind(loaded: LoadedPack, scenarios: Map<string, Scenario>, cell
 	const units: Unit[] = [];
 	const absent: Absent[] = [];
 	for (const c of cells) {
-		if (!c.valid) continue;
 		const s = scenarios.get(c.scenario);
 		if (!s) throw new Error(`no scenario ${c.scenario}`);
+		if (c.propertyPhases !== undefined && c.phaseOutcomes !== undefined) {
+			const lastA = c.attempts[c.attempts.length - 1]!;
+			const usable = c.valid || (!lastA.validity.valid && lastA.validity.cause === "behaviour");
+			if (!usable) continue;
+			const ws = lastA.workspace ?? "";
+			const base = { cell: c.cell, scenario: c.scenario, arm: c.arm, member: c.member, family: families.get(c.member) ?? "" };
+			const props = propertiesOf(s).filter((p) => p.decidedBy === "judge" && c.propertyPhases![p.id]?.state === "valid");
+			const groups = new Map<string, Property[]>();
+			for (const p of props.filter((x) => x.answerHeading === undefined)) {
+				const key = JSON.stringify([c.propertyPhases[p.id]!.phase, [...(p.judgedWith ?? [])].sort()]);
+				groups.set(key, [...(groups.get(key) ?? []), p]);
+			}
+			for (const [key, ps] of groups) {
+				const [phase, withs] = JSON.parse(key) as [string, string[]];
+				const po = c.phaseOutcomes[phase]!;
+				const parts = [`--- FINAL MESSAGE ---\n${mask(po.final, loaded, ctx, ws)}`, `--- DIFF ---\n${mask(cutDiff(po.diff, marker), loaded, ctx, ws).trim() || "(no changes)"}`];
+				if (po.traps.length) parts.push(`--- PASSAGES THIS AGENT WAS GIVEN ---\n${po.traps.join("\n")}`);
+				if (withs.includes("note")) parts.push(`--- NOTE THIS SESSION WAS GIVEN ---\n${mask(po.note ?? "(none)", loaded, ctx, ws)}`);
+				if (withs.includes("start")) parts.push(`--- CHANGES THIS SESSION STARTED FROM ---\n${mask(cutDiff(po.startDiff, marker), loaded, ctx, ws).trim() || "(none)"}`);
+				units.push({ id: "", ...base, properties: ps.map((p) => p.id), phase, text: parts.join("\n") + "\n", blindedAt: "" });
+			}
+			for (const p of props.filter((x) => x.answerHeading !== undefined)) {
+				const answer = c.answers[p.id];
+				if (answer === null || answer === undefined || answer.trim() === "") absent.push({ cell: c.cell, property: p.id });
+				else units.push({ id: "", ...base, properties: [p.id], phase: c.propertyPhases[p.id]!.phase, text: `--- ANSWER ---\n${mask(answer, loaded, ctx, ws)}\n`, blindedAt: "" });
+			}
+			continue;
+		}
+		if (!c.valid) continue;
 		const last = c.attempts[c.attempts.length - 1]!;
 		const ws = last.workspace ?? "";
 		const base = { cell: c.cell, scenario: c.scenario, arm: c.arm, member: c.member, family: families.get(c.member) ?? "" };

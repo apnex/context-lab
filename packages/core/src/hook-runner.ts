@@ -30,6 +30,7 @@ export const HOOK_FAILURE_RESULT: Record<HookKind, string> = {
 	"declaration-check": "the pack fails its check",
 	"variant-transform": "the arm is not built, and does not run",
 	"outcome-measure": "the hook's properties are incomplete",
+	"note-generator": "the branch it feeds is incomplete",
 };
 
 // Only the Node binary itself is bound, not its installation directory, which could be the home

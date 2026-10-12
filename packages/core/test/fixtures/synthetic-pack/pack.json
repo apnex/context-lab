@@ -49,6 +49,12 @@
       "family": "f2",
       "runtime": "codex",
       "model": "m2"
+    },
+    {
+      "id": "p3",
+      "family": "f3",
+      "runtime": "opencode",
+      "model": "m3"
     }
   ],
   "hooks": [
@@ -68,6 +74,12 @@
       "id": "count-words",
       "kind": "outcome-measure",
       "file": "hooks/count.mjs",
+      "timeLimitSeconds": 20
+    },
+    {
+      "id": "relay-note",
+      "kind": "note-generator",
+      "file": "hooks/relay-note.mjs",
       "timeLimitSeconds": 20
     }
   ],
@@ -98,7 +110,8 @@
     }
   },
   "experiments": [
-    "experiments/orchard.json"
+    "experiments/orchard.json",
+    "experiments/relay.json"
   ],
   "suites": [
     {

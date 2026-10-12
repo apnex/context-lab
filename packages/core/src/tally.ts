@@ -11,7 +11,7 @@
 import type { Unit, Absent } from "./blinder.js";
 import type { Vote } from "./judge-panel.js";
 import type { CellRecord } from "./run-conductor.js";
-import type { Scenario } from "./pack-schema.js";
+import { propertiesOf, type Scenario } from "./pack-schema.js";
 
 export interface Rate { mean: number | null; of: number; incomplete: number }
 
@@ -61,14 +61,20 @@ export function tally(t: TallyInput): Result {
 	for (const c of t.cells) {
 		const s = t.scenarios.get(c.scenario)!;
 		const last = c.attempts[c.attempts.length - 1]!;
+		const props = propertiesOf(s);
+		const phased = c.propertyPhases !== undefined;
 		if (!c.valid) {
 			const cause = last.validity.valid ? "unknown" : last.validity.cause;
-			if (cause === "behaviour") cellValues[c.cell] = Object.fromEntries(s.properties.map((p) => [p.id, p.scale[0]]));
-			else excluded.push({ cell: c.cell, cause });
-			continue;
+			if (cause !== "behaviour") { excluded.push({ cell: c.cell, cause }); continue; }
+			// The episode ended on agent behaviour: properties of phases that had already run validly
+			// keep their judged value; the rest score the bottom of their scale. Without phases, all do.
+			if (!phased) { cellValues[c.cell] = Object.fromEntries(props.map((p) => [p.id, p.scale[0]])); continue; }
 		}
 		const v: Record<string, number | "incomplete"> = {};
-		for (const p of s.properties) {
+		for (const p of props) {
+			const state = c.propertyPhases?.[p.id]?.state;
+			if (phased && state === "ended") { v[p.id] = p.scale[0]; continue; }
+			if (phased && state === "incomplete") { v[p.id] = "incomplete"; continue; }
 			if (p.decidedBy === "code") {
 				const cs = c.codeScores.find((x) => x.property === p.id);
 				v[p.id] = cs !== undefined && "value" in cs ? cs.value : "incomplete";
@@ -95,7 +101,7 @@ export function tally(t: TallyInput): Result {
 		return { mean: mean(ok), of: ok.length, incomplete: vals.length - ok.length };
 	};
 	const properties: PropertyResult[] = [];
-	for (const s of t.scenarios.values()) for (const p of s.properties) {
+	for (const s of t.scenarios.values()) for (const p of propertiesOf(s)) {
 		const cells = t.cells.filter((c) => c.scenario === s.id);
 		properties.push({
 			scenario: s.id, property: p.id,

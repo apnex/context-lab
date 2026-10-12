@@ -10,7 +10,7 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import type { LoadedPack, Status } from "./pack-schema.js";
+import { propertiesOf, type LoadedPack, type Status } from "./pack-schema.js";
 
 export interface Record {
 	experiment: string;
@@ -59,7 +59,8 @@ export function hashedParts(loaded: LoadedPack, experimentId: string): Map<strin
 			const root = path.resolve(dir, scenario.fixture);
 			for (const f of filesUnder(root)) parts.set(`fixture:${path.relative(dir, f)}`, fs.readFileSync(f).toString("base64"));
 		}
-		for (const p of scenario.properties) if (p.measure !== undefined) hookIds.add(p.measure);
+		for (const p of propertiesOf(scenario)) if (p.measure !== undefined) hookIds.add(p.measure);
+		for (const ph of scenario.phases ?? []) if (ph.note !== undefined && "generator" in ph.note) hookIds.add(ph.note.generator);
 	}
 	const arms = pack.arms.filter((a) => e.experiment.factors.arms.includes(a.id));
 	const variantIds = new Set(arms.flatMap((a) => a.deliver.map((d) => d.variant)));
@@ -79,6 +80,7 @@ export function hashedParts(loaded: LoadedPack, experimentId: string): Map<strin
 		masks: pack.masks,
 		isolation: pack.isolation,
 		suites: pack.suites.filter((s) => s.experiment === experimentId),
+		comparisons: (pack.comparisons ?? []).filter((c) => c.experiment === experimentId),
 	}));
 	return parts;
 }

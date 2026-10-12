@@ -11,7 +11,7 @@ export const PACK_FILE = "pack.json";
 export const DELIVERY_KINDS = ["instruction", "folder-file", "on-request"] as const;
 export type DeliveryKind = (typeof DELIVERY_KINDS)[number];
 
-export const HOOK_KINDS = ["declaration-check", "variant-transform", "outcome-measure"] as const;
+export const HOOK_KINDS = ["declaration-check", "variant-transform", "outcome-measure", "note-generator"] as const;
 export type HookKind = (typeof HOOK_KINDS)[number];
 
 export const PROPERTY_TYPES = ["adherence", "precision", "comprehension"] as const;
@@ -114,6 +114,8 @@ export interface Pack {
 	suites: Suite[];
 	/** Where run records are written, relative to the pack; the experiment register lives in the pack's own register/ folder. */
 	records: { path: string };
+	/** Comparison rules the pack declares. */
+	comparisons?: Comparison[];
 }
 
 export interface Property {
@@ -133,6 +135,10 @@ export interface Property {
 	answerHeading?: string;
 	/** The question a judge is shown for an answer; the task's text under the answer heading if not given. */
 	question?: string;
+	/** The phase whose outcome the property is judged on; the scenario's last phase if not given. */
+	phase?: string;
+	/** What a judge is shown beside the phase's outcome: the note the phase was given, or the changes it started from. */
+	judgedWith?: ("note" | "start")[];
 }
 
 export interface InlineFixture {
@@ -155,11 +161,58 @@ export interface Scenario {
 	scoredFile?: string;
 	/** Anything a reader of the pack needs to know; never shown to an agent or judge. */
 	notes?: string;
+	/** The scenario's own phases, overriding the experiment's; the first phase's task is the scenario's task. */
+	phases?: ScenarioPhase[];
+	/** Traps declared as pairs of versions, each placed at one of its positions by the rotation rule. */
+	trapPairs?: TrapPair[];
 }
 
 export interface Phase {
 	id: string;
 	session: "new";
+}
+
+/** A phase of an episode. */
+export interface ScenarioPhase {
+	id: string;
+	/** A new session, or the session of the phase it follows, continued. */
+	session: "new" | "continue";
+	/** The phase's task; the first phase's is the scenario's task. */
+	task?: string;
+	/** The phase whose ending state this phase starts from; the phase before it in the list if not given. Phases sharing one are branches. */
+	after?: string;
+	/** The note a new session is given: a file the earlier phase wrote, or the output of a note-generator hook. */
+	note?: { file: string } | { generator: string };
+	/** Files removed from a new session's starting workspace. */
+	withhold?: string[];
+}
+
+export interface TrapVersion {
+	id: string;
+	/** Text placed at the trap's position, a {SLOT:<position>} marker in a phase's task. */
+	text: string;
+	/** Files added to the starting workspace. */
+	files?: Record<string, string>;
+}
+
+export interface TrapPair {
+	id: string;
+	/** Slot names the trap may take, each a {SLOT:<name>} marker in exactly one phase's task. */
+	positions: string[];
+	versions: TrapVersion[];
+	/** Properties judged on whichever phase holds the trap's position in a cell. */
+	properties: Property[];
+}
+
+export interface Comparison {
+	id: string;
+	experiment: string;
+	rule: "aa" | "tolerance" | "improve";
+	base: string;
+	head: string;
+	/** Properties a comparison covers, for the A/A rule; every property of the experiment if not given. */
+	m?: number;
+	tolerance?: number;
 }
 
 export interface Experiment {
@@ -178,6 +231,10 @@ export interface Experiment {
 	judgeInstructions?: string;
 	/** Who judges, and how judges guess the condition; by default the experiment's population, guessing the arm. */
 	judging?: Judging;
+	/** The smallest difference in pass rate the experiment means to detect, and its scope; required to record an experiment declared result. */
+	variation?: { difference: number; scope: "pooled" | "property" };
+	/** The decision taken when no difference is detected. */
+	default?: string;
 	notes?: string;
 }
 
@@ -195,4 +252,25 @@ export interface LoadedPack {
 	dir: string;
 	pack: Pack;
 	experiments: Map<string, { file: string; experiment: Experiment; scenarios: Map<string, { file: string; scenario: Scenario }> }>;
+}
+
+/** A scenario's phases: its own, or the experiment's. */
+export function phasesOf(scenario: Scenario, experiment: Experiment): ScenarioPhase[] {
+	return scenario.phases ?? experiment.phases.map((p) => ({ id: p.id, session: p.session }));
+}
+
+/** Every property of a scenario: its own and its trap pairs'. */
+export function propertiesOf(scenario: Scenario): Property[] {
+	return [...scenario.properties, ...(scenario.trapPairs ?? []).flatMap((t) => t.properties)];
+}
+
+/** The phase a slot sits in: the phase whose task holds {SLOT:name}; the first phase's task is the scenario's. */
+export function phaseOfSlot(scenario: Scenario, phases: ScenarioPhase[], slot: string): string | undefined {
+	const marker = `{SLOT:${slot}}`;
+	return phases.find((p, i) => (i === 0 ? scenario.task : p.task ?? "").includes(marker))?.id;
+}
+
+/** The rotation rule (Delta-2): for run index r from 0, pair index k, member index j. */
+export function rotate(pair: TrapPair, r: number, k: number, j: number): { position: string; version: string } {
+	return { position: pair.positions[(r + k) % pair.positions.length]!, version: pair.versions[(j + r) % pair.versions.length]!.id };
 }

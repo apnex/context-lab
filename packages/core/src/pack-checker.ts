@@ -11,6 +11,7 @@ import { runHook } from "./hook-runner.js";
 import { isContainedRelative, isInside } from "./paths.js";
 import {
 	DECIDERS, DELIVERY_KINDS, EXERCISES_TAG, HOOK_KINDS, PACK_FILE, PACK_SCHEMA, PROPERTY_TYPES, STATUSES,
+	phasesOf, propertiesOf,
 	type Experiment, type LoadedPack, type Pack, type Scenario,
 } from "./pack-schema.js";
 
@@ -34,6 +35,9 @@ export const PACK_CHECKS = {
 	"property-measure": "a code-decided property names an outcome-measure hook, and a judged one names none",
 	"scale": "a property's scale runs from a lower to a higher number",
 	"answer-heading": "a property with an answer heading belongs to a scenario that names a scored file",
+	"phases": "a scenario's phases begin with a new session, follow only earlier phases, take notes only in new sessions, hold at most one continuing branch at a point, and continue only on runtimes that can",
+	"trap-pairs": "every trap pair's positions are slots in exactly one phase's task, with two or more versions, and unique property ids",
+	"comparison-refs": "a comparison names a declared experiment and two of its arms",
 	"suite-experiment": "every suite names a declared experiment",
 	"suite-nonempty": "every suite selects at least one scenario",
 	"regex": "every mask and leak pattern is a valid regular expression",
@@ -95,7 +99,8 @@ function packShape(raw: unknown, out: Defect[]): raw is Pack {
 	if (!shape(raw, "pack", {
 		schema: "string", id: "string", sources: "array", variants: "array", arms: "array", population: "array", hooks: "array",
 		masks: "object", isolation: "object", experiments: "string[]", suites: "array", records: "object",
-	}, {}, out)) return false;
+	}, { comparisons: "array" }, out)) return false;
+	eachShape(raw["comparisons"], "comparisons", { id: "string", experiment: "string", rule: oneOf(["aa", "tolerance", "improve"]), base: "string", head: "string" }, { m: positiveInt, tolerance: "number" }, out);
 	eachShape(raw["sources"], "sources", { id: "string", path: "string", addresses: "string[]" }, { exclude: "string[]" }, out);
 	eachShape(raw["variants"], "variants", { id: "string", source: "string", canaries: "string[]" }, { include: "string[]", transform: "string" }, out);
 	eachShape(raw["arms"], "arms", { id: "string", deliver: "array" }, {}, out);
@@ -116,7 +121,8 @@ function packShape(raw: unknown, out: Defect[]): raw is Pack {
 
 function experimentShape(raw: unknown, where: string, out: Defect[]): raw is Experiment {
 	const before = out.length;
-	if (!shape(raw, where, { id: "string", declaredStatus: oneOf(STATUSES), scenarios: "string[]", factors: "object", runsPerCell: positiveInt, phases: "array" }, { instructions: "string", preamble: "string", judgeInstructions: "string", judging: "object", notes: "string" }, out)) return false;
+	if (!shape(raw, where, { id: "string", declaredStatus: oneOf(STATUSES), scenarios: "string[]", factors: "object", runsPerCell: positiveInt, phases: "array" }, { instructions: "string", preamble: "string", judgeInstructions: "string", judging: "object", notes: "string", variation: "object", default: "string" }, out)) return false;
+	if (isObj(raw["variation"])) shape(raw["variation"], `${where}.variation`, { difference: (v: unknown) => typeof v === "number" && v > 0 && v <= 1, scope: oneOf(["pooled", "property"]) }, {}, out);
 	if (isObj(raw["judging"])) shape(raw["judging"], `${where}.judging`, {}, { judges: "string[]", guessGroups: "object", outcomesPerPrompt: positiveInt }, out);
 	shape(raw["factors"], `${where}.factors`, { arms: "string[]", population: "string[]" }, {}, out);
 	eachShape(raw["phases"], `${where}.phases`, { id: "string", session: oneOf(["new"]) }, {}, out);
@@ -125,8 +131,17 @@ function experimentShape(raw: unknown, where: string, out: Defect[]): raw is Exp
 
 function scenarioShape(raw: unknown, where: string, out: Defect[]): raw is Scenario {
 	const before = out.length;
-	if (!shape(raw, where, { id: "string", tags: "string[]", fixture: fixtureShape, task: "string", properties: "array" }, { heldOut: "boolean", start: "string", scoring: "string", scoredFile: "string", notes: "string" }, out)) return false;
-	eachShape(raw["properties"], `${where}.properties`, { id: "string", type: oneOf(PROPERTY_TYPES), decidedBy: oneOf(DECIDERS), key: "string", scale: pair }, { guidance: "string[]", measure: "string", rubric: "string", notes: "string", answerHeading: "string", question: "string" }, out);
+	if (!shape(raw, where, { id: "string", tags: "string[]", fixture: fixtureShape, task: "string", properties: "array" }, { heldOut: "boolean", start: "string", scoring: "string", scoredFile: "string", notes: "string", phases: "array", trapPairs: "array" }, out)) return false;
+	const propOptional: Record<string, Shape> = { guidance: "string[]", measure: "string", rubric: "string", notes: "string", answerHeading: "string", question: "string", phase: "string", judgedWith: (v: unknown) => Array.isArray(v) && v.every((x) => x === "note" || x === "start") };
+	eachShape(raw["properties"], `${where}.properties`, { id: "string", type: oneOf(PROPERTY_TYPES), decidedBy: oneOf(DECIDERS), key: "string", scale: pair }, propOptional, out);
+	const noteShape = (v: unknown): boolean => isObj(v) && Object.keys(v).length === 1 && (typeof v["file"] === "string" || typeof v["generator"] === "string");
+	eachShape(raw["phases"], `${where}.phases`, { id: "string", session: oneOf(["new", "continue"]) }, { task: "string", after: "string", note: noteShape, withhold: "string[]" }, out);
+	eachShape(raw["trapPairs"], `${where}.trapPairs`, { id: "string", positions: "string[]", versions: "array", properties: "array" }, {}, out);
+	if (Array.isArray(raw["trapPairs"])) raw["trapPairs"].forEach((t, i) => {
+		if (!isObj(t)) return;
+		eachShape(t["versions"], `${where}.trapPairs[${i}].versions`, { id: "string", text: "string" }, { files: (v: unknown) => isObj(v) && Object.values(v).every((x) => typeof x === "string") }, out);
+		eachShape(t["properties"], `${where}.trapPairs[${i}].properties`, { id: "string", type: oneOf(PROPERTY_TYPES), decidedBy: oneOf(DECIDERS), key: "string", scale: pair }, propOptional, out);
+	});
 	return out.length === before;
 }
 
@@ -197,7 +212,14 @@ export function selectScenarios(scenarios: Scenario[], select: { allTags?: strin
 		.map((s) => s.id);
 }
 
-export async function checkPack(packDir: string): Promise<CheckResult> {
+export interface CheckOptions {
+	/** Runtimes and whether each can continue a session; given, a continuing phase on a runtime that cannot is a defect. */
+	continueRuntimes?: Record<string, boolean>;
+	/** The experiments the runtime check applies to; every experiment if not given. */
+	experiments?: string[];
+}
+
+export async function checkPack(packDir: string, options: CheckOptions = {}): Promise<CheckResult> {
 	const dir = path.resolve(packDir);
 	const defects: Defect[] = [];
 	const file = path.join(dir, PACK_FILE);
@@ -282,7 +304,44 @@ export async function checkPack(packDir: string): Promise<CheckResult> {
 				if (!fs.existsSync(f) || !fs.statSync(f).isDirectory()) defects.push({ check: "fixture-dir", where: `scenarios.${sid}`, message: `${scenario.fixture} is not a directory` });
 				else for (const bad of unreadable(f)) defects.push({ check: "fixture-dir", where: `scenarios.${sid}`, message: `${path.relative(dir, bad)} is a link that is broken, loops, or leaves the fixture` });
 			}
-			for (const p of scenario.properties) {
+			const phases = phasesOf(scenario, experiment);
+			const phaseIds = phases.map((p) => p.id);
+			const pd = (message: string): void => { defects.push({ check: "phases", where: `scenarios.${sid}.phases`, message }); };
+			for (const id of duplicates(phaseIds)) pd(`${id} is declared more than once`);
+			phases.forEach((ph, i) => {
+				if (i === 0) {
+					if (ph.session !== "new") pd(`the first phase, ${ph.id}, continues a session`);
+					if (ph.after !== undefined || ph.note !== undefined) pd(`the first phase, ${ph.id}, follows or takes a note from another`);
+					return;
+				}
+				const after = ph.after ?? phases[i - 1]!.id;
+				if (!phaseIds.slice(0, i).includes(after)) pd(`${ph.id} follows ${after}, not an earlier phase`);
+				if (ph.task === undefined) pd(`${ph.id} has no task`);
+				if (ph.session === "continue" && (ph.note !== undefined || ph.withhold !== undefined)) pd(`${ph.id} continues a session, so takes no note and withholds nothing`);
+				if (ph.note !== undefined && "generator" in ph.note && hooks.get(ph.note.generator)?.kind !== "note-generator") pd(`${ph.id}'s note generator ${ph.note.generator} is not a note-generator hook`);
+				if (ph.note !== undefined && "file" in ph.note && !isContainedRelative(ph.note.file)) pd(`${ph.id}'s note file ${ph.note.file} leaves the workspace`);
+				for (const w of ph.withhold ?? []) if (!isContainedRelative(w)) pd(`${ph.id} withholds ${w}, which leaves the workspace`);
+				if (ph.session === "continue" && options.continueRuntimes && (options.experiments === undefined || options.experiments.includes(eid))) {
+					for (const mid of experiment.factors.population) {
+						const rt = pack.population.find((m) => m.id === mid)?.runtime;
+						if (rt !== undefined && options.continueRuntimes[rt] !== true) pd(`${ph.id} continues a session, but member ${mid}'s runtime ${rt} cannot`);
+					}
+				}
+			});
+			const continuing = new Map<string, number>();
+			phases.forEach((ph, i) => { if (i > 0 && ph.session === "continue") { const a = ph.after ?? phases[i - 1]!.id; continuing.set(a, (continuing.get(a) ?? 0) + 1); } });
+			for (const [a, n] of continuing) if (n > 1) pd(`${n} phases continue the session of ${a}; at most one may`);
+			const allProps = propertiesOf(scenario);
+			for (const id of duplicates(allProps.map((p) => p.id))) defects.push({ check: "trap-pairs", where: `scenarios.${sid}`, message: `property ${id} is declared more than once` });
+			for (const t of scenario.trapPairs ?? []) {
+				if (t.versions.length < 2) defects.push({ check: "trap-pairs", where: `scenarios.${sid}.${t.id}`, message: "has fewer than two versions" });
+				for (const pos of t.positions) {
+					const holders = phases.filter((ph, i) => (i === 0 ? scenario.task : ph.task ?? "").includes(`{SLOT:${pos}}`)).length;
+					if (holders !== 1) defects.push({ check: "trap-pairs", where: `scenarios.${sid}.${t.id}`, message: `position ${pos} is a slot in ${holders} phases, not one` });
+				}
+			}
+			for (const p of allProps) if (p.phase !== undefined && !phaseIds.includes(p.phase)) pd(`property ${p.id} names phase ${p.phase}, not one of the scenario's`);
+			for (const p of allProps) {
 				const where = `scenarios.${sid}.${p.id}`;
 				if (p.decidedBy === "code" && hooks.get(p.measure ?? "")?.kind !== "outcome-measure") defects.push({ check: "property-measure", where, message: "is decided by code but names no outcome-measure hook" });
 				if (p.decidedBy === "judge" && p.measure !== undefined) defects.push({ check: "property-measure", where, message: "is judged but names a measure hook" });
@@ -290,6 +349,11 @@ export async function checkPack(packDir: string): Promise<CheckResult> {
 				if (p.answerHeading !== undefined && scenario.scoredFile === undefined) defects.push({ check: "answer-heading", where, message: "names an answer heading, but its scenario names no scored file" });
 			}
 		}
+	}
+	for (const c of pack.comparisons ?? []) {
+		const e = experiments.get(c.experiment);
+		if (!e) defects.push({ check: "comparison-refs", where: `comparisons.${c.id}`, message: `names undeclared experiment ${c.experiment}` });
+		else for (const a of [c.base, c.head]) if (!e.experiment.factors.arms.includes(a)) defects.push({ check: "comparison-refs", where: `comparisons.${c.id}`, message: `names arm ${a}, not one of ${c.experiment}'s` });
 	}
 	for (const s of pack.suites) {
 		const e = experiments.get(s.experiment);

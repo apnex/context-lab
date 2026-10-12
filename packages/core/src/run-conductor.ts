@@ -28,9 +28,13 @@ import { buildVariant, makeWritable, type BuiltVariant, type VariantManifest } f
 import { classify, forbiddenPathsNamed, RERUN, type Validity } from "./validity-classifier.js";
 import { createWorkspace } from "./workspace-builder.js";
 import { isInside } from "./paths.js";
+import { propertyPhase, runEpisode, type PhaseRecord, type TrapAssignment } from "./episode.js";
+import { phasesOf, propertiesOf } from "./pack-schema.js";
 import { blind, type Blinded } from "./blinder.js";
 import { EMPTY_ARM, assignJudges, judgeAll, type Vote } from "./judge-panel.js";
 import { resultMarkdown, tally, type Result } from "./tally.js";
+
+const EMPTY_OUTCOME: Outcome = { final: "", exit: null, signal: null, stop: { reason: "error", inFlight: "none" }, cost: { seconds: 0, inputTokens: null, cachedInputTokens: null, outputTokens: null, toolCalls: 0 }, tools: [], filtered: false, error: null, session: null, trace: [], events: "" };
 
 export const STATES = ["validated", "recorded", "built", "probed", "executed", "measured", "blinded", "judged", "tallied"] as const;
 export type State = (typeof STATES)[number];
@@ -62,6 +66,10 @@ export interface Attempt {
 	workspace?: string;
 	/** Forbidden paths a sandboxed agent named, which did not exist for it. */
 	unreachable?: string[];
+	/** Every phase of the episode, as it ran. */
+	phases?: PhaseRecord[];
+	/** The phase whose agent-behaviour failure ended the episode. */
+	endedAt?: string;
 	/** Set when the attempt could not be completed by the core itself: the adapter or the workspace failed. */
 	failure?: string;
 }
@@ -80,7 +88,15 @@ export interface CellRecord {
 	answers: Record<string, string | null>;
 	diff: string | null;
 	codeScores: CodeScore[];
+	/** The trap versions and positions this cell met. */
+	traps?: TrapAssignment[];
+	/** Per property: the phase it is judged on, and whether that phase ran validly, ended the episode, or is incomplete. */
+	propertyPhases?: Record<string, { phase: string; state: PhaseState }>;
+	/** Per phase of the last attempt that ran: what judges may be shown. */
+	phaseOutcomes?: Record<string, { final: string; diff: string; note: string | null; startDiff: string; scored: string | null; traps: string[] }>;
 }
+
+export type PhaseState = "valid" | "ended" | "incomplete";
 
 export type RunEnd = "completed" | "failed";
 
@@ -164,7 +180,10 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 		states.push({ state: s, at: now().toISOString() });
 	};
 
-	const checked = await checkPack(packDir);
+	// The runtime check applies to the experiment being run, named directly or through its suite.
+	const pre = await checkPack(packDir);
+	const target = opts.experiment ?? (pre.ok ? pre.loaded.pack.suites.find((x) => x.id === opts.suite)?.experiment : undefined);
+	const checked = await checkPack(packDir, { continueRuntimes: Object.fromEntries(Object.entries(opts.adapters).map(([k, a]) => [k, a.continue])), ...(target !== undefined ? { experiments: [target] } : {}) });
 	if (!checked.ok) throw new Error(`the pack fails its check: ${checked.defects.map((d) => `${d.check} ${d.where} ${d.message}`).join("; ")}`);
 	const loaded: LoadedPack = checked.loaded;
 	enter("validated");
@@ -287,55 +306,80 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 	const cellRecords: CellRecord[] = [];
 	await pool(cells, opts.parallel ?? 4, async (c) => {
 		const cell = `${c.scenario.id}.${c.arm.arm}.${c.member.id}.${c.run}`;
+		const phases = phasesOf(c.scenario, exp.experiment);
 		const attempts: Attempt[] = [];
 		let timeouts = 0;
-		let lastWs: { dir: string; init: string } | null = null;
+		let lastPhases: PhaseRecord[] = [];
+		let traps: TrapAssignment[] = [];
+		const adapter = adapterOf(c.member);
+		const sandboxed = adapter.filesystem === "sandboxed";
+		// A cell may touch what its arm was given - its instruction and folder files at their source
+		// paths, which rewritten links in them point at, and its on-request folders - and nothing else
+		// of its variants; and, per phase, its own workspace and invocation folder.
+		const given = [...c.arm.instructions.map((f) => f.path), ...c.arm.folderFiles.map((f) => f.path), ...c.arm.onRequest.map((o) => o.path)];
+		const unreachable: string[] = [];
 		for (let attempt = 1; ; attempt++) {
 			let a: Attempt;
 			try {
-				const ws = createWorkspace(loaded, c.scenario, c.arm, { base: path.join(work, "workspaces"), rulesFiles: adapterOf(c.member).rulesFiles });
-				lastWs = ws;
-				fs.mkdirSync(path.join(work, "invocations"), { recursive: true });
-				const inv = fs.mkdtempSync(path.join(work, "invocations", "i-"));
-				fs.rmdirSync(inv);
-				const outcome = await runPhase({ adapter: adapterOf(c.member), experiment: exp.experiment, scenario: c.scenario, arm: c.arm, member: c.member, workspace: ws.dir, work: inv, timeLimitSeconds });
-				if (outcome.stop.reason === "timeout" && outcome.stop.inFlight === "unknown") timeouts++;
-				// A cell may touch what its arm was given - its instruction and folder files at their source
-				// paths, which rewritten links in them point at, and its on-request folders - and nothing
-				// else of its variants.
-				const given = [...c.arm.instructions.map((f) => f.path), ...c.arm.folderFiles.map((f) => f.path), ...c.arm.onRequest.map((o) => o.path)];
-				const allow = [ws.dir, inv, ...given];
-				const sandboxed = adapterOf(c.member).filesystem === "sandboxed";
-				const validity = classify(outcome, { ...forbiddenBase, allow, sandboxed }, Math.max(1, timeouts));
-				const unreachable = sandboxed ? forbiddenPathsNamed(outcome, { ...forbiddenBase, allow }) : [];
-				let diff: string | null = null;
-				try { diff = diffOf(ws.dir, ws.init); } catch { diff = null; }
-				a = { attempt, validity, outcome, diff, workspace: ws.dir, ...(unreachable.length ? { unreachable } : {}) };
-				if (diff === null && validity.valid) a = { ...a, validity: { valid: false, cause: "behaviour", detail: "the workspace's changes could not be read: the agent removed or broke its repository" } };
+				const ep = await runEpisode({
+					loaded, experiment: exp.experiment, scenario: c.scenario, arm: c.arm, member: c.member, memberIndex: members.indexOf(c.member), run: c.run,
+					adapter, work, key: `${cell}.${attempt}`, timeLimitSeconds, timeouts,
+					classify: (outcome, ws, inv, t) => {
+						const allow = [ws, inv, ...given];
+						if (sandboxed) unreachable.push(...forbiddenPathsNamed(outcome, { ...forbiddenBase, allow }));
+						return classify(outcome, { ...forbiddenBase, allow, sandboxed }, t);
+					},
+				});
+				timeouts = ep.timeouts;
+				lastPhases = ep.phases;
+				traps = ep.phases.flatMap((p) => p.traps);
+				const ran = ep.phases.filter((p) => p.status === "run");
+				const lastRan = ran[ran.length - 1];
+				a = {
+					attempt, validity: ep.validity, outcome: lastRan?.outcome ?? EMPTY_OUTCOME, diff: lastRan?.diff ?? null, workspace: lastRan?.workspace ?? "",
+					phases: ep.phases, ...(ep.endedAt !== undefined ? { endedAt: ep.endedAt } : {}), ...(unreachable.length ? { unreachable: [...new Set(unreachable)] } : {}),
+				};
 			} catch (e) {
 				// The core could not complete the attempt; it is recorded, and the run goes on.
-				const empty: Outcome = { final: "", exit: null, signal: null, stop: { reason: "error", inFlight: "none" }, cost: { seconds: 0, inputTokens: null, cachedInputTokens: null, outputTokens: null, toolCalls: 0 }, tools: [], filtered: false, error: null, session: null, trace: [], events: "" };
-				a = { attempt, validity: { valid: false, cause: "infrastructure", detail: `the attempt failed in the core: ${String(e).slice(0, 300)}` }, outcome: empty, diff: null, failure: String(e).slice(0, 1000) };
+				a = { attempt, validity: { valid: false, cause: "infrastructure", detail: `the attempt failed in the core: ${String(e).slice(0, 300)}` }, outcome: EMPTY_OUTCOME, diff: null, failure: String(e).slice(0, 1000) };
+				lastPhases = [];
 			}
 			attempts.push(a);
 			if (a.validity.valid || !RERUN[a.validity.cause] || attempt >= 2) break;
 		}
 		const last = attempts[attempts.length - 1]!;
 		const marker = loaded.pack.masks.selfExplanationMarker;
+		const byPhase = new Map(lastPhases.map((p) => [p.phase, p]));
+		const stateOf = (phase: string): PhaseState => {
+			const p = byPhase.get(phase);
+			if (p?.status === "run" && p.validity?.valid === true) return last.validity.valid || last.validity.cause === "behaviour" ? "valid" : "incomplete";
+			if (p?.status === "incomplete") return "incomplete";
+			return !last.validity.valid && last.validity.cause === "behaviour" ? "ended" : "incomplete";
+		};
+		const propertyPhases: NonNullable<CellRecord["propertyPhases"]> = {};
+		for (const pr of propertiesOf(c.scenario)) { const ph = propertyPhase(c.scenario, phases, pr.id, traps); propertyPhases[pr.id] = { phase: ph, state: stateOf(ph) }; }
+		const phaseOutcomes: NonNullable<CellRecord["phaseOutcomes"]> = {};
+		for (const p of lastPhases) {
+			if (p.status !== "run" || p.validity?.valid !== true || p.outcome === null) continue;
+			const scoredContent = c.scenario.scoredFile !== undefined && p.snapshot !== null ? readInside(p.snapshot, c.scenario.scoredFile) : null;
+			phaseOutcomes[p.phase] = { final: stripSelfExplanation(p.outcome.final, marker), diff: p.diff ?? "", note: p.note, startDiff: p.startDiff, scored: scoredContent, traps: p.traps.map((t) => t.text) };
+		}
+		const lastRan = [...lastPhases].reverse().find((p) => p.status === "run" && p.snapshot !== null);
 		let scored: CellRecord["scoredFile"] = null;
-		if (c.scenario.scoredFile !== undefined && lastWs !== null) {
-			const content = readInside(lastWs.dir, c.scenario.scoredFile);
-			scored = { path: c.scenario.scoredFile, content, matchesFinal: content !== null && content.trim() === last.outcome.final.trim() };
+		if (c.scenario.scoredFile !== undefined && lastRan !== undefined) {
+			const content = readInside(lastRan.snapshot!, c.scenario.scoredFile);
+			scored = { path: c.scenario.scoredFile, content, matchesFinal: content !== null && content.trim() === (lastRan.outcome?.final ?? "").trim() };
 		}
 		const answers: Record<string, string | null> = {};
-		const headed = c.scenario.properties.filter((p) => p.answerHeading !== undefined);
-		if (headed.length && last.validity.valid) {
-			const split = splitAnswers(scored?.content ?? "", headed.map((p) => p.answerHeading!), marker);
-			for (const p of headed) answers[p.id] = split.get(p.answerHeading!) ?? null;
+		for (const pr of propertiesOf(c.scenario).filter((x) => x.answerHeading !== undefined)) {
+			const pp = propertyPhases[pr.id]!;
+			if (pp.state !== "valid") continue;
+			answers[pr.id] = splitAnswers(phaseOutcomes[pp.phase]?.scored ?? "", [pr.answerHeading!], marker).get(pr.answerHeading!) ?? null;
 		}
 		const cr: CellRecord = {
 			cell, scenario: c.scenario.id, arm: c.arm.arm, member: c.member.id, run: c.run, attempts, valid: last.validity.valid,
 			final: last.validity.valid ? stripSelfExplanation(last.outcome.final, marker) : null, scoredFile: scored, answers, diff: last.diff, codeScores: [],
+			traps, propertyPhases, phaseOutcomes,
 		};
 		cellRecords.push(cr);
 		write(path.join(recordsDir, "cells", `${cell}.json`), cr);
@@ -345,11 +389,16 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 	enter("executed");
 
 	for (const cr of cellRecords) {
-		if (!cr.valid) continue;
 		const scenario = scenarios.find((s) => s.id === cr.scenario)!;
-		// The measure hook gets the outcome unmasked and uncut, as the agent left it.
-		const raw = cr.attempts[cr.attempts.length - 1]!.outcome.final;
-		cr.codeScores = await measure(loaded, scenario, { final: raw, diff: cr.diff ?? "", scored: cr.scoredFile?.content ?? null }, now);
+		const lastAttempt = cr.attempts[cr.attempts.length - 1]!;
+		// Each phase's code-decided properties are measured on that phase's outcome, unmasked and
+		// uncut, as the agent left it; a phase that did not run validly is measured on nothing.
+		for (const p of lastAttempt.phases ?? []) {
+			const props = propertiesOf(scenario).filter((x) => x.decidedBy === "code" && cr.propertyPhases?.[x.id]?.phase === p.phase && cr.propertyPhases[x.id]!.state === "valid");
+			if (!props.length || p.outcome === null) continue;
+			const sub: Scenario = { ...scenario, properties: props, trapPairs: [] };
+			cr.codeScores.push(...await measure(loaded, sub, { final: p.outcome.final, diff: p.diff ?? "", scored: cr.phaseOutcomes?.[p.phase]?.scored ?? null }, now));
+		}
 		write(path.join(recordsDir, "cells", `${cr.cell}.json`), cr);
 	}
 	enter("measured");
