@@ -7,11 +7,18 @@
 // property, since it reached none; a cell invalid for any other cause is excluded and listed; an
 // absent answer scores 0 and is flagged. The tally reads only files, so re-running it on a run
 // record gives the same result.
+//
+// Held-out scenarios' properties are reported only in their own section and count toward no total,
+// no link and no detectable difference; the scenarios exposed to a change, as the register stood
+// when the run began, are listed. The link, restated-guidance flags and detectable difference are
+// diagnostics beside the scores, computed from them and from outcomes, and change none.
 
 import type { Unit, Absent } from "./blinder.js";
 import type { Vote } from "./judge-panel.js";
 import type { CellRecord } from "./run-conductor.js";
-import { propertiesOf, type Scenario } from "./pack-schema.js";
+import { propertiesOf, type Experiment, type Scenario } from "./pack-schema.js";
+import { detectable, linkRates, type Detectable, type LinkRow, type RestatedFlag } from "./measures.js";
+import type { Exposure } from "./experiment-register.js";
 
 export interface Rate { mean: number | null; of: number; incomplete: number }
 
@@ -36,6 +43,21 @@ export interface Result {
 	/** Cells whose sandboxed agent named a forbidden path that did not exist for it. */
 	unreachable: string[];
 	cellValues: Record<string, Record<string, number | "incomplete">>;
+	/** Properties of held-out scenarios, reported here only, and in no total. */
+	heldOut: PropertyResult[];
+	/** Held-out scenarios of this run exposed to a change, as recorded before the run began. */
+	exposed: Exposure[];
+	/** The comprehension-behaviour link, per member, arm and guidance id. */
+	link: LinkRow[];
+	/** Notes and final messages sharing a run of words with a delivered instruction or folder file. */
+	restated: RestatedFlag[];
+	/** The stated variation and default, beside the difference detectable per scope. */
+	variation: {
+		stated: Experiment["variation"] | null;
+		default: string | null;
+		pooled: Detectable | null;
+		byProperty: { scenario: string; property: string; detectable: Detectable | null }[];
+	};
 }
 
 export interface TallyInput {
@@ -50,6 +72,8 @@ export interface TallyInput {
 	votes: Vote[];
 	assigned: (unit: Unit) => string[];
 	guessGroups: Record<string, string[]>;
+	experiment?: { variation?: Experiment["variation"]; default?: string };
+	exposed?: Exposure[];
 }
 
 const mean = (xs: number[]): number | null => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
@@ -100,16 +124,19 @@ export function tally(t: TallyInput): Result {
 		const ok = vals.filter((x): x is number => typeof x === "number");
 		return { mean: mean(ok), of: ok.length, incomplete: vals.length - ok.length };
 	};
-	const properties: PropertyResult[] = [];
+	const all: PropertyResult[] = [];
 	for (const s of t.scenarios.values()) for (const p of propertiesOf(s)) {
 		const cells = t.cells.filter((c) => c.scenario === s.id);
-		properties.push({
+		all.push({
 			scenario: s.id, property: p.id,
 			byArm: Object.fromEntries(t.arms.map((a) => [a, rate(cells.filter((c) => c.arm === a), p.id)])),
 			byArmMember: Object.fromEntries(t.arms.map((a) => [a, Object.fromEntries(t.members.map((m) => [m, rate(cells.filter((c) => c.arm === a && c.member === m), p.id)]))])),
 			agreement: agreement.get(`${s.id}/${p.id}`) ?? { agree: 0, of: 0 },
 		});
 	}
+	const isHeldOut = (sid: string): boolean => t.scenarios.get(sid)?.heldOut === true;
+	const properties = all.filter((p) => !isHeldOut(p.scenario));
+	const heldOut = all.filter((p) => isHeldOut(p.scenario));
 	// A total is shown only when every property has a mean for that arm; it sums each property's own scale.
 	const totals = Object.fromEntries(t.arms.map((a) => [a, properties.every((p) => p.byArm[a]!.mean !== null) ? properties.reduce((sum, p) => sum + p.byArm[a]!.mean!, 0) : null]));
 	const groupOf = (arm: string): string | undefined => Object.entries(t.guessGroups).find(([, arms]) => arms.includes(arm))?.[0];
@@ -130,8 +157,22 @@ export function tally(t: TallyInput): Result {
 	for (const unit of seen.values()) { const g = groupOf(unit.arm) ?? ""; truth.set(g, (truth.get(g) ?? 0) + 1); }
 	if (guesses.all) guesses.baseRate = Math.max(...truth.values()) / guesses.all;
 	const unreachable = t.cells.filter((c) => c.attempts.some((a) => (a.unreachable ?? []).length > 0)).map((c) => c.cell);
-	return { run: t.run, status: t.status, arms: t.arms, members: t.members, properties, totals, excluded, absent: t.absent, guesses, unreachable, cellValues };
+	const mainCells = t.cells.filter((c) => !isHeldOut(c.scenario));
+	const link = linkRates(mainCells, cellValues, t.scenarios, propertiesOf);
+	const valuesOf = (sid: string, pid: string): Record<string, number[]> => Object.fromEntries(t.arms.map((a) => [a, mainCells
+		.filter((c) => c.scenario === sid && c.arm === a && cellValues[c.cell] !== undefined).map((c) => cellValues[c.cell]![pid]).filter((x): x is number => typeof x === "number")]));
+	const mainProps = [...t.scenarios.values()].filter((s) => !s.heldOut).flatMap((s) => propertiesOf(s).map((p) => ({ scenario: s.id, property: p, byArm: valuesOf(s.id, p.id) })));
+	const variation: Result["variation"] = {
+		stated: t.experiment?.variation ?? null, default: t.experiment?.default ?? null,
+		pooled: detectable(mainProps, t.arms),
+		byProperty: mainProps.map((x) => ({ scenario: x.scenario, property: x.property.id, detectable: detectable([x], t.arms) })),
+	};
+	const restated = t.cells.flatMap((c) => c.restated ?? []);
+	const exposed = (t.exposed ?? []).filter((e) => isHeldOut(e.scenario));
+	return { run: t.run, status: t.status, arms: t.arms, members: t.members, properties, totals, excluded, absent: t.absent, guesses, unreachable, cellValues, heldOut, exposed, link, restated, variation };
 }
+
+const dd = (d: Detectable | null): string => (d === null ? "- (an arm has no outcome)" : `${d.difference.toFixed(2)} (p ${d.p.toFixed(2)}, n ${d.n})`);
 
 const fmt = (r: Rate): string => (r.mean === null ? "-" : `${r.mean.toFixed(2)} (${r.of})`) + (r.incomplete ? ` +${r.incomplete} inc` : "");
 
@@ -148,6 +189,22 @@ export function resultMarkdown(r: Result, limits: string[]): string {
 		r.excluded.length ? `Excluded cells: ${r.excluded.map((e) => `${e.cell} (${e.cause})`).join(", ")}.` : "No cell excluded.", "",
 		r.absent.length ? `Absent answers, scored at the bottom of their scale: ${r.absent.map((a) => `${a.cell} ${a.property}`).join(", ")}.` : "No answer absent.", "",
 		r.unreachable.length ? `Sandboxed agents named forbidden paths that did not exist for them, in: ${r.unreachable.join(", ")}.` : "No sandboxed agent named a forbidden path.", "",
+		"## Stated variation", "",
+		r.variation.stated ? `Stated: a difference of ${r.variation.stated.difference} in pass rate, ${r.variation.stated.scope}; default when none is detected: ${r.variation.default ?? "-"}.` : "No variation stated: the experiment is not declared result.",
+		`Detectable at 80% power, 5% two-sided, pooled: ${dd(r.variation.pooled)}.`,
+		...(r.variation.stated?.scope === "property" || r.variation.byProperty.length <= 30 ? ["", "| Scenario | Property | detectable (p, n per arm) |", "|---|---|---|", ...r.variation.byProperty.map((x) => `| ${x.scenario} | ${x.property} | ${dd(x.detectable)} |`)] : []),
+		...(r.variation.stated && r.variation.pooled && r.variation.pooled.difference > r.variation.stated.difference ? ["", `The stated difference is smaller than the pooled detectable one, so a difference of the stated size would usually go undetected here.`] : []),
+		"",
+		"## Held-out scenarios", "",
+		...(r.heldOut.length ? [`| Scenario | Property | ${r.arms.join(" | ")} |`, `|---|---|${r.arms.map(() => "---").join("|")}|`, ...r.heldOut.map((p) => `| ${p.scenario} | ${p.property} | ${r.arms.map((a) => fmt(p.byArm[a]!)).join(" | ")} |`), "", "Counted in no total."] : ["None in this run."]),
+		...(r.exposed.length ? ["", `Exposed to a change: ${r.exposed.map((e) => `${e.scenario} to ${e.change} (recorded ${e.recordedAt})`).join("; ")}.`] : []),
+		"",
+		"## Comprehension and behaviour", "",
+		...(r.link.length ? ["| Member | Arm | Guidance | pairs | met, met | met, not | not, met | neither |", "|---|---|---|---|---|---|---|---|", ...r.link.map((l) => `| ${l.member} | ${l.arm} | ${l.guidance} | ${l.pairs} | ${l.metMet.toFixed(2)} | ${l.metNot.toFixed(2)} | ${l.notMet.toFixed(2)} | ${l.neither.toFixed(2)} |`), "", "A correlation, not a cause."] : ["No episode scored a comprehension and an adherence property naming the same guidance."]),
+		"",
+		"## Restated guidance", "",
+		...(r.restated.length ? [`Diagnostic only; flags change no score. ${r.restated.length} flag(s):`, "", ...r.restated.map((f) => `- ${f.cell}, ${f.phase}, ${f.source} ${f.path}, shares ${f.words.split(" ").length} words with ${f.delivered.file} (${f.delivered.path}): "${f.words}"`)] : ["No note or final message shares a run of twelve words with a delivered file."]),
+		"",
 	];
 	return lines.join("\n");
 }

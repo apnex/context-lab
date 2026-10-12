@@ -195,6 +195,16 @@ Its other findings are fixed and tested, each test failing under a mutant: behav
 A third, narrow pass found F3 and F4 green, F4 pending the director's confirmation of its trap-file clause, and one diagnostic untested - which phase `endedAt` names when two branches fail - now tested.\
 Stage 2 is complete.
 
+**Stage 3.**\
+The result gained four measures, in `packages/core/src/measures.ts` and the tally, none of them a score.\
+The link: per member, arm and guidance id, every pair within one episode of a comprehension and an adherence property naming the id, each with a value, sorted into four rates by the midpoint rule; incomplete values make no pair.\
+Restated-guidance flags: every phase's final message and every note a session was given, against every file delivered as an instruction or folder file, by section 1's words - markdown dropped meaning a link or image keeps its text and loses its target, and an autolink or HTML tag is removed; the flag names the note's file or the final message, the delivered file's name and the path it was delivered from, and the first shared run.\
+Stated variation: `recordExperiment` refuses a result without `variation` or `default`; the result reports the detectable difference pooled and per property, an outcome being one cell run's value on one property as a fraction of its scale, `p` pooling every outcome of every arm, `n` the fewest outcomes of any arm - definitions section 1 left open, chosen here.\
+Held-out scenarios: their properties appear only in the result's held-out section, and count toward no total, link or detectable difference; `context-lab expose <pack> <scenario> <change>` appends one line to the pack's `register/exposure.jsonl`, refusing a scenario not held out; a run snapshots the exposures of its held-out scenarios when it begins, so a later result lists them and a re-tally of an earlier one does not change.\
+The stated variation and exposures are read from the run record, so a re-tally does not depend on the pack.\
+Open, for the director, when it is next recorded: mission-kit's `explain` experiment is declared result and states no variation or default, so recording it again is now refused.\
+293 tests.
+
 ---
 
 ## Adversarial review

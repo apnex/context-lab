@@ -114,6 +114,11 @@ export function recordHistory(loaded: LoadedPack, experimentId: string): Record[
 export function recordExperiment(loaded: LoadedPack, experimentId: string, now: Date = new Date()): Record {
 	const e = loaded.experiments.get(experimentId);
 	if (!e) throw new Error(`no experiment ${experimentId}`);
+	// A result states, before its outcomes exist, what it means to detect and what it decides if it
+	// detects nothing (Delta-2); both sit in the experiment's declaration, so the hash covers them.
+	if (e.experiment.declaredStatus === "result" && (e.experiment.variation === undefined || e.experiment.default === undefined)) {
+		throw new Error(`experiment ${experimentId} is declared result but states no ${e.experiment.variation === undefined ? "variation" : "default"}: a result states the smallest difference it means to detect, and the decision taken when none is detected`);
+	}
 	const rec: Record = { experiment: experimentId, hash: contentHash(loaded, experimentId), recordedAt: now.toISOString(), declaredStatus: e.experiment.declaredStatus };
 	const history = recordHistory(loaded, experimentId);
 	const last = history[history.length - 1];
@@ -138,4 +143,38 @@ export function runStatus(loaded: LoadedPack, experimentId: string): { status: S
 	if (rec === null) return { status: "exploration", reason: "the experiment is not recorded", record: null };
 	if (rec.hash !== contentHash(loaded, experimentId)) return { status: "exploration", reason: "the experiment changed after it was recorded", record: rec };
 	return { status: e.experiment.declaredStatus, reason: "recorded, unchanged", record: rec };
+}
+
+// ---------------------------------------------------------------- exposure of held-out scenarios
+
+export interface Exposure {
+	scenario: string;
+	/** The change whose making was informed by the scenario's outcomes: a revision, a branch or a name. */
+	change: string;
+	recordedAt: string;
+}
+
+/** The exposure register: one JSON line per entry, appended and never rewritten. */
+export const exposureFile = (loaded: LoadedPack): string => path.resolve(loaded.dir, "register", "exposure.jsonl");
+
+export function readExposures(loaded: LoadedPack): Exposure[] {
+	const f = exposureFile(loaded);
+	if (!fs.existsSync(f)) return [];
+	return fs.readFileSync(f, "utf8").split("\n").filter((l) => l.trim() !== "").map((l) => JSON.parse(l) as Exposure);
+}
+
+/** Records that a named change was informed by a held-out scenario's outcomes. */
+export function recordExposure(loaded: LoadedPack, scenario: string, change: string, now: Date = new Date()): Exposure {
+	const declared = [...loaded.experiments.values()].flatMap((e) => [...e.scenarios.values()].map((x) => x.scenario)).filter((x) => x.id === scenario);
+	if (!declared.length) throw new Error(`no scenario ${scenario} in pack ${loaded.pack.id}`);
+	if (!declared.some((x) => x.heldOut === true)) throw new Error(`scenario ${scenario} is not held out, so exposure to a change is not recorded for it`);
+	if (change.trim() === "" || /[\n\r]/.test(change)) throw new Error("the change must be named on one line");
+	const e: Exposure = { scenario, change, recordedAt: now.toISOString() };
+	const history = readExposures(loaded);
+	const last = history[history.length - 1];
+	if (last !== undefined && last.recordedAt >= e.recordedAt) throw new Error(`an exposure at ${last.recordedAt} is not earlier than ${e.recordedAt}`);
+	const f = exposureFile(loaded);
+	fs.mkdirSync(path.dirname(f), { recursive: true });
+	fs.appendFileSync(f, JSON.stringify(e) + "\n");
+	return e;
 }

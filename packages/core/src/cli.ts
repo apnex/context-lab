@@ -6,13 +6,14 @@
 //   context-lab status <pack> <experiment>        the status a run of it would carry now
 //   context-lab suite  <pack> <suite>             the scenarios a suite resolves to
 //   context-lab entries <pack>                    the generated entry-to-scenario view
+//   context-lab expose <pack> <scenario> <change> record that a change was informed by a held-out scenario
 //   context-lab run    <pack> <suite> [--runs N] [--parallel P] [--work DIR]
 //                                                  run a suite on the driven runtimes, to a tallied result
 
-import { checkPack, codexAdapter, conductRun, entryView, opencodeAdapter, recordExperiment, resolveSuite, runStatus, type LoadedPack } from "./index.js";
+import { checkPack, codexAdapter, conductRun, entryView, opencodeAdapter, recordExperiment, recordExposure, resolveSuite, runStatus, type LoadedPack } from "./index.js";
 
-const [cmd, packDir, arg] = process.argv.slice(2);
-const usage = "usage: context-lab check|record|status|suite|entries|run <pack> [experiment|suite] [--runs N] [--parallel P] [--work DIR]";
+const [cmd, packDir, arg, arg2] = process.argv.slice(2);
+const usage = "usage: context-lab check|record|status|suite|entries|expose|run <pack> [experiment|suite|scenario] [change] [--runs N] [--parallel P] [--work DIR]";
 
 async function load(): Promise<LoadedPack> {
 	if (packDir === undefined) throw new Error(usage);
@@ -31,6 +32,7 @@ switch (cmd) {
 	case "record": { const r = recordExperiment(await load(), need(arg)); console.log(`recorded ${r.experiment} ${r.hash}`); break; }
 	case "status": { const s = runStatus(await load(), need(arg)); console.log(`${s.status}: ${s.reason}`); break; }
 	case "suite": { const s = resolveSuite(await load(), need(arg)); console.log(JSON.stringify(s, null, 2)); break; }
+	case "expose": { const e = recordExposure(await load(), need(arg), need(arg2)); console.log(`exposed ${e.scenario} to ${e.change} at ${e.recordedAt}`); break; }
 	case "entries": { console.log(JSON.stringify(Object.fromEntries(entryView(await load())), null, 2)); break; }
 	case "run": {
 		const flag = (n: string): string | undefined => { const i = process.argv.indexOf(n); return i > 0 ? process.argv[i + 1] : undefined; };

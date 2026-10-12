@@ -22,13 +22,15 @@ import { runStatus, type Record as RegisterRecord } from "./experiment-register.
 import { probeArm, type ProbeResult } from "./isolation-prober.js";
 import { splitAnswers, stripSelfExplanation } from "./answer-parser.js";
 import type { Outcome } from "./outcome.js";
-import type { LoadedPack, Member, Scenario, Status } from "./pack-schema.js";
+import type { Experiment, LoadedPack, Member, Scenario, Status } from "./pack-schema.js";
 import { runPhase } from "./phase-driver.js";
 import { buildVariant, makeWritable, type BuiltVariant, type VariantManifest } from "./variant-builder.js";
 import { classify, forbiddenPathsNamed, RERUN, type Validity } from "./validity-classifier.js";
 import { createWorkspace } from "./workspace-builder.js";
 import { isInside } from "./paths.js";
 import { propertyPhase, runEpisode, type PhaseRecord, type TrapAssignment } from "./episode.js";
+import { sharedRun, type RestatedFlag } from "./measures.js";
+import { readExposures, type Exposure } from "./experiment-register.js";
 import { phasesOf, propertiesOf } from "./pack-schema.js";
 import { blind, type Blinded } from "./blinder.js";
 import { EMPTY_ARM, assignJudges, judgeAll, type Vote } from "./judge-panel.js";
@@ -94,6 +96,8 @@ export interface CellRecord {
 	traps?: TrapAssignment[];
 	/** Per property: the phase it is judged on, and whether that phase ran validly, ended the episode, or is incomplete. */
 	propertyPhases?: Record<string, { phase: string; state: PhaseState }>;
+	/** Notes and final messages sharing a run of words with a delivered instruction or folder file; diagnostic only. */
+	restated?: RestatedFlag[];
 	/** Per phase of the last attempt that ran: what judges may be shown. */
 	phaseOutcomes?: Record<string, { final: string; diff: string; note: string | null; startDiff: string; scored: string | null; traps: string[] }>;
 }
@@ -124,7 +128,13 @@ export interface RunRecord {
 	judges: string[];
 	judgeProbes: ProbeResult[];
 	/** What the tally needs, as it stood when the run began, so a re-tally does not depend on the pack. */
-	snapshot: { scenarios: Scenario[]; arms: string[]; population: Member[] };
+	snapshot: {
+		scenarios: Scenario[]; arms: string[]; population: Member[];
+		/** The experiment's stated variation and default. */
+		experiment?: { variation?: Experiment["variation"]; default?: string };
+		/** Exposures of this run's held-out scenarios recorded before it began. */
+		exposed?: Exposure[];
+	};
 	guessGroups: Record<string, string[]>;
 	seed: string;
 	end: RunEnd | null;
@@ -235,7 +245,11 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 		status: statusValue, statusReason, register: status.record, method: methodVersion(), states,
 		variants: {}, arms: {}, probes: [], cells: [], runsPerCell, timeLimitSeconds,
 		population: exp.experiment.factors.population, runtimes: {}, judges: [], judgeProbes: [],
-		snapshot: { scenarios, arms: armIds0, population: loaded.pack.population },
+		snapshot: {
+			scenarios, arms: armIds0, population: loaded.pack.population,
+			experiment: { ...(exp.experiment.variation !== undefined ? { variation: exp.experiment.variation } : {}), ...(exp.experiment.default !== undefined ? { default: exp.experiment.default } : {}) },
+			exposed: readExposures(loaded).filter((e) => scenarios.some((x) => x.id === e.scenario && x.heldOut === true)),
+		},
 		guessGroups: exp.experiment.judging?.guessGroups ?? Object.fromEntries(armIds0.map((a) => [a, [a]])), seed: runId, end: null,
 	};
 	// The record is written at every state and as each cell ends, so a run that stops part way
@@ -378,10 +392,24 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 			if (pp.state !== "valid") continue;
 			answers[pr.id] = splitAnswers(phaseOutcomes[pp.phase]?.scored ?? "", [pr.answerHeading!], marker).get(pr.answerHeading!) ?? null;
 		}
+		// Restated guidance: every final message and every note a session was given, in the last attempt,
+		// against every file delivered to the arm as an instruction or a folder file.
+		const restated: RestatedFlag[] = [];
+		const delivered = [...c.arm.instructions, ...c.arm.folderFiles].map((f) => ({ file: f.file, path: f.path, text: fs.readFileSync(f.path, "utf8") }));
+		for (const p of lastPhases.filter((x) => x.status === "run")) {
+			const decl = phases.find((x) => x.id === p.phase);
+			const texts: { source: "final" | "note"; path: string; text: string }[] = [];
+			if (p.outcome !== null) texts.push({ source: "final", path: `(final message of ${p.phase})`, text: p.outcome.final });
+			if (p.note !== null && p.noteSource !== null) texts.push({ source: "note", path: decl?.note !== undefined && "file" in decl.note ? decl.note.file : `(note from hook ${decl?.note !== undefined && "generator" in decl.note ? decl.note.generator : "?"})`, text: p.note });
+			for (const t of texts) for (const d of delivered) {
+				const run = sharedRun(t.text, d.text);
+				if (run !== null) restated.push({ cell, phase: p.phase, source: t.source, path: t.path, delivered: { file: d.file, path: d.path }, words: run });
+			}
+		}
 		const cr: CellRecord = {
 			cell, scenario: c.scenario.id, arm: c.arm.arm, member: c.member.id, run: c.run, attempts, valid: last.validity.valid,
 			final: last.validity.valid ? stripSelfExplanation(last.outcome.final, marker) : null, scoredFile: scored, answers, diff: last.diff, codeScores: [],
-			traps, propertyPhases, phaseOutcomes,
+			traps, propertyPhases, phaseOutcomes, restated,
 		};
 		cellRecords.push(cr);
 		write(path.join(recordsDir, "cells", `${cell}.json`), cr);
@@ -452,6 +480,7 @@ export function tallyRun(recordsDir: string): Result {
 	const result = tally({
 		run: record.run, status: record.status, arms: record.snapshot.arms, members: record.population, scenarios, cells,
 		units: blinded.units, absent: blinded.absent, votes, assigned: (u) => assignJudges(u, judges).map((j) => j.id), guessGroups: record.guessGroups,
+		...(record.snapshot.experiment !== undefined ? { experiment: record.snapshot.experiment } : {}), exposed: record.snapshot.exposed ?? [],
 	});
 	write(path.join(recordsDir, "RESULT.json"), result);
 	const limits = [
