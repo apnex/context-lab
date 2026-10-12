@@ -74,6 +74,7 @@ const defects: Record<CheckId, ((dir: string) => void)[]> = {
 	"phases": [
 		(d) => editJson(relay(d), (j) => { j.phases[0].session = "continue"; }),
 		(d) => editJson(relay(d), (j) => { j.phases[1].after = "wrap"; }),
+		(d) => editJson(relay(d), (j) => { j.phases[1].after = "ghost"; }),
 		(d) => editJson(relay(d), (j) => { j.phases[3].note = { file: "NOTE.md" }; }),
 		(d) => editJson(relay(d), (j) => { j.phases.push({ id: "wrap-2", session: "continue", after: "resume-own", task: "x" }); }),
 		(d) => editJson(relay(d), (j) => { j.phases[2].note = { generator: "count-words" }; }),

@@ -169,6 +169,19 @@ So mission-kit's backlog row `B3`'s question has an answer for these versions: i
 The adapter conformance cases gained C20 to C25 for continuation, accepted by the verifier after three reviews before any adapter changed; the adapters then gained continuation from a copied store, Codex runs without `--ephemeral` and takes its sandbox mode from configuration, and Delta-1's live configuration checks were re-run under the new configuration and all thirteen pass, recorded in `docs/probes/2026-10-11-config-claims.json` - among them two new checks, that a Codex agent's shell writes only its workspace, and that a continuing Codex invocation's shell writes only its workspace and cannot reach the network, each requiring the forbidden write to have been attempted.\
 Verification found F1 and F2 green and every new protection load-bearing but one, opencode's removal of a login from its kept data folder, now tested.
 
+**Stage 2.**\
+Scenarios may declare phases - a new session from a copy of an earlier phase's ending state, given an own note file or a note-generator hook's output and with named files withheld, or a continuing session in the same workspace - and trap pairs, placed by the rotation rule into `{SLOT:<position>}` markers in phase tasks; properties may name their phase and `judgedWith`; experiments may state a variation and default; packs may declare comparisons.\
+The episode runner is `packages/core/src/episode.ts`; the run conductor runs every cell as an episode, re-running the whole episode on a cause other than behaviour, with open-step timeouts counted across phases and attempts (`0012`).\
+A behaviour failure ends the episode: properties of phases that ran validly keep their values, the rest score the bottom of their scale; a failed note hook leaves its branch, and phases following it, incomplete.\
+Judging is per phase: a unit holds one phase's outcome, with the note or starting changes only where every property in it names them, and one judge prompt holds units of one phase, with that phase's task.\
+mission-kit's pack gained the handoff experiment, the A/A experiment, the `aa-gate` comparison and the `handoff-note` hook (mission-kit `0fa9f7f`, revised in `4aaad8e` and `45a0fc2`).\
+The handoff key was audited by an agent that did not write it (`docs/evals/context-lab/audits/handoff-key.md` in mission-kit), with verdict run after fixes, three blocking findings.\
+The one that reached the core: a resumed session could read withheld files from the copied repository's history and objects.\
+So a new session following another now gets fresh history of one commit, and every state and diff is taken in a ledger repository of the episode's own (`92761ef`), which also means an agent that breaks or deletes its own repository is measured rather than made invalid, a change from Delta-1's rule.\
+The author then replaced the scenario's story, which reused the `A4` trap's call notes almost verbatim against this plan's "a new fixture, not the A4 trap's"; the auditor's re-check ran the core's episode code on the revised scenario against a hostile first phase, confirmed the leak closed, and returned record after fixes with nothing blocking; every finding is disposed of in the audit file.\
+Left open for the director: with one arm and one run per cell, as F13 fixes the experiment, three outcomes per branch cannot detect the stated 0.25 difference.\
+Synthetic fixture: scenario `relay` (four phases, two branches, two trap pairs); 275 tests.
+
 ---
 
 ## Adversarial review

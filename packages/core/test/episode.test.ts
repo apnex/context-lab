@@ -97,7 +97,7 @@ test("F3: a phase invalid for behaviour ends its episode - later phases get no c
 	assert.equal(c.attempts.length, 1, "agent behaviour was re-run");
 	assert.equal(c.attempts[0]!.endedAt, "work");
 	const r = read<{ cellValues: Record<string, Record<string, unknown>> }>(rd, "RESULT.json");
-	for (const p of ["relay-1", "relay-2", "relay-3", "frost-1", "wasp-1"]) assert.equal(r.cellValues["relay.bare.p1.1"]![p], 0);
+	for (const p of ["relay-1", "relay-2", "relay-3", "relay-4", "frost-1", "wasp-1"]) assert.equal(r.cellValues["relay.bare.p1.1"]![p], 0);
 });
 
 test("F3: a later phase failing for behaviour keeps the earlier phases' judged values", async () => {
@@ -166,6 +166,20 @@ test("F6: each property is judged on its phase; no other phase's outcome reaches
 		if (u.properties.includes("relay-3")) { assert.equal(u.phase, "resume-gen"); assert.match(u.text, /CHANGES THIS SESSION STARTED FROM/); assert.equal(u.text.includes("PLAN.txt"), false, "a withheld path reached a judge"); }
 	}
 	assert.ok(prompts.length > 0);
+	// A unit shows a note or starting changes only where every property in it names them.
+	const named = new Map([["relay-2", ["note"]], ["relay-3", ["note", "start"]]]);
+	assert.ok(units.some((u) => u.properties.includes("relay-4")), "no unit of the property that names nothing");
+	for (const u of units) {
+		const withs = u.properties.map((p) => named.get(p) ?? []);
+		assert.equal(u.text.includes("NOTE THIS SESSION WAS GIVEN"), withs.every((w) => w.includes("note")), `note shown wrongly in a unit of ${u.properties}`);
+		assert.equal(u.text.includes("CHANGES THIS SESSION STARTED FROM"), withs.every((w) => w.includes("start")), `start shown wrongly in a unit of ${u.properties}`);
+	}
+	const markers = ["WORK-FINAL-MARKER", "RESUME-OWN-FINAL", "RESUME-GEN-FINAL", "WRAP-FINAL-MARKER"];
+	for (const p of prompts) assert.ok(markers.filter((m) => p.includes(m)).length <= 1, "one judge prompt holds outcomes of two phases");
+	// The note reaches a judge only with the phase that wrote it (in its diff) or the phase whose
+	// property names it; never with the generated branch or the continuing phase.
+	assert.ok(prompts.some((p) => p.includes("RESUME-OWN-FINAL") && p.includes("NOTE THIS SESSION WAS GIVEN ---\nNOTE-MARKER")));
+	for (const p of prompts) if (p.includes("RESUME-GEN-FINAL") || p.includes("WRAP-FINAL-MARKER")) assert.equal(p.includes("NOTE-MARKER"), false, "the own note reached a judge of a phase that does not name it");
 	const first = fs.readFileSync(path.join(rd, "RESULT.json"), "utf8");
 	tallyRun(rd);
 	assert.equal(fs.readFileSync(path.join(rd, "RESULT.json"), "utf8"), first);
@@ -177,3 +191,36 @@ test("a continuing phase on an adapter that cannot continue refuses the run at t
 	const noCont = { ...agent("opencode"), continue: false };
 	await assert.rejects(conductRun(dir, { experiment: "relay", adapters: { opencode: noCont, codex: agent("codex") }, work: path.join(scratch(), "w"), records: path.join(scratch(), "r") }), /cannot/);
 });
+
+for (const [name, body] of [
+	["attempts the network", (port: number) => `import net from "node:net"; await new Promise((res, rej) => { const s = net.connect({ host: "127.0.0.1", port: ${port}, timeout: 3000 }, () => { s.destroy(); res(); }); s.on("error", rej); s.on("timeout", () => rej(new Error("timeout"))); }); console.log(JSON.stringify({ note: "reached" }));\n`],
+	["reads outside its inputs", (_: number, secret: string) => `import fs from "node:fs"; console.log(JSON.stringify({ note: fs.readFileSync(${JSON.stringify(secret)}, "utf8") }));\n`],
+	["writes outside its folder", (_: number, __: string, target: string) => `import fs from "node:fs"; fs.writeFileSync(${JSON.stringify(target)}, "x"); console.log(JSON.stringify({ note: "wrote" }));\n`],
+	["overruns its limit", () => "for (;;) {}\n"],
+] as const) {
+	test(`F4: a note hook that ${name} is stopped; its branch is incomplete, the other judged`, { timeout: 60000 }, async () => {
+		const server = (await import("node:net")).createServer((c) => c.end("open")).listen(0, "127.0.0.1");
+		await new Promise((r) => server.once("listening", r));
+		const port = (server.address() as import("node:net").AddressInfo).port;
+		const elsewhere = scratch();
+		const secret = path.join(elsewhere, "secret.txt");
+		fs.writeFileSync(secret, "SECRET-MARKER");
+		const target = path.join(elsewhere, "written.txt");
+		try {
+			const { rd, A } = await run((d) => {
+				fs.writeFileSync(path.join(d, "hooks", "relay-note.mjs"), body(port, secret, target));
+				editJson(path.join(d, "pack.json"), (j) => { j.hooks.find((h: { id: string }) => h.id === "relay-note").timeLimitSeconds = 2; });
+			});
+			assert.equal(A.calls.length, 3, "the failed branch ran");
+			assert.equal(A.calls.some((c) => c.prompt.includes("SECRET-MARKER") || c.prompt.includes("reached") || c.prompt.includes("wrote")), false);
+			assert.equal(fs.existsSync(target), false, "the hook wrote outside its folder");
+			const c = read<CellRecord>(rd, "cells/relay.bare.p1.1.json");
+			assert.equal(phasesOf(c).find((p) => p.phase === "resume-gen")!.status, "incomplete");
+			const r = read<{ cellValues: Record<string, Record<string, unknown>> }>(rd, "RESULT.json");
+			assert.equal(r.cellValues["relay.bare.p1.1"]!["relay-3"], "incomplete");
+			assert.equal(r.cellValues["relay.bare.p1.1"]!["relay-2"], 1);
+		} finally {
+			server.close();
+		}
+	});
+}
