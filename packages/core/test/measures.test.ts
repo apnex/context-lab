@@ -97,6 +97,8 @@ test("F8: words are runs of letters, digits and apostrophes, lowercased, with ma
 	// A number starting a line mid-paragraph is not a list item, unless it numbers itself 1.
 	assert.deepEqual(words("Graft in spring\n2026. Then prune.\nAnd\n1. one"), ["graft", "in", "spring", "2026", "then", "prune", "and", "one"]);
 	assert.deepEqual(words("text\n\n3. three\n4. four\n- bullet\n5. five"), ["text", "three", "four", "bullet", "five"]);
+	// An item carries across an indented continuation line.
+	assert.deepEqual(words("\n3. a\n   more\n4. b"), ["a", "more", "b"]);
 	assert.deepEqual(words("un*believ*able and **bold**"), ["unbelievable", "and", "bold"]);
 	// An HTML tag is a common element's, on one line: text that merely holds < and > keeps its words.
 	assert.deepEqual(words("<span class=\"x\">hi</span> <BR/> <div\nnot>"), ["hi", "div", "not"]);
@@ -287,6 +289,7 @@ test("F10: held-out properties appear only in the held-out section and in no tot
 	const [main, held] = md.split("## Held-out scenarios");
 	assert.equal(/prune-(1|2|ans)/.test(main!), false, "a held-out property appears outside its section");
 	assert.ok(held!.includes("| prune | prune-1 |"));
+	assert.match(held!, /Absent answers, scored at the bottom of their scale: prune\.[a-z]+\.p\d\.\d prune-ans/);
 
 	// Exposure: appended, never rewriting an earlier entry.
 	C = await loadPack(dir);

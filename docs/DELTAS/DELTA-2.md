@@ -1,7 +1,7 @@
 # Delta-2 - multi-phase episodes and the change gate - a vertical slice
 
 ```yaml
-status:     ratified (docs/DECISIONS.md 0019, amended 0020) - revision 3; stage 3 open
+status:     ratified (docs/DECISIONS.md 0019, amended 0020) - revision 3; stage 4 open
 selected:   docs/DECISIONS.md 0018, board items M2.1, M2.2, M2.3
 from-state: Delta-1's to-state (0017): one-phase experiments, isolation probed, judged, tallied
 to-state:   docs/ARCHITECTURE-TARGET.md (0006), the parts fenced in section 1
@@ -208,6 +208,9 @@ Both are now kept apart; the HTML-tag step no longer crosses lines or swallows t
 The pooled detectable difference counts the outcomes of one cell run as independent, which they are not, so it understates the difference truly detectable; the result says so.\
 A second pass found held-out absent answers still in the main absent list, now kept apart; and two word steps reaching past markdown - a line merely beginning with a bracketed label read as a reference definition, and a number starting a line mid-paragraph read as a list item - now held to markdown's own conditions; each with a test that fails under its mutant.\
 293 tests.
+A third pass found F7 to F10's result clause green; two behaviours it found untested are now tested.\
+Known divergences of the list-number step from markdown, accepted as minor for a twelve-word copy check: an item's unindented wrapped line does not carry the item, so a following number is kept; a year starting a line after a bullet loses its number; a reference definition with a space inside angle brackets is kept.\
+Stage 3 is complete.
 
 ---
 
