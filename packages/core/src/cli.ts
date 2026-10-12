@@ -44,8 +44,9 @@ switch (cmd) {
 	case "thresholds": {
 		const l = await load();
 		const c = comparisonOf(l, need(arg));
-		assertIdenticalArms(l, c);
-		const set = deriveThresholds(readTable(need(arg2)), c);
+		const table = readTable(need(arg2));
+		assertIdenticalArms(l, c, table.record);
+		const set = deriveThresholds(table, c);
 		recordThresholds(l, set);
 		console.log(JSON.stringify(set, null, 2));
 		break;

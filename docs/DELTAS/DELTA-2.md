@@ -1,7 +1,7 @@
 # Delta-2 - multi-phase episodes and the change gate - a vertical slice
 
 ```yaml
-status:     ratified (docs/DECISIONS.md 0019, amended 0020) - revision 3; stage 4 open
+status:     ratified (docs/DECISIONS.md 0019, amended 0020) - revision 3; stage 5 open
 selected:   docs/DECISIONS.md 0018, board items M2.1, M2.2, M2.3
 from-state: Delta-1's to-state (0017): one-phase experiments, isolation probed, judged, tallied
 to-state:   docs/ARCHITECTURE-TARGET.md (0006), the parts fenced in section 1
@@ -224,7 +224,10 @@ It now compares members as declared - id, family, runtime, model and settings.\
 Also fixed from its findings: the A/A rule reads three runs in its first stage and nine for persistence, refusing other counts; a property absent from the head under the A/A rule persists when it is absent at nine too, so F15's count includes it; the deriver takes only a run of nine runs per cell, and `context-lab thresholds` refuses a comparison whose two arms deliver different things; the run command's flags are read by a tested function.\
 Tested from its findings, each test failing under a mutant: `--revision` and a variant's own revision, which wins; boundaries, a drop equal to a threshold or tolerance not flagging; exposures from either side; nine-run inputs of other scenarios refused; a scenario with no present runs refused; held-out properties out of the deriver.\
 Accepted: the comparator does not check that two arms of one run differ only in variant revision - a gate's two arms differ in their variants by design, and section 1's refusals name scenarios, population, runs per cell and trap assignment.\
-306 tests.
+A second pass found F11, F12 and F10's comparison clause green, and stage 5 workable with mission-kit's pack, by a dry run of the F14 and F15 commands on a synthetic experiment of the same shape.\
+Its three minor findings are closed: the runs counted are at most those the record holds; `context-lab thresholds` refuses a run whose experiment has changed since it was recorded, so the arms it checks are the run's; and that command's arms check is tested through the command line.\
+307 tests.\
+Stage 4 is complete.
 
 ---
 

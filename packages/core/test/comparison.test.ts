@@ -156,7 +156,7 @@ test("F11: thresholds, the two-stage rate and the drift rank equal an independen
 //   graft-1  base 1 always; head 1, but 0 at p2's run 7          -> a small drop, outside runs 1-3
 //   graft-2  base 1 always; head 1 for p1, 0 for p2              -> a drop, in family f2 only
 //   prune-1  base 2 always; head 0 always                        -> the largest drop
-async function gateRun(edit?: (dir: string) => void, plan?: (s: string, a: string, m: string, r: number) => Plan) {
+async function gateRun(edit?: (dir: string) => void, plan?: (s: string, a: string, m: string, r: number) => Plan, record = false) {
 	const dir = copyPack();
 	editJson(path.join(dir, "experiments", "orchard.json"), (j) => { j.runsPerCell = 9; });
 	editJson(path.join(dir, "pack.json"), (j) => { j.comparisons = [
@@ -165,6 +165,7 @@ async function gateRun(edit?: (dir: string) => void, plan?: (s: string, a: strin
 		{ id: "imp", experiment: "orchard", rule: "improve", base: "bare", head: "almanac" },
 	]; });
 	edit?.(dir);
+	if (record) recordExperiment(await loadPack(dir), "orchard");
 	commitAll(dir);
 	const p = plan ?? ((s: string, a: string, m: string, r: number): Plan => a === "bare" ? { graft1: 1, graft2: 1, prune1: 2 } : { graft1: m === "p2" && r === 7 ? 0 : 1, graft2: m === "p2" ? 0 : 1, prune1: 0 });
 	const { dir: rd } = await conductRun(dir, { experiment: "orchard", adapters: { opencode: scripted("opencode", p), codex: scripted("codex", p) }, work: path.join(scratch(), "w"), records: path.join(scratch(), "r"), parallel: 1 });
@@ -421,4 +422,22 @@ test("--revision and a variant's own revision pin what a run delivers; the varia
 	const own = await go(second);
 	assert.equal(own.rev, sha(first), "the run's revision overrode the variant's own");
 	assert.equal(own.delivered.includes("REVISION-B-MARKER"), false);
+});
+
+test("the runs counted are those the record holds; the thresholds command checks the arms, as they were at the run", { timeout: 180000 }, async () => {
+	const two = await gateRun((d) => editJson(path.join(d, "experiments", "orchard.json"), (j) => { j.runsPerCell = 2; }));
+	assert.throws(() => compare({ comparison: rule(two.loaded, "aa"), base: { dir: two.rd, arm: "bare", runs: 3 }, head: { dir: two.rd, arm: "almanac", runs: 3 }, thresholds: hand(1, 4) }), /reads 3 runs per cell, not 2/);
+	const cli = path.join(packageRoot, "dist", "src", "cli.js");
+	const { spawnSync } = await import("node:child_process");
+	// gateRun's aa comparison is bare against almanac: not identical.
+	const g = await gateRun(undefined, undefined, true);
+	const diff = spawnSync(process.execPath, [cli, "thresholds", g.dir, "aa", g.rd], { encoding: "utf8" });
+	assert.notEqual(diff.status, 0);
+	assert.match(diff.stderr, /deliver different things/);
+	// The twin run is identical-armed; once its experiment changes after the run, it is refused.
+	const { dir, rd } = await aaRun();
+	editJson(path.join(dir, "experiments", "twin.json"), (j) => { j.notes = "changed after the run"; });
+	const changed = spawnSync(process.execPath, [cli, "thresholds", dir, "twin-gate", rd], { encoding: "utf8" });
+	assert.notEqual(changed.status, 0);
+	assert.match(changed.stderr, /has changed since run/);
 });

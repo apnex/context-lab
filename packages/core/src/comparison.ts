@@ -18,7 +18,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { rng, shuffleWith } from "./blinder.js";
-import type { Exposure } from "./experiment-register.js";
+import { contentHash, type Exposure } from "./experiment-register.js";
 import { propertiesOf, type Comparison, type LoadedPack, type Property, type Scenario } from "./pack-schema.js";
 import { tallyRun, type CellRecord, type RunRecord } from "./run-conductor.js";
 import type { Result } from "./tally.js";
@@ -170,7 +170,9 @@ export function deriveThresholds(table: Table, comparison: Comparison, now: Date
 }
 
 /** Refuses a comparison whose two arms deliver different things: an A/A run's arms are identical. */
-export function assertIdenticalArms(loaded: LoadedPack, comparison: Comparison): void {
+export function assertIdenticalArms(loaded: LoadedPack, comparison: Comparison, run?: RunRecord): void {
+	// The arms read are the pack's now; they are the run's only if the experiment is unchanged since the run's record.
+	if (run !== undefined && (run.register === null || run.register.hash !== contentHash(loaded, comparison.experiment))) throw new Error(`the pack's experiment ${comparison.experiment} has changed since run ${run.run} was recorded, so its arms may not be the run's`);
 	const deliver = (id: string): string => canonical(loaded.pack.arms.find((a) => a.id === id)?.deliver ?? null);
 	if (deliver(comparison.base) !== deliver(comparison.head)) throw new Error(`arms ${comparison.base} and ${comparison.head} deliver different things, so a run of them is not an A/A run`);
 }
@@ -268,7 +270,8 @@ export function compare(input: CompareInput): ComparisonResult {
 	const main = props.filter((p) => !p.heldOut);
 	if (c.rule === "aa") {
 		// The A/A rule's first stage reads three runs per cell, and persistence reads nine.
-		const counted = (s: Side, t: Table): number => s.runs ?? t.record.runsPerCell;
+		// The runs counted are those the record holds, at most: a restriction past them counts no more.
+		const counted = (s: Side, t: Table): number => Math.min(s.runs ?? t.record.runsPerCell, t.record.runsPerCell);
 		if (counted(input.base, base) !== 3) throw new Error(`the A/A rule's first stage reads 3 runs per cell, not ${counted(input.base, base)}: restrict the tally to runs 1 to 3`);
 		if (nine && (counted(input.nine!.base, nine.base) !== 9 || counted(input.nine!.head, nine.head) !== 9)) throw new Error("the A/A rule reads persistence at 9 runs per cell");
 		if (!input.thresholds) throw new Error(`the A/A rule needs a threshold set`);
