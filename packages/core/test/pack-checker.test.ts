@@ -73,6 +73,8 @@ const defects: Record<CheckId, ((dir: string) => void)[]> = {
 	"scale": [(d) => editJson(graft(d), (j) => { j.properties[0].scale = [1, 0]; })],
 	"phases": [
 		(d) => editJson(relay(d), (j) => { j.phases[0].session = "continue"; }),
+		(d) => editJson(relay(d), (j) => { j.phases[0].task = "a task of its own"; }),
+		(d) => editJson(relay(d), (j) => { j.phases[0].withhold = ["PLAN.txt"]; }),
 		(d) => editJson(relay(d), (j) => { j.phases[1].after = "wrap"; }),
 		(d) => editJson(relay(d), (j) => { j.phases[1].after = "ghost"; }),
 		(d) => editJson(relay(d), (j) => { j.phases[3].note = { file: "NOTE.md" }; }),

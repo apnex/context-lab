@@ -132,6 +132,26 @@ test("F4 (0020): each branch starts from the earlier phase's ending tree less ex
 	}
 });
 
+test("F4: a branch holding a trap's position starts from the earlier end, less its withheld files, plus that version's files", async () => {
+	const dir = copyPack();
+	commitAll(dir);
+	const { dir: rd, record } = await conductRun(dir, { experiment: "relay", adapters: { opencode: agent("opencode"), codex: agent("codex") }, work: path.join(scratch(), "work"), records: path.join(scratch(), "records") });
+	let withTrap = 0;
+	for (const cell of record.cells) {
+		const c = read<CellRecord>(rd, `cells/${cell}.json`);
+		const last = c.attempts[c.attempts.length - 1]!;
+		const ph = Object.fromEntries(last.phases!.map((p) => [p.phase, p]));
+		for (const b of ["resume-own", "resume-gen"]) {
+			const files = c.traps!.filter((t) => t.phase === b && t.pair === "frost" && t.version === "b").map(() => "A\tFORECAST.txt");
+			const expected = [...files, "D\tNOTE.md", "D\tPLAN.txt"].sort().join("\n");
+			const changes = execFileSync("git", ["--git-dir", last.ledger!, "diff", "--name-status", ph["work"]!.endTree!, ph[b]!.startTree], { encoding: "utf8" }).trim().split("\n").sort().join("\n");
+			assert.equal(changes, expected, `${cell} ${b}`);
+			withTrap += files.length;
+		}
+	}
+	assert.ok(withTrap > 0, "no branch held a trap file, so the clause was not exercised");
+});
+
 test("F4: branches start from the same state; own and generated notes; a missing own note", async () => {
 	const { rd, A } = await run(undefined, { noNote: true });
 	const c = read<CellRecord>(rd, "cells/relay.bare.p1.1.json");
@@ -308,4 +328,22 @@ test("0012 counts open-step timeouts across phases and attempts: the second, in 
 	assert.equal(c.attempts[0]!.validity.valid === false && c.attempts[0]!.validity.cause, "infrastructure");
 	assert.equal(c.attempts[1]!.validity.valid === false && c.attempts[1]!.validity.cause, "behaviour");
 	assert.equal(c.attempts[1]!.endedAt, "work");
+});
+
+test("0020: behaviour in one branch, then infrastructure in the other, re-runs the whole episode", async () => {
+	let filtered = false;
+	const { rd, A } = await run(undefined, { work: (inv) => {
+		if (inv.prompt.includes("NOTE-MARKER")) return outcome("");
+		if (inv.prompt.includes("Files changed in the earlier session") && !filtered) { filtered = true; return outcome("", { filtered: true }); }
+		return null;
+	} });
+	const c = read<CellRecord>(rd, "cells/relay.bare.p1.1.json");
+	assert.equal(c.attempts.length, 2, "the episode was not attempted again");
+	assert.equal(c.attempts[0]!.validity.valid === false && c.attempts[0]!.validity.cause, "infrastructure");
+	assert.equal(c.attempts[0]!.endedAt, undefined, "an attempt invalid for infrastructure records a behaviour ending");
+	assert.equal(c.attempts[1]!.validity.valid === false && c.attempts[1]!.validity.cause, "behaviour");
+	assert.equal(c.attempts[1]!.endedAt, "resume-own");
+	assert.equal(A.calls.length, 6);
+	const v = read<{ cellValues: Record<string, Record<string, unknown>> }>(rd, "RESULT.json").cellValues["relay.bare.p1.1"]!;
+	assert.deepEqual([v["relay-1"], v["relay-2"], v["relay-3"]], [1, 0, 1]);
 });

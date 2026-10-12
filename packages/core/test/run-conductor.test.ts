@@ -328,12 +328,14 @@ test("reading the arm's own variant, as a rewritten link leads an agent to, is n
 test("a sandboxed runtime naming a forbidden path is recorded, not invalid; a forbidden address still is", async () => {
 	const { dir, work, records } = await setup(narrow);
 	const a = scripted("opencode", (_inv, n) => outcome("done", { tools: [
-		{ name: "bash", input: {}, status: "error", paths: [path.join(dir, "scenarios", "graft.json")], addresses: n === 1 ? ["https://example.invalid/almanac"] : [] },
+		{ name: "bash", input: {}, status: "error", paths: [path.join(dir, "scenarios", n === 1 ? "prune.json" : "graft.json")], addresses: n === 1 ? ["https://example.invalid/almanac"] : [] },
 	] }));
 	a.filesystem = "sandboxed";
 	await conductRun(dir, { experiment: "orchard", adapters: { opencode: a }, work, records });
 	const [c] = cellsOf(records);
 	assert.deepEqual(c!.attempts.map((x) => x.validity.valid ? "valid" : x.validity.cause), ["isolation", "valid"]);
+	// Each attempt records the paths it named, and no earlier attempt's.
+	assert.deepEqual(c!.attempts[0]!.unreachable, [path.join(dir, "scenarios", "prune.json")]);
 	assert.deepEqual(c!.attempts[1]!.unreachable, [path.join(dir, "scenarios", "graft.json")]);
 });
 

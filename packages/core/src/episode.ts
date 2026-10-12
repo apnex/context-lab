@@ -287,7 +287,10 @@ export async function runEpisode(r: EpisodeRun): Promise<EpisodeResult> {
 				if (episode.valid) episode = rec.validity;
 				continue;
 			}
+			// Any other cause makes the attempt invalid for it, and the whole episode is attempted again;
+			// a behaviour failure earlier in the attempt ended nothing that will be kept.
 			episode = rec.validity;
+			endedAt = undefined;
 			break;
 		}
 	}
