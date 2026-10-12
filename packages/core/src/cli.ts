@@ -15,10 +15,11 @@
 //                                                  run a suite on the driven runtimes, to a tallied result
 
 import fs from "node:fs";
-import { checkPack, codexAdapter, compare, conductRun, deriveThresholds, entryView, opencodeAdapter, readTable, readThresholds, recordExperiment, recordExposure, recordThresholds, resolveSuite, runStatus, type LoadedPack } from "./index.js";
+import { assertIdenticalArms, checkPack, codexAdapter, compare, conductRun, deriveThresholds, entryView, opencodeAdapter, readTable, readThresholds, recordExperiment, recordExposure, recordThresholds, resolveSuite, runStatus, type LoadedPack } from "./index.js";
 
 const [cmd, packDir, arg, arg2] = process.argv.slice(2);
 const usage = "usage: context-lab check|record|status|suite|entries|expose|thresholds|compare|run <pack> [experiment|suite|scenario|comparison] [change|run-dir] [--runs N] [--parallel P] [--work DIR] [--revision REV]";
+import { runFlags } from "./cli-flags.js";
 const flag = (n: string): string | undefined => { const i = process.argv.indexOf(n); return i > 0 ? process.argv[i + 1] : undefined; };
 const comparisonOf = (l: LoadedPack, id: string) => { const c = (l.pack.comparisons ?? []).find((x) => x.id === id); if (!c) { console.error(`no comparison ${id} in pack ${l.pack.id}`); process.exit(2); } return c; };
 
@@ -42,7 +43,9 @@ switch (cmd) {
 	case "expose": { const e = recordExposure(await load(), need(arg), need(arg2)); console.log(`exposed ${e.scenario} to ${e.change} at ${e.recordedAt}`); break; }
 	case "thresholds": {
 		const l = await load();
-		const set = deriveThresholds(readTable(need(arg2)), comparisonOf(l, need(arg)));
+		const c = comparisonOf(l, need(arg));
+		assertIdenticalArms(l, c);
+		const set = deriveThresholds(readTable(need(arg2)), c);
 		recordThresholds(l, set);
 		console.log(JSON.stringify(set, null, 2));
 		break;
@@ -65,12 +68,7 @@ switch (cmd) {
 	}
 	case "entries": { console.log(JSON.stringify(Object.fromEntries(entryView(await load())), null, 2)); break; }
 	case "run": {
-		const runs = flag("--runs"), parallel = flag("--parallel"), work = flag("--work"), revision = flag("--revision");
-		const { dir, record } = await conductRun(packDir ?? "", {
-			suite: need(arg), adapters: { opencode: opencodeAdapter(), codex: codexAdapter() },
-			...(runs !== undefined ? { runsPerCell: Number(runs) } : {}), ...(parallel !== undefined ? { parallel: Number(parallel) } : {}), ...(work !== undefined ? { work } : {}),
-			...(revision !== undefined ? { revision } : {}),
-		});
+		const { dir, record } = await conductRun(packDir ?? "", { suite: need(arg), adapters: { opencode: opencodeAdapter(), codex: codexAdapter() }, ...runFlags(process.argv) });
 		console.log(`run ${record.run}: ${record.status} (${record.statusReason}); ${record.cells.length} cell(s); probes ${record.probes.filter((p) => p.pass).length}/${record.probes.length} passed; record at ${dir}`);
 		break;
 	}

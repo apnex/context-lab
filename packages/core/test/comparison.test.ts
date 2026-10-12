@@ -15,7 +15,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import {
-	CANARY_QUESTION, checkPack, compare, standardisedDrop, conductRun, deriveThresholds, readTable, readThresholds, recordExperiment, recordExposure, recordThresholds, tallyRun,
+	CANARY_QUESTION, assertIdenticalArms, checkPack, compare, runFlags, standardisedDrop, conductRun, deriveThresholds, readTable, readThresholds, recordExperiment, recordExposure, recordThresholds, tallyRun,
 	type Adapter, type CellRecord, type Comparison, type Invocation, type Outcome, type ThresholdSet,
 } from "../src/index.js";
 import { commitAll, copyPack, editJson, packageRoot, scratch } from "./helpers.js";
@@ -219,8 +219,11 @@ test("F12: a property absent from the head, or with no mean there, counts as a d
 	fs.writeFileSync(votesFile, JSON.stringify(read<{ unit: string; property: string }[]>(rd, "judging/votes.json").filter((v) => !(headGraft.has(v.unit) && v.property === "graft-1"))));
 	tallyRun(rd);
 	for (const id of ["tol", "aa", "imp"]) {
-		const r = compare({ comparison: rule(loaded, id), base: { dir: rd, arm: "bare" }, head: { dir: rd, arm: "almanac" }, ...(id === "aa" ? { thresholds: hand(100, 100) } : {}) });
+		const k = id === "aa" ? { runs: 3 } : {};
+		const r = compare({ comparison: rule(loaded, id), base: { dir: rd, arm: "bare", ...k }, head: { dir: rd, arm: "almanac", ...k }, ...(id === "aa" ? { thresholds: hand(100, 100), nine: { base: { dir: rd, arm: "bare" }, head: { dir: rd, arm: "almanac" } } } : {}) });
 		const f = Object.fromEntries(r.flags.map((x) => [x.property, x.reason]));
+		// Absent at nine too, so under the A/A rule the drop persists.
+		if (id === "aa") assert.deepEqual(r.flags.map((x) => [x.property, x.persisting]).sort(), [["graft-1", true], ["prune-1", true]]);
 		assert.match(f["prune-1"] ?? "", /absent from the head/, `${id}: ${JSON.stringify(r.flags)}`);
 		assert.match(f["graft-1"] ?? "", /no mean/, `${id}: ${JSON.stringify(r.flags)}`);
 		assert.equal(f["graft-2"], undefined, `${id}: graft-2 did not drop`);
@@ -252,9 +255,10 @@ test("F12: the comparator refuses inputs differing in scenarios, population, run
 	editJson(cellFile, (j) => { j.traps = [{ pair: "x", version: "b", position: "early", phase: "work", text: "t" }]; });
 	refuses(t, /differ in trap assignment/);
 	// Thresholds of another m.
-	assert.throws(() => compare({ comparison: rule(a.loaded, "aa"), base: { dir: a.rd, arm: "bare" }, head: { dir: a.rd, arm: "almanac" }, thresholds: hand(1, 4, 16) }), /m is 16, but 3 properties are compared/);
-	assert.throws(() => compare({ comparison: rule(a.loaded, "aa"), base: { dir: a.rd, arm: "bare" }, head: { dir: a.rd, arm: "almanac" } }), /needs a threshold set/);
-	assert.throws(() => compare({ comparison: rule(a.loaded, "aa"), base: { dir: a.rd, arm: "bare" }, head: { dir: a.rd, arm: "almanac" }, thresholds: { ...hand(1, 4), experiment: "twin" } }), /threshold set is of experiment twin/);
+	const three = { base: { dir: a.rd, arm: "bare", runs: 3 }, head: { dir: a.rd, arm: "almanac", runs: 3 } };
+	assert.throws(() => compare({ comparison: rule(a.loaded, "aa"), ...three, thresholds: hand(1, 4, 16) }), /m is 16, but 3 properties are compared/);
+	assert.throws(() => compare({ comparison: rule(a.loaded, "aa"), ...three }), /needs a threshold set/);
+	assert.throws(() => compare({ comparison: rule(a.loaded, "aa"), ...three, thresholds: { ...hand(1, 4), experiment: "twin" } }), /threshold set is of experiment twin/);
 });
 
 // ---------------------------------------------------------------- F10, comparison clause
@@ -265,13 +269,18 @@ test("F10: a comparison reports held-out properties only in its held-out section
 	recordExposure(loaded, "prune", "rev-9", new Date("2026-10-12T09:00:00Z"));
 	const later = (await conductRun(dir, { experiment: "orchard", adapters: { opencode: scripted("opencode", (_s, a, m) => a === "bare" ? { graft1: 1, graft2: 1, prune1: 2 } : { graft1: 1, graft2: m === "p2" ? 0 : 1, prune1: 0 }), codex: scripted("codex", (_s, a, m) => a === "bare" ? { graft1: 1, graft2: 1, prune1: 2 } : { graft1: 1, graft2: m === "p2" ? 0 : 1, prune1: 0 }) }, work: path.join(scratch(), "w"), records: path.join(scratch(), "r"), parallel: 1 })).dir;
 	for (const id of ["tol", "aa", "imp"]) {
-		const r = compare({ comparison: rule(loaded, id), base: { dir: rd, arm: "bare" }, head: { dir: rd, arm: "almanac" }, ...(id === "aa" ? { thresholds: hand(1, 4, 2) } : {}) });
+		const k = id === "aa" ? { runs: 3 } : {};
+		const aaOpts = (base: string, head: string) => (id === "aa" ? { thresholds: hand(1, 4, 2), nine: { base: { dir: base, arm: "bare" }, head: { dir: head, arm: "almanac" } } } : {});
+		const r = compare({ comparison: rule(loaded, id), base: { dir: rd, arm: "bare", ...k }, head: { dir: rd, arm: "almanac", ...k }, ...aaOpts(rd, rd) });
 		assert.equal(r.flags.some((f) => f.scenario === "prune"), false, `${id}: a held-out property among the main flags`);
 		assert.deepEqual(r.heldOut.properties, ["prune/prune-1"]);
 		assert.deepEqual(r.heldOut.flags.map((f) => f.property), ["prune-1"], id);
 		assert.deepEqual(r.exposed, [], "the earlier run lists an exposure recorded after it began");
-		const r2 = compare({ comparison: rule(loaded, id), base: { dir: later, arm: "bare" }, head: { dir: later, arm: "almanac" }, ...(id === "aa" ? { thresholds: hand(1, 4, 2) } : {}) });
+		const r2 = compare({ comparison: rule(loaded, id), base: { dir: later, arm: "bare", ...k }, head: { dir: later, arm: "almanac", ...k }, ...aaOpts(later, later) });
 		assert.deepEqual(r2.exposed.map((e) => [e.scenario, e.change]), [["prune", "rev-9"]]);
+		// An exposure the head's run lists is listed, whichever side lists it.
+		const r3 = compare({ comparison: rule(loaded, id), base: { dir: rd, arm: "bare", ...k }, head: { dir: later, arm: "almanac", ...k }, ...aaOpts(rd, later) });
+		assert.deepEqual(r3.exposed.map((e) => [e.scenario, e.change]), [["prune", "rev-9"]]);
 	}
 });
 
@@ -314,7 +323,7 @@ test("F11: on continuous values, with incomplete values and a missing run, the d
 	const table = {
 		dir: "", result: {} as never, keys: new Map(), cells,
 		properties: props.map((p) => ({ scenario: p.scenario, id: p.id, property: property(p.id), heldOut: false })),
-		record: { run: "fixture", experiment: "e", register: { experiment: "e", hash: "continuous-fixture-hash", recordedAt: "", declaredStatus: "result" }, population: ["m3", "m1", "m2"], snapshot: { arms: ["A", "B"] } } as never,
+		record: { run: "fixture", experiment: "e", runsPerCell: 9, register: { experiment: "e", hash: "continuous-fixture-hash", recordedAt: "", declaredStatus: "result" }, population: ["m3", "m1", "m2"], snapshot: { arms: ["A", "B"] } } as never,
 	};
 	const set = deriveThresholds(table, { id: "g", experiment: "e", rule: "aa", base: "A", head: "B" });
 	const ind = JSON.parse(execFileSync("python3", [path.join(packageRoot, "test", "comparison", "derive_thresholds.py")], {
@@ -326,4 +335,90 @@ test("F11: on continuous values, with incomplete values and a missing run, the d
 	assert.equal(set.drift.below, ind.drift.below);
 	assert.equal(set.pools["s2/m2"], 17);
 	assert.ok(set.twoStageRate > 0 && set.twoStageRate < 0.1, `the two-stage rate ${set.twoStageRate} should sit below one in ten`);
+});
+
+test("F12: boundaries - a drop equal to its threshold or tolerance does not flag", { timeout: 120000 }, async () => {
+	const { rd, loaded } = await gateRun();
+	const nine = { base: { dir: rd, arm: "bare" }, head: { dir: rd, arm: "almanac" } };
+	const first = compare({ comparison: rule(loaded, "aa"), base: { dir: rd, arm: "bare", runs: 3 }, head: { dir: rd, arm: "almanac", runs: 3 }, nine, thresholds: hand(1, 4) });
+	const g2 = first.flags.find((f) => f.property === "graft-2")!.drop!;
+	const at = compare({ comparison: rule(loaded, "aa"), base: { dir: rd, arm: "bare", runs: 3 }, head: { dir: rd, arm: "almanac", runs: 3 }, nine, thresholds: hand(g2, 4) });
+	assert.equal(at.flags.some((f) => f.property === "graft-2"), false, "a drop equal to the size-3 threshold flagged");
+	// graft-2's rate falls by exactly 0.5: a tolerance of 0.5 does not flag it.
+	const tol = compare({ comparison: { ...rule(loaded, "tol"), tolerance: 0.5 }, base: { dir: rd, arm: "bare" }, head: { dir: rd, arm: "almanac" } });
+	assert.deepEqual(tol.flags.map((f) => f.property), ["prune-1"]);
+	// The A/A rule reads three runs, then nine.
+	assert.throws(() => compare({ comparison: rule(loaded, "aa"), base: { dir: rd, arm: "bare" }, head: { dir: rd, arm: "almanac" }, thresholds: hand(1, 4) }), /first stage reads 3 runs per cell, not 9/);
+	assert.throws(() => compare({ comparison: rule(loaded, "aa"), base: { dir: rd, arm: "bare", runs: 3 }, head: { dir: rd, arm: "almanac", runs: 3 }, nine: { base: { dir: rd, arm: "bare", runs: 3 }, head: { dir: rd, arm: "almanac", runs: 3 } }, thresholds: hand(1, 4) }), /persistence at 9/);
+});
+
+test("F12: a member declared differently is a different population; nine-run inputs of other scenarios are refused", { timeout: 120000 }, async () => {
+	const a = await gateRun();
+	const m = await gateRun((d) => editJson(path.join(d, "pack.json"), (j) => { j.population[1].model = "m2-next"; }));
+	assert.throws(() => compare({ comparison: rule(a.loaded, "tol"), base: { dir: a.rd, arm: "bare" }, head: { dir: m.rd, arm: "almanac" } }), /differ in population/);
+	const s = await gateRun((d) => editJson(path.join(d, "scenarios", "graft.json"), (j) => { j.properties[0].key = "Another key."; }));
+	assert.throws(() => compare({ comparison: rule(a.loaded, "aa"), base: { dir: a.rd, arm: "bare", runs: 3 }, head: { dir: a.rd, arm: "almanac", runs: 3 }, nine: { base: { dir: s.rd, arm: "bare" }, head: { dir: s.rd, arm: "almanac" } }, thresholds: hand(1, 4) }), /differ in scenarios/);
+});
+
+test("F11: the deriver refuses a scenario with no present runs, leaves held-out properties out, and takes nine runs per cell", () => {
+	const props = [{ scenario: "s1", id: "x" }, { scenario: "s2", id: "z" }];
+	const property = (id: string) => ({ id, type: "adherence" as const, decidedBy: "judge" as const, key: "k", scale: [0, 1] as [number, number] });
+	const build = (cells: { scenario: string; arm: string; member: string; run: number; values: Record<string, number | null> }[], heldOut: string[] = [], runsPerCell = 9) => ({
+		dir: "", result: {} as never, keys: new Map(), cells: cells.map((c) => ({ ...c, cell: `${c.scenario}.${c.arm}.${c.member}.${c.run}`, traps: [] })),
+		properties: props.map((p) => ({ scenario: p.scenario, id: p.id, property: property(p.id), heldOut: heldOut.includes(p.scenario) })),
+		record: { run: "f", experiment: "e", runsPerCell, register: { experiment: "e", hash: "h2", recordedAt: "", declaredStatus: "result" }, population: ["m1"], snapshot: { arms: ["A", "B"] } } as never,
+	});
+	const cells = (sc: string[]) => sc.flatMap((s) => ["A", "B"].flatMap((arm) => Array.from({ length: 9 }, (_, i) => ({ scenario: s, arm, member: "m1", run: i + 1, values: { [s === "s1" ? "x" : "z"]: pick(`${s}${arm}${i}`, 11) / 10 } }))));
+	const g = { id: "g", experiment: "e", rule: "aa" as const, base: "A", head: "B" };
+	assert.throws(() => deriveThresholds(build(cells(["s1"])), g), /s2\/m1 0/);
+	// s2 held out: the deriver takes x alone, and equals the independent implementation on x alone.
+	const t = build(cells(["s1", "s2"]), ["s2"]);
+	const set = deriveThresholds(t, g);
+	assert.equal(set.m, 1);
+	const ind = JSON.parse(execFileSync("python3", [path.join(packageRoot, "test", "comparison", "derive_thresholds.py")], {
+		input: JSON.stringify({ hash: "h2", base: "A", head: "B", population: ["m1"], properties: [props[0]], cells: t.cells.filter((c) => c.scenario === "s1") }), encoding: "utf8",
+	}));
+	assert.ok(Math.abs(set.thresholds["3"] - ind["3"]) < 1e-12 && Math.abs(set.thresholds["9"] - ind["9"]) < 1e-12);
+	assert.throws(() => deriveThresholds(build(cells(["s1", "s2"]), [], 8), g), /8 runs per cell; the deriver takes an A\/A run at nine/);
+});
+
+test("thresholds are derived only from a comparison whose arms deliver the same things", async () => {
+	const dir = copyPack();
+	editJson(path.join(dir, "pack.json"), (j) => {
+		j.arms.push({ id: "bare-b", deliver: [] });
+		j.isolation.leakProbes[0].arms.push("bare-b");
+		j.comparisons = [{ id: "same", experiment: "orchard", rule: "aa", base: "bare", head: "bare-b" }, { id: "diff", experiment: "orchard", rule: "aa", base: "bare", head: "almanac" }];
+	});
+	editJson(path.join(dir, "experiments", "orchard.json"), (j) => { j.factors.arms.push("bare-b"); });
+	const l = await loadPack(dir);
+	assert.doesNotThrow(() => assertIdenticalArms(l, l.pack.comparisons![0]!));
+	assert.throws(() => assertIdenticalArms(l, l.pack.comparisons![1]!), /deliver different things/);
+});
+
+test("--revision and a variant's own revision pin what a run delivers; the variant's wins", { timeout: 120000 }, async () => {
+	assert.deepEqual(runFlags(["node", "cli", "run", "pack", "suite", "--revision", "abc123", "--runs", "3", "--parallel", "2"]), { runsPerCell: 3, parallel: 2, revision: "abc123" });
+	const dir = copyPack();
+	editJson(path.join(dir, "experiments", "orchard.json"), (j) => { j.factors.arms = ["almanac"]; j.factors.population = ["p1"]; j.runsPerCell = 1; j.scenarios = ["scenarios/prune.json"]; });
+	const first = commitAll(dir, "revision A");
+	fs.appendFileSync(path.join(dir, "source", "GUIDE.md"), "REVISION-B-MARKER\n");
+	const second = commitAll(dir, "revision B");
+	const sha = (rev: string): string => execFileSync("git", ["rev-parse", rev], { cwd: dir, encoding: "utf8" }).trim();
+	const seen: string[] = [];
+	const agent = scripted("opencode", () => ({ graft1: 1, graft2: 1, prune1: 2 }));
+	const watching: Adapter = { ...agent, async invoke(inv) { if (inv.tools === "on" && inv.prompt !== CANARY_QUESTION) seen.push(inv.arm.instructions.map((f) => fs.readFileSync(f.path, "utf8")).join("")); return agent.invoke(inv); } };
+	const go = async (revision?: string) => {
+		seen.length = 0;
+		const { dir: rd } = await conductRun(dir, { experiment: "orchard", adapters: { opencode: watching }, work: path.join(scratch(), "w"), records: path.join(scratch(), "r"), ...(revision !== undefined ? { revision } : {}) });
+		return { rev: read<{ variants: Record<string, { revision: string }> }>(rd, "run.json").variants["almanac-full"]!.revision, delivered: seen.join("") };
+	};
+	const head = await go();
+	assert.equal(head.rev, sha(second));
+	assert.ok(head.delivered.includes("REVISION-B-MARKER"));
+	const pinned = await go(first);
+	assert.equal(pinned.rev, sha(first));
+	assert.equal(pinned.delivered.includes("REVISION-B-MARKER"), false);
+	editJson(path.join(dir, "pack.json"), (j) => { j.variants[0].revision = first; });
+	const own = await go(second);
+	assert.equal(own.rev, sha(first), "the run's revision overrode the variant's own");
+	assert.equal(own.delivered.includes("REVISION-B-MARKER"), false);
 });

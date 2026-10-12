@@ -118,6 +118,7 @@ export function deriveThresholds(table: Table, comparison: Comparison, now: Date
 	const rec = table.record;
 	if (rec.experiment !== comparison.experiment) throw new Error(`run ${rec.run} is of experiment ${rec.experiment}, not ${comparison.experiment}`);
 	if (rec.register === null) throw new Error(`run ${rec.run}'s experiment was not recorded, so it has no hash to seed the splits`);
+	if (rec.runsPerCell !== 9) throw new Error(`run ${rec.run} has ${rec.runsPerCell} runs per cell; the deriver takes an A/A run at nine`);
 	for (const a of [comparison.base, comparison.head]) if (!rec.snapshot.arms.includes(a)) throw new Error(`run ${rec.run} has no arm ${a}`);
 	const props = table.properties.filter((p) => !p.heldOut);
 	const m = comparison.m ?? props.length;
@@ -166,6 +167,12 @@ export function deriveThresholds(table: Table, comparison: Comparison, now: Date
 		drift: { actual, below: s9.filter((x) => x < actual).length, of: SPLITS },
 		pools: Object.fromEntries(pools.map((p) => [`${p.scenario}/${p.member}`, p.runs.length])), recordedAt: now.toISOString(),
 	};
+}
+
+/** Refuses a comparison whose two arms deliver different things: an A/A run's arms are identical. */
+export function assertIdenticalArms(loaded: LoadedPack, comparison: Comparison): void {
+	const deliver = (id: string): string => canonical(loaded.pack.arms.find((a) => a.id === id)?.deliver ?? null);
+	if (deliver(comparison.base) !== deliver(comparison.head)) throw new Error(`arms ${comparison.base} and ${comparison.head} deliver different things, so a run of them is not an A/A run`);
 }
 
 /** Threshold sets are kept per comparison, one JSON line each, appended and never rewritten. */
@@ -234,7 +241,9 @@ function sameDesign(a: Table, b: Table, aArm: string, bArm: string, aRuns: numbe
 	const bad = (what: string): never => { throw new Error(`the inputs differ in ${what}, so they cannot be compared`); };
 	if (ra.experiment !== rb.experiment) bad(`experiment (${ra.experiment}, ${rb.experiment})`);
 	if (canonical(ra.snapshot.scenarios) !== canonical(rb.snapshot.scenarios)) bad("scenarios");
-	if (canonical([...ra.population].sort()) !== canonical([...rb.population].sort())) bad("population");
+	// The population is its members as declared - id, family, runtime, model and settings - not their ids alone.
+	const pop = (r: RunRecord): string => canonical(r.snapshot.population.filter((mm) => r.population.includes(mm.id)).sort((x, y) => (x.id < y.id ? -1 : 1)));
+	if (canonical([...ra.population].sort()) !== canonical([...rb.population].sort()) || pop(ra) !== pop(rb)) bad("population");
 	if (ra.runsPerCell !== rb.runsPerCell) bad(`runs per cell (${ra.runsPerCell}, ${rb.runsPerCell})`);
 	if (aRuns !== bRuns) bad(`runs counted (${aRuns ?? "all"}, ${bRuns ?? "all"})`);
 	for (const [t, arm] of [[a, aArm], [b, bArm]] as const) if (!t.record.snapshot.arms.includes(arm)) bad(`arms: run ${t.record.run} has no arm ${arm}`);
@@ -258,6 +267,10 @@ export function compare(input: CompareInput): ComparisonResult {
 	const props = base.properties;
 	const main = props.filter((p) => !p.heldOut);
 	if (c.rule === "aa") {
+		// The A/A rule's first stage reads three runs per cell, and persistence reads nine.
+		const counted = (s: Side, t: Table): number => s.runs ?? t.record.runsPerCell;
+		if (counted(input.base, base) !== 3) throw new Error(`the A/A rule's first stage reads 3 runs per cell, not ${counted(input.base, base)}: restrict the tally to runs 1 to 3`);
+		if (nine && (counted(input.nine!.base, nine.base) !== 9 || counted(input.nine!.head, nine.head) !== 9)) throw new Error("the A/A rule reads persistence at 9 runs per cell");
 		if (!input.thresholds) throw new Error(`the A/A rule needs a threshold set`);
 		if (input.thresholds.m !== main.length) throw new Error(`the threshold set's m is ${input.thresholds.m}, but ${main.length} properties are compared`);
 		if (input.thresholds.experiment !== base.record.experiment) throw new Error(`the threshold set is of experiment ${input.thresholds.experiment}, not ${base.record.experiment}`);
@@ -270,7 +283,16 @@ export function compare(input: CompareInput): ComparisonResult {
 			const bv = valuesOf(cellsOf(base, input.base.arm, p), p.id), hv = valuesOf(cellsOf(head, input.head.arm, p), p.id);
 			const f = { scenario: p.scenario, property: p.id };
 			// A property absent from the head - none of its cell runs present - or with no mean there counts as a drop.
-			if (!hv.length) { out.push({ ...f, reason: cellsOf(head, input.head.arm, p).length ? "the head has no mean: every value is incomplete" : "absent from the head: none of its cell runs is present", ...(c.rule === "aa" ? { persisting: null } : {}) }); continue; }
+			if (!hv.length) {
+				// Under the A/A rule, a drop of this kind persists if the head has no value at nine either.
+				let persisting: boolean | null = null;
+				if (c.rule === "aa" && nine) {
+					const b9 = valuesOf(cellsOf(nine.base, input.nine!.base.arm, p), p.id), h9 = valuesOf(cellsOf(nine.head, input.nine!.head.arm, p), p.id);
+					persisting = !h9.length || standardisedDrop(b9, h9) > input.thresholds!.thresholds["9"];
+				}
+				out.push({ ...f, reason: cellsOf(head, input.head.arm, p).length ? "the head has no mean: every value is incomplete" : "absent from the head: none of its cell runs is present", ...(c.rule === "aa" ? { persisting } : {}) });
+				continue;
+			}
 			if (c.rule === "tolerance") {
 				const tol = c.tolerance ?? 0;
 				if (!bv.length) continue;
