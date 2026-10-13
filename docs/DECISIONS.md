@@ -40,6 +40,7 @@ They are not copied here; this register starts at the vision.
 | 0018 | 2026-10-11 | Milestone M2, multi-phase episodes and the change gate, is the next move, opened as Delta-2. | director | ratified | - |
 | 0019 | 2026-10-11 | Delta-2 is ratified, revision 3: a gate runs base and head as two arms of one run; the gate rule is the largest standardised drop over m properties against a threshold exceeded one time in ten under A/A, persistence tested on nested sets; mission-kit's handoff and A/A experiments state a pooled detectable difference of 0.25 in pass rate, with the default that no change is indicated. | director | ratified | - |
 | 0020 | 2026-10-12 | In a multi-phase episode, a phase invalid for agent behaviour ends only the phases that follow from it; phases on other branches run and are judged. Delta-2's episode rule and F4 are restated to match, F4 for withheld files. | director | ratified | amends 0019 |
+| 0021 | 2026-10-14 | Delta-2's live criteria F13, F14 and F15 are run on a new population: the four models of the new LiteLLM endpoint, through opencode, and GPT, through Codex. The old endpoint is not used again, and the thresholds from the first A/A run stay in the register, superseded. | director | ratified | amends 0019 |
 
 ---
 
@@ -301,3 +302,23 @@ The director replied "continue" to a list whose first pick was this option, and 
 
 **Source.**\
 `[V, director ruling 2026-10-12; docs/DELTAS/DELTA-2.md Record, stage 2]`
+
+### 0021
+
+**Ruling.**\
+Delta-2's live stage runs on a new population: `claude-opus-5-5`, `gemini-4-argon`, `gemini-3.8-flash` and `grok-4.20-non-reasoning` from the LiteLLM endpoint at `100.80.94.9:4000`, through opencode, and GPT through Codex - five members of four families.\
+F13 is run again on it; F14 and F15 are run on it; "three families" in Delta-2 reads "every family of the population".\
+The thresholds derived from run `2026-10-12-105615-aa` stay in mission-kit's register, superseded, and the old endpoint is not used again.\
+How judges are drawn from the new population is not settled by this ruling.
+
+**Alternatives refuted.**\
+Finishing Delta-2 on the old endpoint first - refuted because it spends a further run on a population being retired, against the director's intent.\
+Closing Delta-2 without F15 - refuted because it leaves the gate's falsifier untested within the delta that built the gate.
+
+**Disclosed.**\
+The director replied "continue" to a list whose first pick was this option, adding that Codex stays, and it is recorded as that pick with Codex kept.\
+Both F15 runs on the old endpoint were stopped by host shutdowns, after 99 and 71 of 270 cells; for four replies the author reported the second as still running, from a process check that matched the author's own shell.\
+F13's run on the old population passed and stays recorded as evidence of the machinery.
+
+**Source.**\
+`[V, director ruling 2026-10-14; docs/DELTAS/DELTA-2.md Record, stage 5]`

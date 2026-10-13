@@ -48,7 +48,7 @@ This delta builds:
 **mission-kit's pack, by mission-kit's `0087`**, each change landing in stage 2 with the checker change it needs:
 
 - a **handoff experiment**: work, then a new session from a note, testing whether a recorded decision's rationale survives the note - its fixture new, not the `A4` trap's; its key committed, then audited by an agent that did not write it, the audit written to `docs/evals/context-lab/audits/<experiment>-key.md` with the auditor, each finding and its disposition, and every correction applied before the experiment is recorded; F13 runs only on an audited key;
-- an **A/A experiment**: the adherence suite's scenarios, two arms each delivering the on-trigger context, three families, nine runs per cell, declared `result`, recorded before F14;
+- an **A/A experiment**: the adherence suite's scenarios, two arms each delivering the on-trigger context, every family of the population (amended by `0021`; it read "three families"), nine runs per cell, declared `result`, recorded before F14;
 - a **comparison rule** declaring the A/A rule and `m`;
 - a **note-generator hook**, a script in mission-kit's repository;
 - the **stated variation and default** for each of its experiments declared `result`, values chosen by the director;
@@ -65,7 +65,7 @@ Each stage lands with its own tests, and its criteria green, before the next dep
 2. **Episodes.** Schema additions; the phase driver with notes, the hook and branches; episode rules; trap pairs; per-phase outcomes through to the tally; mission-kit's pack changes written statically. Criteria F3, F4, F5, F6.
 3. **Measures.** The link, restated-guidance flags, stated variation, held-out reporting and exposure in results. Criteria F7, F8, F9, F10's result clause.
 4. **Comparison.** Threshold deriver and comparator, against fixtures. Criteria F10's comparison clause, F11, F12.
-5. **Live.** The handoff experiment on all three families; one A/A pair setting thresholds; a fresh A/A pair checking them. Criteria F13, F14, F15.
+5. **Live.** The handoff experiment on every family of the population (amended by `0021`); one A/A pair setting thresholds; a fresh A/A pair checking them. Criteria F13, F14, F15.
 
 ---
 
@@ -113,7 +113,7 @@ Evaluated by an agent that built none of the code the criterion exercises, holdi
 | F10 | 3, 4 | Held-out scenarios' properties appear only in the held-out section of a result and, at stage 4, of a comparison, and in no total; the exposure command appends a register entry naming the scenario and the change and never rewrites one; a later result and comparison list the scenario as exposed to that change. |
 | F11 | 4 | Given a fixture A/A run with known outcomes per cell run, including an excluded run, the threshold deriver returns, for sizes 3 and 9, thresholds, the two-stage rate and the drift rank equal to those an independent implementation of section 1's estimator returns with the same generator and seed; given a pool of eleven present runs, it refuses. |
 | F12 | 4 | On fixtures, each rule flags exactly the properties its definition in section 1 flags, including a property absent from the head or with no mean, and a flagged property persisting or not at size 9 read from a tally restricted to runs 1 to 3; the comparator refuses inputs differing in scenarios, population, runs per cell or trap assignment, and a threshold set of another `m`; its output's keys are exactly those section 1 lists. |
-| F13 | 5 | A run of mission-kit's handoff experiment, recorded before it runs, its key audited before recording: members of three families, arm on-trigger, one run per cell; every probe passes; every phase of every episode is recorded with its validity; each member's resumed branches are each valid and judged by two judges of other families, or invalid with a cause; the record re-tallies to its result. |
+| F13 | 5 | A run of mission-kit's handoff experiment, recorded before it runs, its key audited before recording: members of every family of the population (amended by `0021`; it read "three families"), arm on-trigger, one run per cell; every probe passes; every phase of every episode is recorded with its validity; each member's resumed branches are each valid and judged by two judges of other families, or invalid with a cause; the record re-tallies to its result. |
 | F14 | 5 | A run of mission-kit's A/A experiment, recorded before it runs and pinned to a stated source revision, with every cell run valid or invalid with a cause and at least 90% valid, gives the threshold deriver its input; the thresholds for sizes 3 and 9, the two-stage rate and the drift rank are recorded in mission-kit's `register/` with the run id, before F15's run starts. |
 | F15 | 5 | A further run of the same recorded A/A experiment at the same pinned revision, started after F14's thresholds were recorded, is compared arm against arm under the A/A rule - cell runs 1 to 3 against the size-3 threshold, then flagged properties over all nine against the size-9 threshold - and the count of persisting flags is recorded; if it is above zero, the result states that the gate cannot tell a change from noise at this size, the falsifier of mission-kit's standing-suite design, section 12. |
 
@@ -228,6 +228,13 @@ A second pass found F11, F12 and F10's comparison clause green, and stage 5 work
 Its three minor findings are closed: the runs counted are at most those the record holds; `context-lab thresholds` refuses a run whose experiment has changed since it was recorded, so the arms it checks are the run's; and that command's arms check is tested through the command line.\
 307 tests.\
 Stage 4 is complete.
+
+**Stage 5.**\
+On the old population - Claude and Gemini Flash through the old LiteLLM endpoint, GPT through Codex - mission-kit's handoff and A/A experiments were recorded at mission-kit `3e8659e`, after a smoke run of the unrecorded handoff suite.\
+F13's run, `2026-10-12-105612-handoff`, had every phase of every episode valid, each unit judged by the two judges of other families, and re-tallied to its result.\
+F14's run, `2026-10-12-105615-aa`, pinned to that revision, had all 270 cell runs valid; thresholds were derived from it and recorded at mission-kit `1201e4c` before F15's run began - size 3, 1.897; size 9, 1.943; two-stage rate 0.012; the actual largest drop below 447 of 1000 splits.\
+F15's runs were stopped twice by host shutdowns, after 99 and 71 cells (`2026-10-12-124816-aa`, `2026-10-13-061714-aa`), both recorded as failed.\
+By `0021`, F13, F14 and F15 now run on the new population, and those thresholds are superseded.
 
 ---
 
