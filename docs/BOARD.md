@@ -28,6 +28,7 @@ Order on the higher: a mandate breach ranks with S2 and a signal with S4; ties g
 | `B1` | S3 | A3 mandate | M2.2 | The duty this component exists for is implemented twice, outside it, and diverging. |
 | `B11` | S3 | A3 mandate | M3.2 | Neither first user has a project pack. |
 | `B2` | S3 | A8 signal | M2.1 | Session continuation under isolation is unprobed on both driven runtimes. |
+| `B14` | S3 | A8 signal | held | Judges' replies to large batches are cut off, leaving values incomplete. |
 | `B3` | S4 | A8 signal | M2.1 | Whether each runtime's compaction keeps instruction files is unknown. |
 | `B4` | S4 | A9 signal | M4.1 | No failure injection exercises the validity classifier. |
 | `B5` | S4 | A8 signal | M4.3 | Blinding to arm was not achieved on one trap. |
@@ -36,7 +37,10 @@ Order on the higher: a mandate breach ranks with S2 and a signal with S4; ties g
 | `B9` | S4 | A14 signal | held | Findings travelling between projects has no mechanism beyond records a project chooses to share. |
 | `B10` | S4 | A10 signal | held | No loop files context-lab's own failures as its defects. |
 | `B12` | S4 | A8 signal | M2.3 | Repeatability is not tested. |
+| `B15` | S4 | A5 signal | held | The sandbox gives agents no Node.js, though fixtures ask them to run tests. |
+| `B16` | S4 | A7 signal | held | A run cannot resume. |
 | `B6` | S5 | A3 signal | held | Only two runtimes have adapters. |
+| `B17` | S5 | A11 signal | held | Each invocation keeps its runtime's whole data folder, tool output included. |
 <!-- END GENERATED: ledger -->
 
 ---
@@ -81,10 +85,14 @@ It carries mission-kit's adherence suite and one comprehension suite as single-p
 <!-- BEGIN GENERATED: held. Run tools/check-board.mjs --write; do not edit by hand. -->
 | Row | Impact | Principle | Finding | Revival trigger |
 |---|---|---|---|---|
+| `B14` | S3 | A8 signal | Judges' replies to large batches are cut off, leaving values incomplete. | planned, before a suite with many properties per outcome is judged again |
 | `B8` | S4 | A5 signal | Local delivery differs from fetching over a network. | a project's decision turns on networked behaviour |
 | `B9` | S4 | A14 signal | Findings travelling between projects has no mechanism beyond records a project chooses to share. | two projects use context-lab |
 | `B10` | S4 | A10 signal | No loop files context-lab's own failures as its defects. | the first run on the core |
+| `B15` | S4 | A5 signal | The sandbox gives agents no Node.js, though fixtures ask them to run tests. | a property depends on an agent running tests |
+| `B16` | S4 | A7 signal | A run cannot resume. | a second run is lost to the host |
 | `B6` | S5 | A3 signal | Only two runtimes have adapters. | a project needs a third runtime |
+| `B17` | S5 | A11 signal | Each invocation keeps its runtime's whole data folder, tool output included. | free space on the working disk falls below 10 GB |
 <!-- END GENERATED: held -->
 
 ---
