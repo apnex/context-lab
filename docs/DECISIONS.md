@@ -41,6 +41,7 @@ They are not copied here; this register starts at the vision.
 | 0019 | 2026-10-11 | Delta-2 is ratified, revision 3: a gate runs base and head as two arms of one run; the gate rule is the largest standardised drop over m properties against a threshold exceeded one time in ten under A/A, persistence tested on nested sets; mission-kit's handoff and A/A experiments state a pooled detectable difference of 0.25 in pass rate, with the default that no change is indicated. | director | ratified | - |
 | 0020 | 2026-10-12 | In a multi-phase episode, a phase invalid for agent behaviour ends only the phases that follow from it; phases on other branches run and are judged. Delta-2's episode rule and F4 are restated to match, F4 for withheld files. | director | ratified | amends 0019 |
 | 0021 | 2026-10-14 | Delta-2's live criteria F13, F14 and F15 are run on a new population: the four models of the new LiteLLM endpoint, through opencode, and GPT, through Codex. The old endpoint is not used again, and the thresholds from the first A/A run stay in the register, superseded. | director | ratified | amends 0019 |
+| 0022 | 2026-10-14 | In Delta-2's live runs on the new population, one member of each family judges - Claude Opus 5.5, Gemini 4 Argon, Grok 4.20 and GPT - so every outcome has three judges, none of its agent's family. | director | ratified | amends 0021 |
 
 ---
 
@@ -322,3 +323,21 @@ F13's run on the old population passed and stays recorded as evidence of the mac
 
 **Source.**\
 `[V, director ruling 2026-10-14; docs/DELTAS/DELTA-2.md Record, stage 5]`
+
+### 0022
+
+**Ruling.**\
+mission-kit's handoff and A/A experiments declare their judges as `c`, `a`, `x` and `o` - one member of each of the population's four families - so each outcome is judged by the three of another family than its agent's.\
+Gemini 3.8 Flash is an agent only.\
+It is a setting of those experiments, not a rule for any other.
+
+**Alternatives refuted.**\
+All five judging - refuted because Claude, Grok and GPT outcomes would each have two judges of one family, which count as one measurement, while Gemini outcomes had three of three families.\
+Two judges per outcome - refuted because it needs a rule choosing which two, and gives up a majority on a binary score.
+
+**Disclosed.**\
+The director replied "continue" to a list whose first pick was this option, and it is recorded as that pick.\
+The director stated that the option of running several models should always be available, orchestrated by context-lab, and that mission-kit takes no standing rule on it; that is backlog row `B18`.
+
+**Source.**\
+`[V, director ruling 2026-10-14]`
