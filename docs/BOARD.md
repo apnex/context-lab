@@ -62,7 +62,7 @@ It carries mission-kit's adherence suite and one comprehension suite as single-p
 |---|---|---|---|
 | M2.1 | Probe session continuation and compaction on both runtimes | `B2`, `B3` | M1.1 |
 | M2.2 | Phase driver with branches and notes; the note-generator hook | `B1` | M2.1 |
-| M2.3 | Threshold deriver and comparator, with an A/A run and a held-out A/A check; run resumption for runs stopped during execution (`B16`, closed) | `B1`, `B12` | M1.1 |
+| M2.3 | Threshold deriver and comparator, with an A/A run and a held-out A/A check; run resumption for runs stopped during execution (B16, closed) | `B1`, `B12` | M1.1 |
 
 ## M3 - People, chains, and the second user `OPEN`
 
