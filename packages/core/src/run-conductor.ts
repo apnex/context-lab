@@ -125,6 +125,8 @@ export interface RunRecord {
 	timeLimitSeconds: number;
 	population: string[];
 	runtimes: Record<string, string | null>;
+	/** Per member, agent or judge: how its requests reached its model, as its adapter reports (Adapter.route). */
+	routes?: Record<string, Record<string, unknown> | null>;
 	judges: string[];
 	judgeProbes: ProbeResult[];
 	/** What the tally needs, as it stood when the run began, so a re-tally does not depend on the pack. */
@@ -288,6 +290,8 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 		return a;
 	};
 	for (const m of members) if (!(m.runtime in record.runtimes)) record.runtimes[m.runtime] = adapterOf(m).version?.() ?? null;
+	record.routes ??= {};
+	for (const m of members) record.routes[m.id] = adapterOf(m).route?.(m) ?? null;
 	const probes: ProbeResult[] = record.probes;
 	await pool([...composed.values()].flatMap((arm) => members.map((m) => ({ arm, m }))), opts.parallel ?? 4, async ({ arm, m }) => {
 		probes.push(await probeArm(loaded, arm, m, adapterOf(m), { base: path.join(work, "probes", `${arm.arm}.${m.id}`), timeLimitSeconds: opts.timeLimitSeconds ?? 300 }));
@@ -296,6 +300,8 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 	// Judges are probed as agents are, with nothing given and every leak probe asked.
 	const judgeMembers: Member[] = (exp.experiment.judging?.judges ?? exp.experiment.factors.population).map((id) => loaded.pack.population.find((m) => m.id === id)!);
 	for (const j of judgeMembers) if (!(j.runtime in record.runtimes)) record.runtimes[j.runtime] = adapterOf(j).version?.() ?? null;
+	record.routes ??= {};
+	for (const j of judgeMembers) record.routes[j.id] ??= adapterOf(j).route?.(j) ?? null;
 	await pool(judgeMembers, opts.parallel ?? 4, async (j) => {
 		record.judgeProbes.push(await probeArm(loaded, EMPTY_ARM, j, adapterOf(j), { base: path.join(work, "probes", `judge.${j.id}`), timeLimitSeconds: opts.timeLimitSeconds ?? 300, allLeaks: true }));
 	});

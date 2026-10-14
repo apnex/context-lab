@@ -40,6 +40,7 @@ function scripted(runtime: string, plan: (scenario: string, arm: string, member:
 	return {
 		runtime, rulesFiles: ["AGENTS.md"], modes: ["inline"], network: "detected", filesystem: "open", continue: true,
 		compaction: { onDemand: false, instructionsAfterCompaction: "unknown" }, refuse: () => null,
+		route: (m) => ({ runtime, model: m.model }),
 		async invoke(inv: Invocation) {
 			if (inv.prompt === CANARY_QUESTION) return outcome(inv.arm.canaries.join("\n") || "NONE");
 			if (inv.tools === "off" && inv.prompt.includes("=== OUTCOME")) return outcome(markerReply(inv.prompt));
@@ -440,4 +441,16 @@ test("the runs counted are those the record holds; the thresholds command checks
 	const changed = spawnSync(process.execPath, [cli, "thresholds", dir, "twin-gate", rd], { encoding: "utf8" });
 	assert.notEqual(changed.status, 0);
 	assert.match(changed.stderr, /has changed since run/);
+});
+
+test("the run record holds each member's route, and the comparator refuses two runs whose routes differ", { timeout: 120000 }, async () => {
+	// p3 judges and is no agent, so agents' routes and judges' routes are each recorded on their own path.
+	const a = await gateRun((d) => editJson(path.join(d, "experiments", "orchard.json"), (j) => { j.judging = { judges: ["p3"] }; }));
+	const routes = read<{ routes: Record<string, unknown> }>(a.rd, "run.json").routes;
+	assert.deepEqual(routes, { p1: { runtime: "opencode", model: "m1" }, p2: { runtime: "codex", model: "m2" }, p3: { runtime: "opencode", model: "m3" } });
+	const b = path.join(scratch(), "other-route");
+	fs.cpSync(a.rd, b, { recursive: true });
+	assert.doesNotThrow(() => compare({ comparison: rule(a.loaded, "tol"), base: { dir: a.rd, arm: "bare" }, head: { dir: b, arm: "almanac" } }));
+	editJson(path.join(b, "run.json"), (j) => { j.routes.p1 = { runtime: "opencode", model: "m1", npm: "@ai-sdk/openai-compatible" }; });
+	assert.throws(() => compare({ comparison: rule(a.loaded, "tol"), base: { dir: a.rd, arm: "bare" }, head: { dir: b, arm: "almanac" } }), /differ in routes to the models/);
 });

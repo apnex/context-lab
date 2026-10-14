@@ -53,6 +53,12 @@ export interface Adapter {
 	/** Why the invocation cannot run, or null; checked before anything runs. */
 	refuse(inv: Invocation): string | null;
 	invoke(inv: Invocation): Promise<Outcome>;
+	/**
+	 * How a member's requests reach its model - the client package, endpoint and model settings the
+	 * runtime is given - for the run record, so two runs that reached a model differently are not
+	 * compared as alike. Credentials and headers are left out.
+	 */
+	route?(member: Member): Record<string, unknown>;
 }
 
 export class Refused extends Error {}
@@ -134,7 +140,11 @@ export function opencodeAdapter(opts: OpencodeOptions = {}): Adapter {
 	const env = opts.env ?? process.env;
 	const operatorConfig = opts.operatorConfig ?? path.join(env["XDG_CONFIG_HOME"] ?? path.join(os.homedir(), ".config"), "opencode", "opencode.json");
 	const operatorCache = opts.operatorCache ?? path.join(os.homedir(), ".cache", "opencode");
-	const provider = (): { block: Record<string, unknown>; credentialVars: string[]; variants: (model: string) => string[] } => {
+	// The provider block is read once per adapter, so every invocation of a run reaches its model the
+	// same way as the route the run recorded, whatever happens to the operator's file meanwhile.
+	let read: ReturnType<typeof readProvider> | undefined;
+	const provider = (): ReturnType<typeof readProvider> => (read ??= readProvider());
+	const readProvider = (): { block: Record<string, unknown>; credentialVars: string[]; variants: (model: string) => string[] } => {
 		const c = JSON.parse(fs.readFileSync(operatorConfig, "utf8")) as { $schema?: string; provider?: Record<string, { options?: Record<string, unknown>; models?: Record<string, { variants?: Record<string, unknown> | string[] }> }> };
 		const block = c.provider ?? {};
 		const vars = [...JSON.stringify(block).matchAll(/\{env:([A-Za-z_][A-Za-z0-9_]*)\}/g)].map((m) => m[1]!);
@@ -154,6 +164,18 @@ export function opencodeAdapter(opts: OpencodeOptions = {}): Adapter {
 		filesystem: "sandboxed",
 		continue: true,
 		compaction: { onDemand: true, instructionsAfterCompaction: "when delivered again" },
+		route(member) {
+			const [prov, ...rest] = member.model.split("/");
+			const block = provider().block[prov ?? ""] as { npm?: string; api?: string; options?: Record<string, unknown>; models?: Record<string, Record<string, unknown>> } | undefined;
+			const model = block?.models?.[rest.join("/")] ?? {};
+			const pm = (model["provider"] ?? {}) as { npm?: string; api?: string };
+			const { apiKey: _k, headers: _h, ...endpoint } = block?.options ?? {};
+			const { provider: _p, headers: _mh, name: _n, ...settings } = model;
+			return {
+				runtime: "opencode", model: member.model, npm: pm.npm ?? block?.npm ?? null, ...(pm.api ?? block?.api ? { api: pm.api ?? block?.api } : {}),
+				endpoint, settings, ...(member.settings ? { memberSettings: member.settings } : {}),
+			};
+		},
 		refuse(inv) {
 			const m = commonRefusals(inv, adapter, ["inline"]);
 			if (m) return m;
@@ -262,6 +284,9 @@ export function codexAdapter(opts: CodexOptions = {}): Adapter {
 		filesystem: "sandboxed",
 		continue: true,
 		compaction: { onDemand: true, instructionsAfterCompaction: "carried by the session" },
+		route(member) {
+			return { runtime: "codex", model: member.model, ...(member.settings ? { memberSettings: member.settings } : {}) };
+		},
 		refuse(inv) {
 			const m = commonRefusals(inv, adapter, ["inline"]);
 			if (m) return m;

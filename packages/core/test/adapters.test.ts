@@ -327,3 +327,26 @@ test("external: continuation is refused", () => {
 	const e = setup();
 	assert.match(externalAdapter().refuse(invocation(e, "opencode", { mode: "file-pointer", continueFrom: { session: "s", work: e.dir, workspace: e.workspace } })) ?? "", /does not continue/);
 });
+
+test("opencode: the route names the client package, endpoint and model settings, leaves out credentials, and is fixed for the adapter's life", () => {
+	const dir = scratch();
+	const config = path.join(dir, "opencode.json");
+	const write = (npm: string): void => fs.writeFileSync(config, JSON.stringify({ provider: { lx: {
+		npm: "@ai-sdk/anthropic", options: { baseURL: "http://lx.invalid/v1", apiKey: "{env:CL_TEST_KEY}", headers: { "X-Secret": "s" } },
+		models: { claude: { name: "C", options: { thinking: { type: "adaptive" } }, limit: { context: 10, output: 5 } }, gem: { name: "G", provider: { npm } } },
+	} } }));
+	write("@ai-sdk/openai-compatible");
+	const a = opencodeAdapter({ binary: "/bin/true", operatorConfig: config, operatorCache: path.join(dir, "none"), env: { PATH: "/usr/bin:/bin" } });
+	const member = (model: string) => ({ id: "x", family: "f", runtime: "opencode", model });
+	assert.deepEqual(a.route!(member("lx/claude")), {
+		runtime: "opencode", model: "lx/claude", npm: "@ai-sdk/anthropic", endpoint: { baseURL: "http://lx.invalid/v1" },
+		settings: { options: { thinking: { type: "adaptive" } }, limit: { context: 10, output: 5 } },
+	});
+	assert.equal(a.route!(member("lx/gem")).npm, "@ai-sdk/openai-compatible", "a model's own client package does not override the provider's");
+	assert.equal(JSON.stringify(a.route!(member("lx/claude"))).includes("CL_TEST_KEY") || JSON.stringify(a.route!(member("lx/claude"))).includes("X-Secret"), false);
+	// The operator's file changing mid-run changes nothing for this adapter.
+	write("@ai-sdk/anthropic");
+	assert.equal(a.route!(member("lx/gem")).npm, "@ai-sdk/openai-compatible");
+	assert.equal(opencodeAdapter({ binary: "/bin/true", operatorConfig: config, operatorCache: path.join(dir, "none"), env: { PATH: "/usr/bin:/bin" } }).route!(member("lx/gem")).npm, "@ai-sdk/anthropic");
+	assert.deepEqual(codexAdapter({ vendor: dir, auth: path.join(dir, "a"), models: path.join(dir, "m") }).route!({ ...member("gpt-x"), runtime: "codex", settings: { reasoningEffort: "high" } }), { runtime: "codex", model: "gpt-x", memberSettings: { reasoningEffort: "high" } });
+});

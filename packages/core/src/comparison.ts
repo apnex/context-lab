@@ -247,6 +247,9 @@ function sameDesign(a: Table, b: Table, aArm: string, bArm: string, aRuns: numbe
 	const pop = (r: RunRecord): string => canonical(r.snapshot.population.filter((mm) => r.population.includes(mm.id)).sort((x, y) => (x.id < y.id ? -1 : 1)));
 	if (canonical([...ra.population].sort()) !== canonical([...rb.population].sort()) || pop(ra) !== pop(rb)) bad("population");
 	if (ra.runsPerCell !== rb.runsPerCell) bad(`runs per cell (${ra.runsPerCell}, ${rb.runsPerCell})`);
+	// How each agent and judge reached its model: a run without routes recorded compares only with another without.
+	const routes = (r: RunRecord): string => canonical(Object.fromEntries(Object.entries(r.routes ?? {}).filter(([id]) => r.population.includes(id) || r.judges.includes(id))));
+	if (routes(ra) !== routes(rb)) bad("routes to the models");
 	if (aRuns !== bRuns) bad(`runs counted (${aRuns ?? "all"}, ${bRuns ?? "all"})`);
 	for (const [t, arm] of [[a, aArm], [b, bArm]] as const) if (!t.record.snapshot.arms.includes(arm)) bad(`arms: run ${t.record.run} has no arm ${arm}`);
 	// Trap assignment: every cell run of one side has a counterpart in the other with the same traps.
