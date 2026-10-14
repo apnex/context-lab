@@ -42,6 +42,7 @@ They are not copied here; this register starts at the vision.
 | 0020 | 2026-10-12 | In a multi-phase episode, a phase invalid for agent behaviour ends only the phases that follow from it; phases on other branches run and are judged. Delta-2's episode rule and F4 are restated to match, F4 for withheld files. | director | ratified | amends 0019 |
 | 0021 | 2026-10-14 | Delta-2's live criteria F13, F14 and F15 are run on a new population: the four models of the new LiteLLM endpoint, through opencode, and GPT, through Codex. The old endpoint is not used again, and the thresholds from the first A/A run stay in the register, superseded. | director | ratified | amends 0019 |
 | 0022 | 2026-10-14 | In Delta-2's live runs on the new population, one member of each family judges - Claude Opus 5.5, Gemini 4 Argon, Grok 4.20 and GPT - so every outcome has three judges, none of its agent's family. | director | ratified | amends 0021 |
+| 0023 | 2026-10-14 | Delta-2 is amended to include run resumption (`B16`): a run stopped during execution (after probing, before blinding) may be resumed from its completed cells once the experiment hash, variant manifests, model routes and recorded cell files are verified intact. | director | ratified | amends 0019 |
 
 ---
 
@@ -338,6 +339,21 @@ Two judges per outcome - refuted because it needs a rule choosing which two, and
 **Disclosed.**\
 The director replied "continue" to a list whose first pick was this option, and it is recorded as that pick.\
 The director stated that the option of running several models should always be available, orchestrated by context-lab, and that mission-kit takes no standing rule on it; that is backlog row `B18`.
+
+**Source.**\
+`[V, director ruling 2026-10-14]`
+
+### 0023
+
+**Ruling.**\
+Delta-2 includes run resumption (`B16`, planned under `M2.3`): `resumeRun` and `context-lab resume <pack> <run-dir>` resume a run that stopped during execution (at state `probed`, before `executed`), after checking that the run is not completed, the experiment's register hash and model routes match the run record, the built variants match their recorded manifests, and every recorded cell's file is present and well-formed.\
+It executes only the remaining cells, records the resumption timestamp in `resumedAt`, and proceeds through measurement, blinding, judging and tallying.
+
+**Alternatives refuted.**\
+Relaunching interrupted 450-cell runs from scratch without resumption - refuted after three consecutive A/A runs were stopped mid-execution by host shutdowns (at 99/270, 71/270 and 120/450 cells).
+
+**Disclosed.**\
+The director replied "continue" to a list whose first pick was this option, and it is recorded as that pick.
 
 **Source.**\
 `[V, director ruling 2026-10-14]`

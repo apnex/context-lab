@@ -18,13 +18,13 @@ import type { Adapter } from "./adapters.js";
 import { composeArm, type ComposedArm } from "./arm-composer.js";
 import { checkPack, selectScenarios } from "./pack-checker.js";
 import { measure, type CodeScore } from "./code-measurer.js";
-import { runStatus, type Record as RegisterRecord } from "./experiment-register.js";
+import { runStatus, contentHash, type Record as RegisterRecord } from "./experiment-register.js";
 import { probeArm, type ProbeResult } from "./isolation-prober.js";
 import { splitAnswers, stripSelfExplanation } from "./answer-parser.js";
 import type { Outcome } from "./outcome.js";
 import type { Experiment, LoadedPack, Member, Scenario, Status } from "./pack-schema.js";
 import { runPhase } from "./phase-driver.js";
-import { buildVariant, makeWritable, type BuiltVariant, type VariantManifest } from "./variant-builder.js";
+import { buildVariant, makeReadOnly, makeWritable, VARIANT_MANIFEST, type BuiltVariant, type VariantManifest } from "./variant-builder.js";
 import { classify, forbiddenPathsNamed, RERUN, type Validity } from "./validity-classifier.js";
 import { createWorkspace } from "./workspace-builder.js";
 import { isInside } from "./paths.js";
@@ -141,6 +141,8 @@ export interface RunRecord {
 	seed: string;
 	end: RunEnd | null;
 	endReason?: string;
+	/** Times the run was resumed after stopping during execution (0023, B16). */
+	resumedAt?: string[];
 }
 
 /** The core's name and version, held equal to its package manifest by a test. */
@@ -473,6 +475,278 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 		for (const v of built.values()) if (v.ok && fs.existsSync(v.dir)) makeWritable(v.dir);
 	}
 	return { dir: recordsDir, record };
+}
+
+export interface ResumeOptions {
+	adapters: Record<string, Adapter>;
+	/** The operator's working folder; ~/context-lab-work if not given. */
+	work?: string;
+	timeLimitSeconds?: number;
+	judgeTimeLimitSeconds?: number;
+	parallel?: number;
+	now?: () => Date;
+}
+
+const canonicalJson = (v: unknown): string => {
+	if (Array.isArray(v)) return `[${v.map(canonicalJson).join(",")}]`;
+	if (typeof v === "object" && v !== null) return `{${Object.keys(v as object).sort().map((k) => `${JSON.stringify(k)}:${canonicalJson((v as Record<string, unknown>)[k])}`).join(",")}}`;
+	return JSON.stringify(v);
+};
+
+/**
+ * Resume a run that stopped during execution, after its probes finished and before blinding began
+ * (0023, B16). Checks that the pack, the experiment's register hash, the routes and the already
+ * recorded cells are intact, runs only the remaining cells, then proceeds through measurement,
+ * blinding, judging and tallying.
+ */
+export async function resumeRun(packDir: string, recordsDir: string, opts: ResumeOptions): Promise<{ dir: string; record: RunRecord }> {
+	const now = opts.now ?? ((): Date => new Date());
+	const resolvedRecords = path.resolve(recordsDir);
+	const recordsRoot = path.dirname(resolvedRecords);
+	const recordFile = path.join(resolvedRecords, "run.json");
+	if (!fs.existsSync(recordFile)) throw new Error(`no run.json in ${resolvedRecords}`);
+	const record = JSON.parse(fs.readFileSync(recordFile, "utf8")) as RunRecord;
+	if (record.end === "completed") throw new Error(`run ${record.run} is already completed`);
+	const stateList = record.states.map((s) => s.state);
+	if (stateList.join(",") !== "validated,recorded,built,probed") {
+		throw new Error(`run ${record.run} is at state ${stateList[stateList.length - 1] ?? "none"}; only a run stopped during execution (after probed, before executed) can be resumed`);
+	}
+	const checked = await checkPack(packDir, {
+		continueRuntimes: Object.fromEntries(Object.entries(opts.adapters).map(([k, a]) => [k, a.continue])),
+		experiments: [record.experiment],
+	});
+	if (!checked.ok) throw new Error(`the pack fails its check: ${checked.defects.map((d) => `${d.check} ${d.where} ${d.message}`).join("; ")}`);
+	const loaded = checked.loaded;
+	if (loaded.pack.id !== record.pack) throw new Error(`run ${record.run} belongs to pack ${record.pack}, not ${loaded.pack.id}`);
+	const exp = loaded.experiments.get(record.experiment);
+	if (!exp) throw new Error(`no experiment ${record.experiment}`);
+	if (record.register !== null && contentHash(loaded, record.experiment) !== record.register.hash) {
+		throw new Error(`experiment ${record.experiment} has changed since run ${record.run} was recorded, so the run cannot be resumed`);
+	}
+	const scenarios = record.snapshot.scenarios;
+	const members: Member[] = record.population.map((id) => record.snapshot.population.find((m) => m.id === id)!);
+	const judgeMembers: Member[] = (exp.experiment.judging?.judges ?? record.population).map((id) => record.snapshot.population.find((m) => m.id === id)!);
+	const adapterOf = (m: Member): Adapter => {
+		const a = opts.adapters[m.runtime];
+		if (!a) throw new Error(`no adapter for runtime ${m.runtime}`);
+		return a;
+	};
+	if (record.routes !== undefined) {
+		const currentRoutes: Record<string, Record<string, unknown> | null> = {};
+		for (const m of members) currentRoutes[m.id] = adapterOf(m).route?.(m) ?? null;
+		for (const j of judgeMembers) currentRoutes[j.id] ??= adapterOf(j).route?.(j) ?? null;
+		if (canonicalJson(currentRoutes) !== canonicalJson(record.routes)) {
+			throw new Error(`routes to the models have changed since run ${record.run} began, so the run cannot be resumed`);
+		}
+	}
+
+	const workRoot = path.resolve(opts.work ?? path.join(os.homedir(), "context-lab-work"));
+	const work = path.join(workRoot, record.run);
+	fs.mkdirSync(work, { recursive: true });
+	const built = new Map<string, BuiltVariant>();
+	const save = (): void => write(recordFile, record);
+	const enter = (s: State): void => {
+		const last = record.states[record.states.length - 1];
+		if (STATES.indexOf(s) !== (last ? STATES.indexOf(last.state) + 1 : 0)) throw new Error(`state ${s} out of order`);
+		record.states.push({ state: s, at: now().toISOString() });
+	};
+
+	try {
+		for (const [v, entry] of Object.entries(record.variants)) {
+			if ("failed" in entry) {
+				built.set(v, { ok: false, variant: v, reason: entry.failed });
+				continue;
+			}
+			const vDir = path.join(work, "variants", v);
+			const mfFile = path.join(vDir, VARIANT_MANIFEST);
+			if (fs.existsSync(mfFile)) {
+				const onDisk = JSON.parse(fs.readFileSync(mfFile, "utf8")) as VariantManifest;
+				if (canonicalJson(onDisk) !== canonicalJson(entry)) throw new Error(`variant ${v} on disk does not match run.json`);
+				makeReadOnly(vDir);
+				built.set(v, { ok: true, dir: vDir, manifest: onDisk });
+			} else {
+				const b = await buildVariant(loaded, v, entry.revision, vDir);
+				if (!b.ok || canonicalJson(b.manifest) !== canonicalJson(entry)) throw new Error(`variant ${v} could not be rebuilt identically at ${entry.revision}`);
+				built.set(v, b);
+			}
+		}
+		const composed = new Map<string, ComposedArm>();
+		for (const a of record.snapshot.arms) {
+			const c = composeArm(loaded, a, built);
+			if ((record.arms[a]?.composed ?? false) !== c.ok) throw new Error(`arm ${a} composition does not match run.json`);
+			if (c.ok) composed.set(a, c.arm);
+		}
+		const passed = (arm: string, m: string): boolean => record.probes.some((p) => p.arm === arm && p.member === m && p.pass);
+		const allCells: { scenario: Scenario; arm: ComposedArm; member: Member; run: number }[] = [];
+		for (const scenario of scenarios) for (const arm of composed.values()) for (const member of members) {
+			if (!passed(arm.arm, member.id)) continue;
+			for (let run = 1; run <= record.runsPerCell; run++) allCells.push({ scenario, arm, member, run });
+		}
+		const expectedSet = new Set(allCells.map((c) => `${c.scenario.id}.${c.arm.arm}.${c.member.id}.${c.run}`));
+		const cellRecords: CellRecord[] = [];
+		const doneSet = new Set<string>();
+		for (const cell of record.cells) {
+			if (!expectedSet.has(cell)) throw new Error(`recorded cell ${cell} is not part of run ${record.run}`);
+			const cf = path.join(resolvedRecords, "cells", `${cell}.json`);
+			if (!fs.existsSync(cf)) throw new Error(`recorded cell ${cell} is missing its file ${cf}`);
+			const cr = JSON.parse(fs.readFileSync(cf, "utf8")) as CellRecord;
+			if (cr.cell !== cell || !Array.isArray(cr.attempts) || cr.attempts.length === 0) throw new Error(`recorded cell ${cell} is malformed`);
+			cellRecords.push(cr);
+			doneSet.add(cell);
+		}
+		record.end = null;
+		delete record.endReason;
+		record.resumedAt = [...(record.resumedAt ?? []), now().toISOString()];
+		save();
+
+		const forbiddenBase = {
+			paths: [
+				...loaded.pack.isolation.forbidden.paths.map((p) => path.resolve(loaded.dir, p)), loaded.dir, recordsRoot, workRoot,
+				...loaded.pack.sources.map((s) => path.resolve(loaded.dir, s.path)),
+			],
+			addresses: [...new Set([...loaded.pack.isolation.forbidden.addresses, ...loaded.pack.sources.flatMap((s) => s.addresses)])],
+		};
+		const timeLimitSeconds = opts.timeLimitSeconds ?? record.timeLimitSeconds;
+		const remaining = allCells.filter((c) => !doneSet.has(`${c.scenario.id}.${c.arm.arm}.${c.member.id}.${c.run}`));
+		await pool(remaining, opts.parallel ?? 4, async (c) => {
+			const cell = `${c.scenario.id}.${c.arm.arm}.${c.member.id}.${c.run}`;
+			const phases = phasesOf(c.scenario, exp.experiment);
+			const attempts: Attempt[] = [];
+			let timeouts = 0;
+			let lastPhases: PhaseRecord[] = [];
+			let traps: TrapAssignment[] = [];
+			const adapter = adapterOf(c.member);
+			const sandboxed = adapter.filesystem === "sandboxed";
+			const given = [...c.arm.instructions.map((f) => f.path), ...c.arm.folderFiles.map((f) => f.path), ...c.arm.onRequest.map((o) => o.path)];
+			for (let attempt = 1; ; attempt++) {
+				let a: Attempt;
+				const unreachable: string[] = [];
+				try {
+					const ep = await runEpisode({
+						loaded, experiment: exp.experiment, scenario: c.scenario, arm: c.arm, member: c.member, memberIndex: members.indexOf(c.member), run: c.run,
+						adapter, work, key: `${cell}.${attempt}`, timeLimitSeconds, timeouts,
+						classify: (outcome, ws, inv, t) => {
+							const allow = [ws, inv, ...given];
+							if (sandboxed) unreachable.push(...forbiddenPathsNamed(outcome, { ...forbiddenBase, allow }));
+							return classify(outcome, { ...forbiddenBase, allow, sandboxed }, t);
+						},
+					});
+					timeouts = ep.timeouts;
+					lastPhases = ep.phases;
+					traps = ep.phases.flatMap((p) => p.traps);
+					const ran = ep.phases.filter((p) => p.status === "run");
+					const lastRan = ran[ran.length - 1];
+					a = {
+						attempt, validity: ep.validity, outcome: lastRan?.outcome ?? EMPTY_OUTCOME, diff: lastRan?.diff ?? null, workspace: lastRan?.workspace ?? "",
+						phases: ep.phases, ledger: ep.ledger, ...(ep.endedAt !== undefined ? { endedAt: ep.endedAt } : {}), ...(unreachable.length ? { unreachable: [...new Set(unreachable)] } : {}),
+					};
+				} catch (e) {
+					a = { attempt, validity: { valid: false, cause: "infrastructure", detail: `the attempt failed in the core: ${String(e).slice(0, 300)}` }, outcome: EMPTY_OUTCOME, diff: null, failure: String(e).slice(0, 1000) };
+					lastPhases = [];
+				}
+				attempts.push(a);
+				if (a.validity.valid || !RERUN[a.validity.cause] || attempt >= 2) break;
+			}
+			const last = attempts[attempts.length - 1]!;
+			const marker = loaded.pack.masks.selfExplanationMarker;
+			const byPhase = new Map(lastPhases.map((p) => [p.phase, p]));
+			const stateOf = (phase: string): PhaseState => {
+				const p = byPhase.get(phase);
+				if (p?.status === "run" && p.validity?.valid === true) return last.validity.valid || last.validity.cause === "behaviour" ? "valid" : "incomplete";
+				if (p?.status === "incomplete") return "incomplete";
+				return !last.validity.valid && last.validity.cause === "behaviour" ? "ended" : "incomplete";
+			};
+			const propertyPhases: NonNullable<CellRecord["propertyPhases"]> = {};
+			for (const pr of propertiesOf(c.scenario)) { const ph = propertyPhase(c.scenario, phases, pr.id, traps); propertyPhases[pr.id] = { phase: ph, state: stateOf(ph) }; }
+			const phaseOutcomes: NonNullable<CellRecord["phaseOutcomes"]> = {};
+			for (const p of lastPhases) {
+				if (p.status !== "run" || p.validity?.valid !== true || p.outcome === null) continue;
+				const scoredContent = c.scenario.scoredFile !== undefined && p.snapshot !== null ? readInside(p.snapshot, c.scenario.scoredFile) : null;
+				phaseOutcomes[p.phase] = { final: stripSelfExplanation(p.outcome.final, marker), diff: p.diff ?? "", note: p.note, startDiff: p.startDiff, scored: scoredContent, traps: p.traps.map((t) => t.text) };
+			}
+			const lastRan = [...lastPhases].reverse().find((p) => p.status === "run" && p.snapshot !== null);
+			let scored: CellRecord["scoredFile"] = null;
+			if (c.scenario.scoredFile !== undefined && lastRan !== undefined) {
+				const content = readInside(lastRan.snapshot!, c.scenario.scoredFile);
+				scored = { path: c.scenario.scoredFile, content, matchesFinal: content !== null && content.trim() === (lastRan.outcome?.final ?? "").trim() };
+			}
+			const answers: Record<string, string | null> = {};
+			for (const pr of propertiesOf(c.scenario).filter((x) => x.answerHeading !== undefined)) {
+				const pp = propertyPhases[pr.id]!;
+				if (pp.state !== "valid") continue;
+				answers[pr.id] = splitAnswers(phaseOutcomes[pp.phase]?.scored ?? "", [pr.answerHeading!], marker).get(pr.answerHeading!) ?? null;
+			}
+			const restated: RestatedFlag[] = [];
+			const delivered = [...c.arm.instructions, ...c.arm.folderFiles].map((f) => ({ file: f.file, path: f.path, text: fs.readFileSync(f.path, "utf8") }));
+			for (const p of lastPhases.filter((x) => x.status === "run")) {
+				const decl = phases.find((x) => x.id === p.phase);
+				const texts: { source: "final" | "note"; path: string; text: string }[] = [];
+				if (p.outcome !== null) texts.push({ source: "final", path: `(final message of ${p.phase})`, text: p.outcome.final });
+				if (p.note !== null && p.noteSource !== null) texts.push({ source: "note", path: decl?.note !== undefined && "file" in decl.note ? decl.note.file : `(note from hook ${decl?.note !== undefined && "generator" in decl.note ? decl.note.generator : "?"})`, text: p.note });
+				for (const t of texts) for (const d of delivered) {
+					const run = sharedRun(t.text, d.text);
+					if (run !== null) restated.push({ cell, phase: p.phase, source: t.source, path: t.path, delivered: { file: d.file, path: d.path }, words: run });
+				}
+			}
+			const cr: CellRecord = {
+				cell, scenario: c.scenario.id, arm: c.arm.arm, member: c.member.id, run: c.run, attempts, valid: last.validity.valid,
+				final: last.validity.valid ? stripSelfExplanation(last.outcome.final, marker) : null, scoredFile: scored, answers, diff: last.diff, codeScores: [],
+				traps, propertyPhases, phaseOutcomes, restated,
+			};
+			cellRecords.push(cr);
+			write(path.join(resolvedRecords, "cells", `${cell}.json`), cr);
+			record.cells = cellRecords.map((x) => x.cell).sort();
+			save();
+		});
+		enter("executed");
+
+		for (const cr of cellRecords) {
+			cr.codeScores = [];
+			const scenario = scenarios.find((s) => s.id === cr.scenario)!;
+			const lastAttempt = cr.attempts[cr.attempts.length - 1]!;
+			for (const p of lastAttempt.phases ?? []) {
+				const props = propertiesOf(scenario).filter((x) => x.decidedBy === "code" && cr.propertyPhases?.[x.id]?.phase === p.phase && cr.propertyPhases[x.id]!.state === "valid");
+				if (!props.length || p.outcome === null) continue;
+				const sub: Scenario = { ...scenario, properties: props, trapPairs: [] };
+				cr.codeScores.push(...await measure(loaded, sub, { final: p.outcome.final, diff: p.diff ?? "", scored: cr.phaseOutcomes?.[p.phase]?.scored ?? null }, now));
+			}
+			write(path.join(resolvedRecords, "cells", `${cr.cell}.json`), cr);
+		}
+		enter("measured");
+		save();
+
+		await new Promise((r) => setTimeout(r, 2));
+		const scenarioMap = new Map(scenarios.map((x) => [x.id, x]));
+		const families = new Map(record.snapshot.population.map((m) => [m.id, m.family]));
+		const canaries = loaded.pack.variants.flatMap((v) => v.canaries);
+		const judges = record.judges.map((id) => record.snapshot.population.find((m) => m.id === id)!);
+		const blinded = blind(loaded, scenarioMap, cellRecords, families, record.seed, now, { paths: [workRoot, recordsRoot, loaded.dir], literals: canaries });
+		write(path.join(resolvedRecords, "sealed", "units.json"), blinded);
+		enter("blinded");
+		save();
+
+		const votes = await judgeAll({
+			loaded, experiment: exp.experiment, scenarios: scenarioMap, units: blinded.units, judges, adapters: opts.adapters,
+			guessOptions: Object.keys(record.guessGroups), recordsDir: resolvedRecords, work, seed: record.seed, timeLimitSeconds: opts.judgeTimeLimitSeconds ?? 900, parallel: opts.parallel ?? 4,
+		});
+		write(path.join(resolvedRecords, "judging", "votes.json"), votes);
+		enter("judged");
+		save();
+
+		const result = tallyRun(resolvedRecords);
+		enter("tallied");
+		record.end = "completed";
+		save();
+		void result;
+	} catch (e) {
+		record.end = "failed";
+		record.endReason = String(e).slice(0, 1000);
+		save();
+		throw e;
+	} finally {
+		for (const v of built.values()) if (v.ok && fs.existsSync(v.dir)) makeWritable(v.dir);
+	}
+	return { dir: resolvedRecords, record };
 }
 
 /** Re-tally a run from its record alone: the same files give the same result, whatever the pack is now. */

@@ -17,7 +17,7 @@ export { CANARY_QUESTION, probeArm, type ProbeAnswer, type ProbeOptions, type Pr
 export { splitAnswers, stripSelfExplanation } from "./answer-parser.js";
 export { promptFor, runPhase, type PhaseRun } from "./phase-driver.js";
 export { measure, type CodeScore, type MeasuredOutcome } from "./code-measurer.js";
-export { METHOD, STATES, conductRun, tallyRun, type Attempt, type CellRecord, type RunOptions, type RunRecord, type State } from "./run-conductor.js";
+export { METHOD, STATES, conductRun, resumeRun, tallyRun, type Attempt, type CellRecord, type ResumeOptions, type RunOptions, type RunRecord, type State } from "./run-conductor.js";
 export { blind, mask, shuffle, type Absent, type Blinded, type Unit } from "./blinder.js";
 export { EMPTY_ARM, assignJudges, judgeAll, validate, type PanelOptions, type Vote } from "./judge-panel.js";
 export { resultMarkdown, tally, type PropertyResult, type Rate, type Result, type TallyInput } from "./tally.js";

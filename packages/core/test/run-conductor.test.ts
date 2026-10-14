@@ -11,7 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import {
-	CANARY_QUESTION, METHOD, STATES, checkPack, conductRun, recordExperiment, recordHistory,
+	CANARY_QUESTION, METHOD, STATES, checkPack, conductRun, recordExperiment, recordHistory, resumeRun,
 	type Adapter, type CellRecord, type Invocation, type Outcome,
 } from "../src/index.js";
 import { commitAll, copyPack, editJson, isJudgePrompt, judgeReply, packageRoot, scratch } from "./helpers.js";
@@ -354,3 +354,77 @@ test("a file of the arm's variant it was not given is still forbidden", async ()
 	await conductRun(dir, { experiment: "orchard", adapters: { opencode: a }, work, records });
 	assert.equal(cellsOf(records)[0]!.attempts[0]!.validity.valid ? "valid" : (cellsOf(records)[0]!.attempts[0]!.validity as { cause: string }).cause, "isolation");
 });
+
+test("resumeRun completes a run stopped during execution, skips recorded cells, and refuses completed, post-probed, or altered runs", async () => {
+	const { dir, work, records } = await setup();
+	const loaded0 = await checkPack(dir);
+	if (!loaded0.ok) throw new Error("pack invalid");
+	recordExperiment(loaded0.loaded, "orchard");
+	const full = await conductRun(dir, { suite: "all-orchard", adapters: { opencode: { ...scripted("opencode"), route: () => ({ r: "oc" }) }, codex: { ...scripted("codex"), route: () => ({ r: "cx" }) } }, work, records, parallel: 1 });
+	assert.equal(full.record.cells.length, 8);
+
+	// 1. Refuse already completed run.
+	await assert.rejects(() => resumeRun(dir, full.dir, { adapters: { opencode: scripted("opencode"), codex: scripted("codex") }, work }), /already completed/);
+
+	// Build a stopped-mid-execution copy with only 3 of the 8 cells present, and an in-flight ledger left behind.
+	const partialRoot = path.join(scratch(), "partial-records");
+	const partialDir = path.join(partialRoot, full.record.run);
+	fs.cpSync(full.dir, partialDir, { recursive: true });
+	fs.rmSync(path.join(partialDir, "sealed"), { recursive: true, force: true });
+	fs.rmSync(path.join(partialDir, "judging"), { recursive: true, force: true });
+	fs.rmSync(path.join(partialDir, "RESULT.json"), { force: true });
+	fs.rmSync(path.join(partialDir, "RESULT.md"), { force: true });
+	const kept = full.record.cells.slice(0, 3);
+	for (const c of full.record.cells.slice(3)) fs.rmSync(path.join(partialDir, "cells", `${c}.json`));
+	// Leave a stale in-flight ledger for both attempts of the 4th cell (with a lock file from an interrupted git write) to verify Ledger re-initialises cleanly.
+	for (const att of [1, 2]) {
+		const inflightLedger = path.join(work, full.record.run, "ledgers", `${full.record.cells[3]}.${att}`);
+		fs.mkdirSync(inflightLedger, { recursive: true });
+		fs.writeFileSync(path.join(inflightLedger, "config.lock"), "stale\n");
+	}
+
+	// 2. Refuse if state is past probed.
+	editJson(path.join(partialDir, "run.json"), (j) => {
+		j.end = "failed";
+		j.endReason = "stopped by host shutdown";
+		j.cells = kept;
+		j.states = j.states.slice(0, 5); // includes "executed"
+	});
+	await assert.rejects(() => resumeRun(dir, partialDir, { adapters: { opencode: scripted("opencode"), codex: scripted("codex") }, work }), /only a run stopped during execution/);
+
+	// Set state to probed (index 0..3).
+	editJson(path.join(partialDir, "run.json"), (j) => { j.states = j.states.slice(0, 4); });
+
+	// 3. Refuse if routes changed.
+	await assert.rejects(() => resumeRun(dir, partialDir, { adapters: { opencode: { ...scripted("opencode"), route: () => ({ r: "changed" }) }, codex: { ...scripted("codex"), route: () => ({ r: "cx" }) } }, work }), /routes to the models have changed/);
+
+	// 4. Refuse if a recorded cell file is missing.
+	const savedCell = fs.readFileSync(path.join(partialDir, "cells", `${kept[0]}.json`));
+	fs.rmSync(path.join(partialDir, "cells", `${kept[0]}.json`));
+	await assert.rejects(() => resumeRun(dir, partialDir, { adapters: { opencode: { ...scripted("opencode"), route: () => ({ r: "oc" }) }, codex: { ...scripted("codex"), route: () => ({ r: "cx" }) } }, work }), /missing its file/);
+	fs.writeFileSync(path.join(partialDir, "cells", `${kept[0]}.json`), savedCell);
+
+	// 5. Refuse if experiment hash changed since the run was recorded.
+	const expFile = path.join(dir, "experiments", "orchard.json");
+	const savedExp = fs.readFileSync(expFile);
+	editJson(expFile, (j) => { j.notes = "tampered"; });
+	await assert.rejects(() => resumeRun(dir, partialDir, { adapters: { opencode: { ...scripted("opencode"), route: () => ({ r: "oc" }) }, codex: { ...scripted("codex"), route: () => ({ r: "cx" }) } }, work }), /has changed since run/);
+	fs.writeFileSync(expFile, savedExp);
+
+	// 6. Resume runs only the 5 remaining cells, measures all 8, blinds, judges and tallies.
+	const oc = { ...scripted("opencode"), route: () => ({ r: "oc" }) };
+	const cx = { ...scripted("codex"), route: () => ({ r: "cx" }) };
+	const resumed = await resumeRun(dir, partialDir, { adapters: { opencode: oc, codex: cx }, work, parallel: 2 });
+	assert.equal(resumed.record.end, "completed");
+	assert.equal(resumed.record.endReason, undefined);
+	assert.equal(resumed.record.resumedAt?.length, 1);
+	assert.deepEqual(resumed.record.states.map((s) => s.state), [...STATES]);
+	assert.equal(resumed.record.cells.length, 8);
+	const workCalls = oc.calls.filter((c) => c.tools === "on").length + cx.calls.filter((c) => c.tools === "on").length;
+	assert.equal(workCalls, 5, "only the 5 remaining cells should be executed");
+	const resJson = JSON.parse(fs.readFileSync(path.join(partialDir, "RESULT.json"), "utf8"));
+	const fullJson = JSON.parse(fs.readFileSync(path.join(full.dir, "RESULT.json"), "utf8"));
+	assert.deepEqual(resJson.cellValues, fullJson.cellValues);
+	assert.deepEqual(resJson.totals, fullJson.totals);
+});
+

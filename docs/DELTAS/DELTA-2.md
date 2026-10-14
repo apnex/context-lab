@@ -1,11 +1,11 @@
 # Delta-2 - multi-phase episodes and the change gate - a vertical slice
 
 ```yaml
-status:     ratified (docs/DECISIONS.md 0019, amended 0020) - revision 3; stage 5 open
+status:     ratified (docs/DECISIONS.md 0019, amended 0020, 0021, 0022, 0023) - revision 3; stage 5 open
 selected:   docs/DECISIONS.md 0018, board items M2.1, M2.2, M2.3
 from-state: Delta-1's to-state (0017): one-phase experiments, isolation probed, judged, tallied
 to-state:   docs/ARCHITECTURE-TARGET.md (0006), the parts fenced in section 1
-rows:       docs/BACKLOG.md B1, B2, B3, B12
+rows:       docs/BACKLOG.md B1, B2, B3, B12, B16
 ```
 
 ---
@@ -40,7 +40,7 @@ This delta builds:
 - **Words used below.** A *cell* is a scenario, an arm and a member; a *cell run* is one of its runs. A property's rate in an arm is its mean over that arm's outcomes, cell runs invalid for behaviour scored at the bottom of the scale and others excluded, as the tally already does.
 - **The threshold deriver.** Its input is one A/A run: two identical arms, A and B, at nine runs per cell. For each scenario and member it pools the present cell runs of both arms - eighteen when none is excluded. A property's drop between two sets is standardised: `d = (rateA - rateB) / sqrt(2 p (1 - p) / n)`, `p` the property's rate over both sets together, `n` the outcomes per set, and `d = 0` where `p` is 0 or 1. For a size `k` of 3 or 9, with the generator the blinder uses seeded by the experiment's hash and `k`, it draws 1000 splits: for each, in sorted order of scenario and member, it shuffles that pool and takes the first `k'` runs as set A and the next `k'` as set B, where `k' = min(k, floor(n_pool / 2))`; every property uses the same split. Per split it takes the largest `d` over `m` properties - `m` declared by the comparison rule, by default every property the experiment holds. The threshold for size `k` is the nine-hundredth of the 1000 sorted largest values, and a drop flags only when strictly greater. It also reports, from nested splits whose first three runs per side form the size-3 sets, how often the two-stage rule below flags a persisting drop; and, as a drift check, where the actual arm A against arm B largest drop falls among the splits. It records `m`, the split count, the run id and both thresholds, and refuses a pool of fewer than twelve present runs.
 - **A tally restricted to cell runs 1 to `k`**, so the first stage of the gate can read a nine-run record as a three-run one.
-- **A `--revision` option** on the run command, so every run of one experiment can be pinned to one source revision.
+- **A `--revision` option** on the run command, so every run of one experiment can be pinned to one source revision; and **run resumption** (`0023`, `B16`), `context-lab resume <pack> <run-dir>`, resuming a run stopped during execution after checking its state, register hash, routes, variants and recorded cells.
 - **The comparator.** Two arms of one result, or two results, under a declared rule: per-property tolerance, a property absent from the head or with no mean counted as a drop; the A/A rule - flag a property whose standardised drop exceeds the size-3 threshold, then, given results of base and head at nine runs supplied by the caller, report as persisting a flagged property whose drop at nine exceeds the size-9 threshold; or improve-without-worsening across families. It refuses inputs that differ in anything but the variant revisions under comparison - scenarios, population, runs per cell, trap assignment - and a threshold set whose `m` differs from the property count compared. Its output holds exactly `rule`, `inputs`, `flags`, `heldOut`, `exposed`, `limits`.
 - **The note-generator hook**, under the hook contract.
 - **Synthetic scenarios** for every new shape, in the synthetic pack.
@@ -242,7 +242,10 @@ A smoke run of the handoff suite on all five members, `2026-10-13-223710-handoff
 309 tests.\
 opencode caps every reply at 32,000 tokens unless `OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX` says otherwise, and agents are given no variable from the operator's shell, so eval agents were held to 32,000 whatever their model allows: a member may now declare `outputTokenMax`, which the opencode adapter passes into the sandbox, the register fixes with the population, and the run record shows in the member's route; Codex refuses it.\
 Live, an Argon invocation declaring 8 stopped at 8 output tokens, and without it wrote 136.\
-310 tests.
+310 tests.\
+F13 on the five-member population (`2026-10-14-003010-handoff`, recorded at mission-kit `6ff4f44` with judges `c`, `a`, `x`, `o` by `0022`) completed with all five probes passing, every phase of every episode valid, three cross-family judges per unit, and an identical re-tally.\
+F14's first launch on the five-member population (`2026-10-14-003012-aa`) was stopped after 19 cells when one isolation probe (`on-trigger-b` on `o`) made a tool call (`B19`); its relaunch (`2026-10-14-004707-aa`, 10/10 probes passing) was stopped at 120 of 450 cells by a third host shutdown.\
+By `0023`, run resumption (`B16`) is added in `resumeRun` and `context-lab resume`, clearing any stale in-flight ledger or snapshot folder before running the remaining cells; 311 tests, all 7 resume guards mutation-tested.
 
 ---
 

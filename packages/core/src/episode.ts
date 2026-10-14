@@ -89,6 +89,7 @@ const git = (cwd: string, ...args: string[]): string => execFileSync("git", [...
 /** A ledger: a bare repository holding the trees of an episode's states, apart from any workspace. */
 export class Ledger {
 	constructor(readonly dir: string) {
+		fs.rmSync(dir, { recursive: true, force: true });
 		fs.mkdirSync(dir, { recursive: true });
 		execFileSync("git", ["init", "-q", "--bare", dir], { stdio: "ignore" });
 	}
@@ -200,6 +201,7 @@ export async function runEpisode(r: EpisodeRun): Promise<EpisodeResult> {
 	let episode: Validity = { valid: true };
 	let endedAt: string | undefined;
 	const snapDir = path.join(r.work, "snapshots", r.key);
+	fs.rmSync(snapDir, { recursive: true, force: true });
 	fs.mkdirSync(path.join(r.work, "invocations"), { recursive: true });
 
 	for (let i = 0; i < phases.length; i++) {
