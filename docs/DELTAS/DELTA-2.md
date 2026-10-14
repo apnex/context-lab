@@ -5,7 +5,7 @@ status:     complete - every exit criterion evaluated green by an agent that bui
 selected:   docs/DECISIONS.md 0018, board items M2.1, M2.2, M2.3
 from-state: Delta-1's to-state (0017): one-phase experiments, isolation probed, judged, tallied
 to-state:   docs/ARCHITECTURE-TARGET.md (0006), the parts fenced in section 1
-rows:       docs/BACKLOG.md B1, B2, B3, B12, B16
+rows:       docs/BACKLOG.md B1, B2, B3, B12, B16, B19
 ```
 
 ---
@@ -250,7 +250,8 @@ F14 (`2026-10-14-004707-aa`) was then resumed from cell 121 of 450 and completed
 F15's run (`2026-10-14-053958-aa`, started at `2026-10-14T05:39:58Z`, pinned to `6ff4f44`) completed with 10/10 probes passing, 439 of 450 cell runs valid (97.6%; 11 `o` cells invalid for `infrastructure` from an upstream OpenAI 503 window) and 0 incomplete values.\
 Compared arm against arm (`on-trigger` vs `on-trigger-b`) under `aa-gate` (`COMPARE.json` in the run directory): 0 flags at size 3 and 0 persisting flags at size 9.\
 Verification evaluated F13, F14 and F15 (and all of F1 to F15) PASS.\
-Sealed complete by the director (`0024`).
+Sealed complete by the director (`0024`).\
+When the five-member `adherence` baseline began (`2026-10-14-110210-adherence`), `B19`'s trigger fired (`o` made a shell read in a tools-off probe a second time because `onRequest` folders were still mounted read-only when `tools === "off"`): tools-off invocations now mount no `onRequest` folders in the sandbox, and `probeArm` retries once in a fresh invocation if a tool call occurs (`B19`, closed).
 
 ---
 

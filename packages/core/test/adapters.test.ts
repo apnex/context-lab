@@ -221,13 +221,13 @@ test("opencode: tools off disables every tool and denies every permission", asyn
 test("Codex: tools off runs read-only in an empty workspace of its own", async () => {
 	const e = setup();
 	fs.writeFileSync(path.join(e.workspace, "task.txt"), "task\n");
-	await adapterFor("codex", e, { stream: path.join(STREAMS, "codex-inflight-model.synthetic.jsonl"), visible: [path.join(e.workspace, "task.txt")] }).invoke(invocation(e, "codex", { tools: "off" }));
+	await adapterFor("codex", e, { stream: path.join(STREAMS, "codex-inflight-model.synthetic.jsonl"), visible: [path.join(e.workspace, "task.txt"), path.join(e.onRequest, "ENTRY.md")] }).invoke(invocation(e, "codex", { tools: "off" }));
 	const empty = fs.readdirSync(e.work).find((d) => d.startsWith("empty-"));
 	assert.ok(empty);
 	const r = readRecord(path.join(e.work, empty!));
 	assert.equal(r.argv.includes("--sandbox") || r.argv.includes("--ephemeral"), false);
 	assert.match(fs.readFileSync(path.join(e.work, "codex-home", "config.toml"), "utf8"), /^sandbox_mode = "read-only"$/m);
-	assert.deepEqual(r.sentinels, [`unreadable ${path.join(e.workspace, "task.txt")}`]);
+	assert.deepEqual(r.sentinels.sort(), [`unreadable ${path.join(e.onRequest, "ENTRY.md")}`, `unreadable ${path.join(e.workspace, "task.txt")}`].sort());
 	assert.match(fs.readFileSync(path.join(e.work, "codex-home", "config.toml"), "utf8"), /web_search = "disabled"/);
 });
 

@@ -69,7 +69,15 @@ export async function probeArm(loaded: LoadedPack, arm: ComposedArm, member: Mem
 		const work = fs.mkdtempSync(path.join(opts.base, "work", "p-"));
 		fs.rmdirSync(work);
 		const inv: Invocation = { arm, workspace: ws.dir, prompt: q.text, mode: adapter.modes[0]!, member, tools: "off", timeLimitSeconds: opts.timeLimitSeconds ?? 300, work };
-		const o = await adapter.invoke(inv);
+		let o = await adapter.invoke(inv);
+		// A tools-off probe has no on-request folders mounted; if the runtime's shell still ran a
+		// command on the first attempt, retry once in a fresh invocation before failing the probe (B19).
+		if (o.tools.length > 0) {
+			const ws2 = createWorkspace(loaded, scenario, arm, { base: path.join(opts.base, "workspaces"), rulesFiles: adapter.rulesFiles });
+			const work2 = fs.mkdtempSync(path.join(opts.base, "work", "p-"));
+			fs.rmdirSync(work2);
+			o = await adapter.invoke({ ...inv, workspace: ws2.dir, work: work2 });
+		}
 		const answered = answeredOf(o);
 		let finding: ProbeAnswer["finding"] = answered ? "ok" : "unanswered";
 		if (answered && q.kind === "canary") {

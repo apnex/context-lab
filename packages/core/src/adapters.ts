@@ -197,7 +197,7 @@ export function opencodeAdapter(opts: OpencodeOptions = {}): Adapter {
 			for (const d of ["config/opencode", "data", "state", "cache"]) fs.mkdirSync(path.join(inv.work, d), { recursive: true });
 			if (inv.continueFrom) fs.cpSync(path.join(inv.continueFrom.work, "data"), path.join(inv.work, "data"), { recursive: true });
 			if (fs.existsSync(operatorCache)) fs.cpSync(operatorCache, path.join(inv.work, "cache", "opencode"), { recursive: true });
-			const onRequest = inv.arm.onRequest.map((o) => o.path);
+			const onRequest = inv.tools === "off" ? [] : inv.arm.onRequest.map((o) => o.path);
 			const permission = inv.tools === "off"
 				? Object.fromEntries(["edit", "bash", "read", "webfetch", "websearch", "task", "glob", "grep", "list", "external_directory"].map((k) => [k, "deny"]))
 				: { edit: "allow", bash: "allow", read: "allow", webfetch: "deny", websearch: "deny", task: "deny", external_directory: onRequest.length ? Object.fromEntries([["*", "deny"], ...onRequest.map((o) => [`${o}/**`, "allow"])]) : "deny" };
@@ -338,7 +338,7 @@ export function codexAdapter(opts: CodexOptions = {}): Adapter {
 				: ["exec", ...common, "-C", workspace, inv.mode === "stdin" ? "-" : inv.prompt];
 			const secrets = authSecrets(auth);
 			const r = await runSandboxed({
-				install: vendor, writable: inv.tools === "off" ? [inv.work] : [inv.work, inv.workspace], readOnly: inv.arm.onRequest.map((o) => o.path), home, cwd: workspace,
+				install: vendor, writable: inv.tools === "off" ? [inv.work] : [inv.work, inv.workspace], readOnly: inv.tools === "off" ? [] : inv.arm.onRequest.map((o) => o.path), home, cwd: workspace,
 				command: [binary, ...args], env: { PATH: "/usr/bin:/bin", PWD: workspace, HOME: home, CODEX_HOME: codexHome }, stdin: inv.mode === "stdin" ? inv.prompt : null, timeLimitSeconds: inv.timeLimitSeconds,
 			});
 			// The login copy and Codex's own databases are removed, so no run record carries them.
