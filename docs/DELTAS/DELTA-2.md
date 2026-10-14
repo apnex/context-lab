@@ -245,10 +245,11 @@ Live, an Argon invocation declaring 8 stopped at 8 output tokens, and without it
 310 tests.\
 F13 on the five-member population (`2026-10-14-003010-handoff`, recorded at mission-kit `6ff4f44` with judges `c`, `a`, `x`, `o` by `0022`) completed with all five probes passing, every phase of every episode valid, three cross-family judges per unit, and an identical re-tally.\
 F14's first launch on the five-member population (`2026-10-14-003012-aa`) was stopped after 19 cells when one isolation probe (`on-trigger-b` on `o`) made a tool call (`B19`); its relaunch (`2026-10-14-004707-aa`, 10/10 probes passing) was stopped at 120 of 450 cells by a third host shutdown.\
-By `0023`, run resumption (`B16`) is added in `resumeRun` and `context-lab resume`, clearing any stale in-flight ledger or snapshot folder before running the remaining cells; 311 tests, all 7 resume guards mutation-tested.\
+By `0023`, run resumption (`B16`) is added in `resumeRun` and `context-lab resume`, clearing any stale in-flight ledger or snapshot folder before running the remaining cells; 311 tests, all 9 resume protections mutation-tested (2 added after verification caught that the variant-manifest and malformed-cell guards were untested).\
 F14 (`2026-10-14-004707-aa`) was then resumed from cell 121 of 450 and completed with all 450 cell runs valid and 0 incomplete values; its thresholds were derived and recorded in `docs/evals/context-lab/register/thresholds/aa-gate.jsonl` at mission-kit `0fddadb` (`2026-10-14T05:39:21.829Z`) before F15 began - size 3, 1.283; size 9, 1.265; two-stage rate 0.022; the actual largest drop 0.989, below 726 of 1000 splits.\
 F15's run (`2026-10-14-053958-aa`, started at `2026-10-14T05:39:58Z`, pinned to `6ff4f44`) completed with 10/10 probes passing, 439 of 450 cell runs valid (97.6%; 11 `o` cells invalid for `infrastructure` from an upstream OpenAI 503 window) and 0 incomplete values.\
-Compared arm against arm (`on-trigger` vs `on-trigger-b`) under `aa-gate` (`COMPARE.json` in the run directory): 0 flags at size 3 and 0 persisting flags at size 9.
+Compared arm against arm (`on-trigger` vs `on-trigger-b`) under `aa-gate` (`COMPARE.json` in the run directory): 0 flags at size 3 and 0 persisting flags at size 9.\
+Verification evaluated F13, F14 and F15 (and all of F1 to F15) PASS.
 
 ---
 

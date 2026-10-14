@@ -398,11 +398,22 @@ test("resumeRun completes a run stopped during execution, skips recorded cells, 
 	// 3. Refuse if routes changed.
 	await assert.rejects(() => resumeRun(dir, partialDir, { adapters: { opencode: { ...scripted("opencode"), route: () => ({ r: "changed" }) }, codex: { ...scripted("codex"), route: () => ({ r: "cx" }) } }, work }), /routes to the models have changed/);
 
-	// 4. Refuse if a recorded cell file is missing.
+	// 4. Refuse if a recorded cell file is missing or malformed.
 	const savedCell = fs.readFileSync(path.join(partialDir, "cells", `${kept[0]}.json`));
 	fs.rmSync(path.join(partialDir, "cells", `${kept[0]}.json`));
 	await assert.rejects(() => resumeRun(dir, partialDir, { adapters: { opencode: { ...scripted("opencode"), route: () => ({ r: "oc" }) }, codex: { ...scripted("codex"), route: () => ({ r: "cx" }) } }, work }), /missing its file/);
+	fs.writeFileSync(path.join(partialDir, "cells", `${kept[0]}.json`), JSON.stringify({ cell: kept[0], attempts: [] }));
+	await assert.rejects(() => resumeRun(dir, partialDir, { adapters: { opencode: { ...scripted("opencode"), route: () => ({ r: "oc" }) }, codex: { ...scripted("codex"), route: () => ({ r: "cx" }) } }, work }), /is malformed/);
 	fs.writeFileSync(path.join(partialDir, "cells", `${kept[0]}.json`), savedCell);
+
+	// 4b. Refuse if the built variant manifest on disk does not match run.json.
+	const mfPath = path.join(work, full.record.run, "variants", "almanac-full", "context-lab-variant.json");
+	fs.chmodSync(path.dirname(mfPath), 0o755);
+	fs.chmodSync(mfPath, 0o644);
+	const savedMf = fs.readFileSync(mfPath);
+	editJson(mfPath, (j) => { j.revision = "tampered"; });
+	await assert.rejects(() => resumeRun(dir, partialDir, { adapters: { opencode: { ...scripted("opencode"), route: () => ({ r: "oc" }) }, codex: { ...scripted("codex"), route: () => ({ r: "cx" }) } }, work }), /does not match run\.json/);
+	fs.writeFileSync(mfPath, savedMf);
 
 	// 5. Refuse if experiment hash changed since the run was recorded.
 	const expFile = path.join(dir, "experiments", "orchard.json");
