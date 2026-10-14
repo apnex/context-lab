@@ -40,6 +40,7 @@ Order on the higher: a mandate breach ranks with S2 and a signal with S4; ties g
 | `B12` | S4 | A8 signal | M2.3 | Repeatability is not tested. |
 | `B15` | S4 | A5 signal | held | The sandbox gives agents no Node.js, though fixtures ask them to run tests. |
 | `B16` | S4 | A7 signal | held | A run cannot resume. |
+| `B19` | S4 | A7 signal | held | One tool call in one isolation probe removes an arm and member from a whole run. |
 | `B6` | S5 | A3 signal | held | Only two runtimes have adapters. |
 | `B17` | S5 | A11 signal | held | Each invocation keeps its runtime's whole data folder, tool output included. |
 <!-- END GENERATED: ledger -->
@@ -93,6 +94,7 @@ It carries mission-kit's adherence suite and one comprehension suite as single-p
 | `B10` | S4 | A10 signal | No loop files context-lab's own failures as its defects. | the first run on the core |
 | `B15` | S4 | A5 signal | The sandbox gives agents no Node.js, though fixtures ask them to run tests. | a property depends on an agent running tests |
 | `B16` | S4 | A7 signal | A run cannot resume. | fired 2026-10-13, a second run lost to the host |
+| `B19` | S4 | A7 signal | One tool call in one isolation probe removes an arm and member from a whole run. | a probe fails without a leak a second time |
 | `B6` | S5 | A3 signal | Only two runtimes have adapters. | a project needs a third runtime |
 | `B17` | S5 | A11 signal | Each invocation keeps its runtime's whole data folder, tool output included. | free space on the working disk falls below 10 GB |
 <!-- END GENERATED: held -->
