@@ -43,6 +43,7 @@ They are not copied here; this register starts at the vision.
 | 0021 | 2026-10-14 | Delta-2's live criteria F13, F14 and F15 are run on a new population: the four models of the new LiteLLM endpoint, through opencode, and GPT, through Codex. The old endpoint is not used again, and the thresholds from the first A/A run stay in the register, superseded. | director | ratified | amends 0019 |
 | 0022 | 2026-10-14 | In Delta-2's live runs on the new population, one member of each family judges - Claude Opus 5.5, Gemini 4 Argon, Grok 4.20 and GPT - so every outcome has three judges, none of its agent's family. | director | ratified | amends 0021 |
 | 0023 | 2026-10-14 | Delta-2 is amended to include run resumption (`B16`): a run stopped during execution (after probing, before blinding) may be resumed from its completed cells once the experiment hash, variant manifests, model routes and recorded cell files are verified intact. | director | ratified | amends 0019 |
+| 0024 | 2026-10-14 | Delta-2 is complete: every exit criterion (F1 to F15) was evaluated green by an agent that built none of the code, F4's trap-file clause is confirmed, M2 is done (`B2`, `B3`, `B12`, `B16` closed), and the five-member `adherence` and `explain` baseline runs in mission-kit are selected next. | director | ratified | amends 0019 |
 
 ---
 
@@ -357,3 +358,16 @@ The director replied "continue" to a list whose first pick was this option, and 
 
 **Source.**\
 `[V, director ruling 2026-10-14]`
+
+### 0024
+
+**Ruling.**\
+Delta-2 reached its to-state: multi-phase episodes, notes, branches, trap rotation, diagnostic measures, the threshold deriver, the comparator and run resumption, with F13, F14 and F15 completed on the five-member population (`c`, `a`, `f`, `x`, `o`) and zero persisting flags on F15.\
+Every exit criterion (F1 to F15) was evaluated green by an agent that built none of the code; F4's stage-2 trap-file clause is confirmed; milestone M2 is complete (`B2`, `B3`, `B12`, `B16` closed).\
+The five-member `adherence` and `explain` baseline runs in mission-kit are selected next, with the one-per-family judge panel (`c`, `a`, `x`, `o`) of `0022` applied to `adherence` and `explain`, and `explain` carrying the 0.25 pooled variation and default of `0019`.
+
+**Alternatives refuted.**\
+Opening milestone M3 before running the five-member `adherence` and `explain` baselines - refuted because the control-versus-guided baseline should be taken while the five-member calibration is fresh.
+
+**Source.**\
+`[V, director ruling 2026-10-14; docs/DELTAS/DELTA-2.md Record, closing evaluation]`
