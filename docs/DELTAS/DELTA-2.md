@@ -239,7 +239,10 @@ On the new population, Gemini 4 Argon failed after its first tool call on the An
 Each model is now routed by what carries its own features through: Claude Opus 5.5 on the Anthropic route, where prompt caching was measured applied and on the other not; Argon, Flash and Grok on the OpenAI-compatible route.\
 A route lives in the operator's opencode configuration, outside the pack and the experiment register, so a change between two runs went unrecorded: the run record now holds each agent's and judge's route, the opencode adapter reads the operator's provider block once per run so the recorded route is the one every invocation used, and the comparator refuses two runs whose routes differ.\
 A smoke run of the handoff suite on all five members, `2026-10-13-223710-handoff`, exploration, had every phase of every episode valid.\
-309 tests.
+309 tests.\
+opencode caps every reply at 32,000 tokens unless `OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX` says otherwise, and agents are given no variable from the operator's shell, so eval agents were held to 32,000 whatever their model allows: a member may now declare `outputTokenMax`, which the opencode adapter passes into the sandbox, the register fixes with the population, and the run record shows in the member's route; Codex refuses it.\
+Live, an Argon invocation declaring 8 stopped at 8 output tokens, and without it wrote 136.\
+310 tests.
 
 ---
 

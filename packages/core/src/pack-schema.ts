@@ -65,6 +65,11 @@ export interface Member {
 	family: string;
 	runtime: string;
 	model: string;
+	/**
+	 * Runtime settings, each refused before anything runs by a runtime that cannot apply it. opencode:
+	 * reasoningEffort, a variant of the model; outputTokenMax, the cap on a reply's tokens (opencode's own
+	 * default 32,000), each model still held to its own limit.output. Codex: reasoningEffort.
+	 */
 	settings?: Record<string, string | number | boolean>;
 }
 

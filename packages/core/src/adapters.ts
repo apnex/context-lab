@@ -181,6 +181,10 @@ export function opencodeAdapter(opts: OpencodeOptions = {}): Adapter {
 			if (m) return m;
 			if (inv.continueFrom && !fs.existsSync(path.join(inv.continueFrom.work, "data"))) return `${inv.continueFrom.work} holds no session store (data)`;
 			for (const [k, v] of Object.entries(inv.member.settings ?? {})) {
+				if (k === "outputTokenMax") {
+					if (!(typeof v === "number" && Number.isInteger(v) && v > 0)) return `setting outputTokenMax ${JSON.stringify(v)} is not a whole number of tokens above zero`;
+					continue;
+				}
 				if (k !== "reasoningEffort") return `setting ${k} is not one opencode can apply`;
 				if (!provider().variants(inv.member.model).includes(String(v))) return `setting reasoningEffort ${v} is not a variant of ${inv.member.model}`;
 			}
@@ -215,6 +219,9 @@ export function opencodeAdapter(opts: OpencodeOptions = {}): Adapter {
 				OPENCODE_DISABLE_CLAUDE_CODE: "1",
 			};
 			for (const v of p.credentialVars) if (env[v] !== undefined) runEnv[v] = env[v]!;
+			// opencode caps every reply at 32,000 tokens, or at this, whichever is lower than the model's own
+			// limit.output; the cap is declared by the member in the pack, never read from the operator's shell.
+			if (inv.member.settings?.["outputTokenMax"] !== undefined) runEnv["OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX"] = String(inv.member.settings["outputTokenMax"]);
 			const r = await runSandboxed({ install: binary, writable: [inv.work, inv.workspace], readOnly: onRequest, home, cwd: inv.workspace, command: [binary, ...args], env: runEnv, stdin: null, timeLimitSeconds: inv.timeLimitSeconds });
 			// opencode installs packages into its configuration folder and the home's npm cache on every
 			// invocation, and the cache copy is about 150 MB: none is part of any record, so all go as

@@ -350,3 +350,22 @@ test("opencode: the route names the client package, endpoint and model settings,
 	assert.equal(opencodeAdapter({ binary: "/bin/true", operatorConfig: config, operatorCache: path.join(dir, "none"), env: { PATH: "/usr/bin:/bin" } }).route!(member("lx/gem")).npm, "@ai-sdk/anthropic");
 	assert.deepEqual(codexAdapter({ vendor: dir, auth: path.join(dir, "a"), models: path.join(dir, "m") }).route!({ ...member("gpt-x"), runtime: "codex", settings: { reasoningEffort: "high" } }), { runtime: "codex", model: "gpt-x", memberSettings: { reasoningEffort: "high" } });
 });
+
+test("opencode: outputTokenMax is passed into the sandbox from the member, and only from the member", async () => {
+	const e = setup();
+	const stub: StubOptions = {};
+	// The operator's shell holding the variable changes nothing.
+	const op = operatorFiles(e.dir);
+	const shell = { ...process.env, CL_TEST_KEY: KEY, OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX: "999" };
+	const a = opencodeAdapter({ binary: opencodeStub(path.join(e.dir, "stub"), stub), operatorConfig: op.config, operatorCache: op.cache, env: shell });
+	await a.invoke(invocation(e, "opencode"));
+	assert.equal(readRecord(e.workspace).env.get("OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX"), undefined, "the operator's shell reached the agent");
+	const member: Member = { id: "x", family: "f", runtime: "opencode", model: "test/m", settings: { outputTokenMax: 1048576 } };
+	fs.rmSync(e.work, { recursive: true, force: true });
+	await a.invoke(invocation(e, "opencode", { member }));
+	assert.equal(readRecord(e.workspace).env.get("OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX"), "1048576");
+	for (const bad of [0, -5, 1.5, "1000"]) assert.match(a.refuse(invocation(e, "opencode", { member: { ...member, settings: { outputTokenMax: bad as number } } })) ?? "", /outputTokenMax/);
+	const cx = codexAdapter({ vendor: e.dir, auth: op.auth, models: op.models, env: shell });
+	assert.match(cx.refuse(invocation(e, "codex", { member: { id: "x", family: "f", runtime: "codex", model: "m", settings: { outputTokenMax: 1000 } } })) ?? "", /outputTokenMax is not one Codex can apply/);
+	assert.deepEqual(a.route!(member).memberSettings, { outputTokenMax: 1048576 });
+});
