@@ -831,7 +831,7 @@ export async function pickRun(recordsDir: string, opts: PickRunOptions = {}): Pr
 					for (let r = 1; r <= record.runsPerCell; r++) {
 						const w = cells.find((c) => c.scenario === s.id && c.arm === withArm && c.member === m && c.run === r);
 						const wo = cells.find((c) => c.scenario === s.id && c.arm === withoutArm && c.member === m && c.run === r);
-						if (w?.final && wo?.final) {
+						if (w?.final !== null && w?.final !== undefined && wo?.final !== null && wo?.final !== undefined) {
 							items.push({ id: `${s.id}.${m}.${r}`, move: s.id, scenario: s.id, with: w.final, without: wo.final });
 						}
 					}

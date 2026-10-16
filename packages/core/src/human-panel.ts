@@ -98,16 +98,18 @@ export async function runHumanPanel(opts: HumanPanelOptions): Promise<PicksRecor
 	const mode: "preference" | "calibration" = opts.pairs[0]?.kind === "calibration" ? "calibration" : "preference";
 	const reader = createLineReader(input);
 	const answers: PickAnswer[] = [];
+	let eof = false;
 	output.write(`\n${opts.pairs.length} items. For each, pick the outcome that helps you more.\nType a, b or = and press Enter. Ctrl-D stops early; answers so far are kept.\n`);
 	for (const [n, pair] of opts.pairs.entries()) {
 		const header = pair.kind === "preference" ? `Scenario: ${pair.scenario}` : `Scenario: ${pair.scenario} (${pair.property})`;
 		output.write(`\nItem ${n + 1} of ${opts.pairs.length}\n\n${header}\n\n${rule("A")}\n${pair.textA}\n\n${rule("B")}\n${pair.textB}\n\n`);
 		const pick = (await ask(reader, output, "Which helps you more?   [a] A   [b] B   [=] same\n> ", ["a", "b", "="])) as "a" | "b" | "=" | null;
-		if (pick === null) break;
+		if (pick === null) { eof = true; break; }
 		let tagCode = "";
 		if (pick !== "=") {
 			const t = await ask(reader, output, "What was wrong with the other? (optional)\n  [1] point buried  [2] too long  [3] unclear label  [4] other\n> ", ["1", "2", "3", "4", ""]);
-			if (t !== null) tagCode = t;
+			if (t === null) eof = true;
+			else tagCode = t;
 		}
 		const tag = FAULT_TAGS[tagCode] ?? null;
 		if (pair.kind === "preference") {
@@ -119,13 +121,14 @@ export async function runHumanPanel(opts: HumanPanelOptions): Promise<PicksRecor
 			const choseHigher = pick === "=" ? null : pick === pair.higher;
 			answers.push({ id: pair.id, scenario: pair.scenario, property: pair.property, shownA: pair.shownA, pick, chose, choseHigher, tag });
 		}
+		if (eof) break;
 	}
 	reader.close();
 	return {
 		mode,
 		seed: opts.seed,
 		created: now().toISOString(),
-		complete: answers.length === opts.pairs.length,
+		complete: !eof && answers.length === opts.pairs.length,
 		answers,
 	};
 }

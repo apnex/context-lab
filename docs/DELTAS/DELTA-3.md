@@ -1,7 +1,7 @@
 # Delta-3 - people, chains, on-demand review, and the second user - a vertical slice
 
 ```yaml
-status:     ratified (docs/DECISIONS.md 0026) - revision 2; stage 1 open
+status:     ratified (docs/DECISIONS.md 0026) - revision 2; stage 2 open
 selected:   docs/DECISIONS.md 0025, board items M3.1, M3.2
 from-state: Delta-2's to-state (0024): multi-phase episodes, diagnostic measures, threshold deriver, comparator, run resumption
 to-state:   docs/ARCHITECTURE-TARGET.md (0006, reopened under section 1 for 0025/B18), all 22 components of section 5
@@ -155,7 +155,8 @@ This delta does not build or change:
 
 **Stage 1 (`M3.1a`).**\
 Built `packages/core/src/pair-chooser.ts` (`flipFor`, `choosePreferencePairs`, `chooseCalibrationPairs`), `packages/core/src/human-panel.ts` (`runHumanPanel`, `readLegacyHumanRun`, `tallyHumanPicks`), `pickRun` (`context-lab pick`) in `run-conductor.ts`, and `humanPicks` integration in `tally.ts` (including the `< 0.75` calibration agreement limit warning).\
-314 tests; 6 stage-1 mutants applied and killed.
+Verification evaluated G1, G2 and G3 PASS; all three minor findings from verification (tests for `M3`, `M11`, `M15`, EOF on the tag prompt, and empty-string `final` check in `pickRun`) are fixed and mutation-tested (15 of 15 mutants killed).\
+314 tests; stage 1 is complete.
 
 ---
 

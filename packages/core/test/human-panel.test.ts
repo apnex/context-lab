@@ -27,7 +27,7 @@ test("G1: chooseCalibrationPairs pairs only within scenario/arm/phase/property w
 	};
 	const scenarios = new Map<string, Scenario>([["s1", s1], ["s2", s2]]);
 	const units: Unit[] = [
-		// s1, armA: u0001 (mean 0.0), u0002 (mean 0.5), u0003 (mean 1.5 -> high, >= midpoint 1.0)
+		// s1, armA: u0001 (mean 0.0), u0002 (mean 0.5), u0003 (mean 1.0 -> high, exact midpoint 1.0)
 		{ id: "u0001", cell: "s1.armA.p1.1", scenario: "s1", arm: "armA", member: "p1", family: "f1", phase: "work", properties: ["p1"], text: "TEXT-1", blindedAt: "" },
 		{ id: "u0002", cell: "s1.armA.p2.1", scenario: "s1", arm: "armA", member: "p2", family: "f2", phase: "work", properties: ["p1"], text: "TEXT-2", blindedAt: "" },
 		{ id: "u0003", cell: "s1.armA.p3.1", scenario: "s1", arm: "armA", member: "p3", family: "f3", phase: "work", properties: ["p1"], text: "TEXT-3", blindedAt: "" },
@@ -37,7 +37,7 @@ test("G1: chooseCalibrationPairs pairs only within scenario/arm/phase/property w
 		{ id: "u0005", cell: "s2.armA.p1.1", scenario: "s2", arm: "armA", member: "p1", family: "f1", phase: "work", properties: ["p2"], text: "TEXT-5", blindedAt: "" },
 		{ id: "u0006", cell: "s2.armA.p2.1", scenario: "s2", arm: "armA", member: "p2", family: "f2", phase: "work", properties: ["p2"], text: "TEXT-6", blindedAt: "" },
 	];
-	const meanMap: Record<string, number> = { u0001: 0, u0002: 0.5, u0003: 1.5, u0004: 1.5, u0005: 2.0, u0006: 2.0 };
+	const meanMap: Record<string, number> = { u0001: 0, u0002: 0.5, u0003: 1.0, u0004: 1.5, u0005: 2.0, u0006: 2.0 };
 	const votes: Vote[] = units.flatMap((u) => [
 		{ unit: u.id, property: u.properties[0]!, judge: "j1", family: "jf1", value: meanMap[u.id]!, reason: "r", guess: null, prompt: "p" },
 		{ unit: u.id, property: u.properties[0]!, judge: "j2", family: "jf2", value: meanMap[u.id]!, reason: "r", guess: null, prompt: "p" },
@@ -45,7 +45,12 @@ test("G1: chooseCalibrationPairs pairs only within scenario/arm/phase/property w
 	const pairs1 = chooseCalibrationPairs({ units, votes, scenarios, assigned: () => ["j1", "j2"], seed: "seed-alpha", count: 8 });
 	const pairs2 = chooseCalibrationPairs({ units, votes, scenarios, assigned: () => ["j1", "j2"], seed: "seed-alpha", count: 8 });
 	assert.deepEqual(pairs1, pairs2, "calibration pairs must repeat identically for the same seed");
-	// Only s1/armA has differing pairs: (u0001,u0002) with max=0.5 < 1.0 (low), (u0001,u0003) with max=1.5 >= 1.0 (high), (u0002,u0003) with max=1.5 >= 1.0 (high).
+	// Only s1/armA has differing pairs: (u0001,u0002) with max=0.5 < 1.0 (low), (u0001,u0003) with max=1.0 >= 1.0 (high), (u0002,u0003) with max=1.0 >= 1.0 (high).
+	// Also check count=2 across seeds so that if max=1.0 fell into the low partition, some seed would put the 0.5 pair in the top 2.
+	for (const sd of ["s-1", "s-2", "s-3", "s-4", "s-5"]) {
+		const top2 = chooseCalibrationPairs({ units, votes, scenarios, assigned: () => ["j1", "j2"], seed: sd, count: 2 });
+		assert.ok(top2.every((p) => Math.max(p.meanA, p.meanB) === 1.0), `seed ${sd}: exact-midpoint pair was not kept in high partition`);
+	}
 	assert.equal(pairs1.length, 3);
 	for (const p of pairs1) {
 		assert.equal(p.scenario, "s1");
@@ -85,24 +90,25 @@ test("G2: runHumanPanel and pickRun handle invalid lines, fault tags, early EOF,
 		{ id: "i2", move: "m1", scenario: "sc2", with: "MSG-WITH-2", without: "MSG-WITHOUT-2" },
 		{ id: "i3", move: "m2", scenario: "sc3", with: "MSG-WITH-3", without: "MSG-WITHOUT-3" },
 	], "seed-1");
-	// Answer i1 with whatever side is "with" and tag "2" (too long), i2 with "=", then EOF before i3.
+	// Answer i1 with whatever side is "with" and tag "2" (too long), i2 with whatever side is "without" and tag "1" (must NOT count in tags), then EOF before i3.
 	const pickWith1 = prefPairs[0]!.shownA === "with" ? "a" : "b";
+	const pickWithout2 = prefPairs[1]!.shownA === "with" ? "b" : "a";
 	let outBuf = "";
 	const partial = await runHumanPanel({
 		pairs: prefPairs,
 		seed: "seed-1",
-		input: Readable.from([`${pickWith1}\n2\n=\n`]),
+		input: Readable.from([`${pickWith1}\n2\n${pickWithout2}\n1\n`]),
 		output: { write: (s: string) => { outBuf += s; return true; } },
 	});
 	assert.equal(partial.complete, false);
 	assert.equal(partial.answers.length, 2);
 	assert.equal(partial.answers[0]!.chose, "with");
 	assert.equal(partial.answers[0]!.tag, "too long");
-	assert.equal(partial.answers[1]!.chose, "same");
-	assert.equal(partial.answers[1]!.tag, null);
+	assert.equal(partial.answers[1]!.chose, "without");
+	assert.equal(partial.answers[1]!.tag, "point buried");
 	const tPartial = tallyHumanPicks(partial);
-	assert.deepEqual(tPartial.byMove["m1"], { with: 1, without: 0, same: 1, tags: { "too long": 1 } });
-	assert.deepEqual(tPartial.totals, { with: 1, without: 0, same: 1 });
+	assert.deepEqual(tPartial.byMove["m1"], { with: 1, without: 1, same: 0, tags: { "too long": 1 } });
+	assert.deepEqual(tPartial.totals, { with: 1, without: 1, same: 0 });
 
 	// 2. Full calibration run through pickRun on a judged run record, with invalid input retried,
 	//    and agreement 1 of 2 (50% < 75%) triggering the RESULT.md limit warning.
@@ -162,6 +168,14 @@ test("G2: runHumanPanel and pickRun handle invalid lines, fault tags, early EOF,
 	// Re-tallying from files alone reproduces the result.
 	const retallied = tallyRun(rd);
 	assert.deepEqual(retallied.humanPicks, result.humanPicks);
+	// When agreement is >= 0.75 (both pairs chosen higher -> 2/2 = 100%), no warning appears in RESULT.md.
+	await pickRun(rd, {
+		mode: "calibration",
+		input: Readable.from([`${calPairs[0]!.higher}\n\n${calPairs[1]!.higher}\n\n`]),
+		output: { write: () => true },
+	});
+	const mdHigh = fs.readFileSync(path.join(rd, "RESULT.md"), "utf8");
+	assert.equal(mdHigh.includes("below the 75% threshold"), false);
 	// Tie picks ("=") are excluded from calibration agreement denominator.
 	const calWithTie = tallyHumanPicks({
 		mode: "calibration", seed: "s", created: "", complete: true,
