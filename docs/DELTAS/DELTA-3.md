@@ -45,14 +45,14 @@ This delta builds the remaining three components of `docs/ARCHITECTURE-TARGET.md
     2. `wrong-firing`: a precision property whose fail rate (`1 - mean`) exceeds a threshold (by default `0.25`) in any guided arm;
     3. `knows-not-acts`: a guidance entry in the `link` table whose `metNot` rate exceeds `0.5`;
     4. `chain-threshold`: a classify-then-verify finding with `meets === true`.
-  - Writes `CANDIDATES.json` and `CANDIDATES.md` in the run directory, each candidate carrying its rule id, the property/entry/finding id, the measured numbers and cells as evidence, and a draft backlog row with a revival trigger — never editing the project's `BACKLOG.md` itself (non-goal 3, P9).
+  - Writes `CANDIDATES.json` and `CANDIDATES.md` in the run directory, each candidate carrying its rule id, the property/entry/finding id, the measured numbers and cells as evidence, and a draft backlog row with a revival trigger - never editing the project's `BACKLOG.md` itself (non-goal 3, P9).
 - **On-demand multi-model review runner (`B18`, `packages/core/src/review-panel.ts`, CLI `context-lab review`).**
   - Command: `context-lab review <pack> --prompt <file> [--files <path,...>] [--members <id,...>] [--verify] [--out <dir>]`.
   - Runs an arbitrary review, audit, or verification prompt across the selected population members (by default one member per model family in the pack), each in an isolated read-only sandbox (tools off if all input files are attached/inlined, or read-only workspace copy of `--files` with write/network denied).
   - Parses structured findings from each model's reply, groups findings by family, and when `--verify` is passed, runs a cross-family verification pass where each model's findings are checked by a model of another family.
   - Writes a self-contained packet (`REVIEW.json` and `REVIEW.md` in `--out`) with per-family findings, cross-family agreement count (treating same-family agreement as one measurement), and unresolved single-family findings for the director or author.
 - **zorg's project pack (`zorg/evals/context-lab/`) and retirement (`M3.2`).**
-  - Pack declaring zorg's sources (`zorg`, `agp`, `mission-kit`, `operation-call`, `entity-store`, `entity-api`, `shape-check`), its `census-corpus` variant transform hook (stripping `capability-overlaps.md` pointers), its `composition-check` outcome-measure hook (wrapping `tools/check-capabilities.mjs`), its 13 composition-census scenarios (2 held out: `agent-memory`, `feature-flags`), and its 26 findings (`L1`–`L26`).
+  - Pack declaring zorg's sources (`zorg`, `agp`, `mission-kit`, `operation-call`, `entity-store`, `entity-api`, `shape-check`), its `census-corpus` variant transform hook (stripping `capability-overlaps.md` pointers), its `composition-check` outcome-measure hook (wrapping `tools/check-capabilities.mjs`), its 13 composition-census scenarios (2 held out: `agent-memory`, `feature-flags`), and its 26 findings (`L1`-`L26`).
   - Legacy parity reader converting zorg's recorded run `l-02` (`zorg-eval-runs/runs/l-02`) into core inputs and proving exact parity on all 26 finding counts (`FINDINGS-COUNT.json` and `LEDGER.md`).
   - Retirement of duplicated scripts: `mission-kit/tools/adherence.mjs`, `mission-kit/tools/eval-human.mjs`, `zorg/evals/tools/run-agents.mjs`, `zorg/evals/tools/classify-findings.mjs`, and `zorg/evals/tools/count-findings.mjs` (replaced by thin forwarders or removed with docs updated, per each project's gate).
 
@@ -77,7 +77,7 @@ Each stage lands with its own tests, and its criteria are green, before the next
 | `0002` classify-then-verify judging chains | G4, G5, G9 | - |
 | `0004` calibration pairs over-sampled where judges scored high; 0.75 agreement check | G1, G2 | - |
 | `0004` candidate findings written from results | G6 | - |
-| `0006` all 21 components of section 5 built | G1–G6 (completing the final 3 components) | - |
+| `0006` all 21 components of section 5 built | G1-G6 (completing the final 3 components) | - |
 | `0025` / `B18` on-demand multi-model review orchestration | G7, G8 | - |
 | `0001` / `B1`, `B11` second user (zorg) on the core and duplicated tools retired | G9, G10, G11 | - |
 | Failure injection (`B4`), filter characterisation (`B7`), per-property arm-guess test (`B5`) | - | M4.1, M4.2, M4.3 |
@@ -100,14 +100,14 @@ Evaluated by an agent that built none of the code the criterion exercises, holdi
 | # | Stage | Criterion |
 |---|---|---|
 | G1 | 1 | Given a fixture run with known judge scores across two scenarios and two arms, the pair chooser in calibration mode returns only pairs from the same scenario and arm whose judge means differ, orders pairs with at least one score at or above the scale's midpoint ahead of pairs where both are below, and repeats identically for the same seed; in preference mode, display order (`shownA`) equals `flipFor(seed, id)` for every item. |
-| G2 | 1 | Given scripted stdin lines (`a`, `b`, `=`, invalid inputs retried, fault tags `1`–`4` and empty, and early EOF), the human panel writes `picks.json` with `complete: false` on early EOF and `true` on full completion, never shows arm names or judge scores in stdout, and the tally reports per-move counts for preference pairs and exact `choseHigher / nonTiePicks` agreement for calibration pairs, adding a limit warning when agreement `< 0.75`. |
+| G2 | 1 | Given scripted stdin lines (`a`, `b`, `=`, invalid inputs retried, fault tags `1`-`4` and empty, and early EOF), the human panel writes `picks.json` with `complete: false` on early EOF and `true` on full completion, never shows arm names or judge scores in stdout, and the tally reports per-move counts for preference pairs and exact `choseHigher / nonTiePicks` agreement for calibration pairs, adding a limit warning when agreement `< 0.75`. |
 | G3 | 1 | Reading mission-kit's recorded human preference run (`delta2-check-2026-10-03-66f8fb/result.json`) through the core's human-pick tally reproduces its exact per-move counts (`6` `with`, `0` `without`, `0` `same`). |
 | G4 | 2 | In a classify-then-verify chain over a 3-family population, no classifier is assigned an outcome of its own family, and no verifier is assigned an item whose reader family or classifier family equals the verifier's; a population with fewer than 3 families is refused before any classifier runs; a classified quote whose words (by `words()`) do not appear in the outcome is rejected by code before verification. |
 | G5 | 2 | On a fixture with named and computed findings across held-out and non-held-out scenarios and three families, only verifier-supported (`supports: true`) named evidence and code-measured computed evidence count; multiple readers of one family in one scenario count as one family; and `meets` is `true` if and only if `scenarios >= 3`, `heldOut >= 1`, and `families >= 2`. |
 | G6 | 2 | Given a fixture `Result` (and chain summary), the candidate writer emits a candidate for each of the four rules (`all-guided-fail`, `wrong-firing > 0.25`, `knows-not-acts > 0.5`, `chain-threshold`) when and only when the threshold is met, writes `CANDIDATES.json` and `CANDIDATES.md` in the run folder, and modifies no file outside the run folder. |
 | G7 | 3 | `context-lab review` runs a prompt and optional read-only file set across selected members of distinct families in isolated sandboxes (write and network denied), groups findings by family (counting same-family agreement as one family), runs cross-family verification when `--verify` is given, and writes `REVIEW.json` and `REVIEW.md`. |
 | G8 | 3 | A live `context-lab review --verify` run across at least three model families on a real artifact completes with every model's raw reply, family attribution, and verification verdict recorded in `REVIEW.json`. |
-| G9 | 4 | `zorg/evals/context-lab/` passes `context-lab check`, and feeding zorg's recorded run `l-02` (78 readers, 13 briefs, 26 findings `L1`–`L26`) through the core's classify-then-verify counter reproduces `l-02/FINDINGS-COUNT.json`'s `readers`, `briefs`, `heldOut`, `families`, `rejected`, `unverified`, and `meets` for all 26 findings (`L1`–`L26`) with zero mismatches. |
+| G9 | 4 | `zorg/evals/context-lab/` passes `context-lab check`, and feeding zorg's recorded run `l-02` (78 readers, 13 briefs, 26 findings `L1`-`L26`) through the core's classify-then-verify counter reproduces `l-02/FINDINGS-COUNT.json`'s `readers`, `briefs`, `heldOut`, `families`, `rejected`, `unverified`, and `meets` for all 26 findings (`L1`-`L26`) with zero mismatches. |
 | G10 | 4 | A live run of one scenario of zorg's pack (`zorg/evals/context-lab/`) on the core across at least three families completes through `executed`, `measured` (running `check-capabilities.mjs` via the outcome-measure hook), `blinded`, `judged` (classify-then-verify chain), and `tallied`, with every probe passing and every cell valid or invalid with a cause. |
 | G11 | 4 | The duplicated evaluation runners in mission-kit (`tools/adherence.mjs`, `tools/eval-human.mjs`) and zorg (`evals/tools/run-agents.mjs`, `evals/tools/classify-findings.mjs`, `evals/tools/count-findings.mjs`) are retired, and both repositories' gates pass. |
 
@@ -125,7 +125,7 @@ Evaluated by an agent that built none of the code the criterion exercises, holdi
 
 This delta does not build or change:
 
-- a web or GUI interface for the human panel or review runner — both are CLI / stream-based;
+- a web or GUI interface for the human panel or review runner - both are CLI / stream-based;
 - automatic editing of a project's `BACKLOG.md` or `BOARD.md` by the candidate writer (`P9`, non-goal 3);
 - milestone M4's hardening items (`B4` failure injection, `B7` filter characterisation, `B5` per-property arm-guess test);
 - any change to the pack schema version (`context-lab.pack/1` stays backward-compatible via optional fields).
@@ -134,7 +134,7 @@ This delta does not build or change:
 
 ## Record
 
-*(To be populated as stages 1–4 are built and verified.)*
+*(To be populated as stages 1-4 are built and verified.)*
 
 ---
 
