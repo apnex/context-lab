@@ -35,11 +35,13 @@ import { phasesOf, propertiesOf } from "./pack-schema.js";
 import { blind, type Blinded } from "./blinder.js";
 import { EMPTY_ARM, assignJudges, judgeAll, type Vote } from "./judge-panel.js";
 import { resultMarkdown, tally, type Result } from "./tally.js";
+import { chooseCalibrationPairs, choosePreferencePairs, type PreferenceItem } from "./pair-chooser.js";
+import { runHumanPanel, type PicksRecord } from "./human-panel.js";
 
 const EMPTY_OUTCOME: Outcome = { final: "", exit: null, signal: null, stop: { reason: "error", inFlight: "none" }, cost: { seconds: 0, inputTokens: null, cachedInputTokens: null, outputTokens: null, toolCalls: 0 }, tools: [], filtered: false, error: null, session: null, trace: [], events: "" };
 
 export const STATES = ["validated", "recorded", "built", "probed", "executed", "measured", "blinded", "judged", "tallied"] as const;
-export type State = (typeof STATES)[number];
+export type State = (typeof STATES)[number] | "picked" | "candidates-written";
 
 export interface RunOptions {
 	experiment?: string;
@@ -190,9 +192,9 @@ function readInside(workspace: string, rel: string): string | null {
 export async function conductRun(packDir: string, opts: RunOptions): Promise<{ dir: string; record: RunRecord }> {
 	const now = opts.now ?? ((): Date => new Date());
 	const states: RunRecord["states"] = [];
-	const enter = (s: State): void => {
+	const enter = (s: (typeof STATES)[number]): void => {
 		const last = states[states.length - 1];
-		if (STATES.indexOf(s) !== (last ? STATES.indexOf(last.state) + 1 : 0)) throw new Error(`state ${s} out of order`);
+		if (STATES.indexOf(s) !== (last ? STATES.indexOf(last.state as (typeof STATES)[number]) + 1 : 0)) throw new Error(`state ${s} out of order`);
 		states.push({ state: s, at: now().toISOString() });
 	};
 
@@ -545,9 +547,9 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 	fs.mkdirSync(work, { recursive: true });
 	const built = new Map<string, BuiltVariant>();
 	const save = (): void => write(recordFile, record);
-	const enter = (s: State): void => {
+	const enter = (s: (typeof STATES)[number]): void => {
 		const last = record.states[record.states.length - 1];
-		if (STATES.indexOf(s) !== (last ? STATES.indexOf(last.state) + 1 : 0)) throw new Error(`state ${s} out of order`);
+		if (STATES.indexOf(s) !== (last ? STATES.indexOf(last.state as (typeof STATES)[number]) + 1 : 0)) throw new Error(`state ${s} out of order`);
 		record.states.push({ state: s, at: now().toISOString() });
 	};
 
@@ -766,10 +768,13 @@ export function tallyRun(recordsDir: string, opts: TallyOptions = {}): Result {
 	const blinded = read<Blinded>(path.join("sealed", "units.json"));
 	const votes = read<Vote[]>(path.join("judging", "votes.json"));
 	const judges = record.judges.map((id) => record.snapshot.population.find((m) => m.id === id)!);
+	const picksFile = path.join(recordsDir, "picks.json");
+	const picks = fs.existsSync(picksFile) ? read<PicksRecord>("picks.json") : null;
 	const result = tally({
 		run: record.run, status: record.status, arms: record.snapshot.arms, members: record.population, scenarios, cells,
 		units: blinded.units, absent: blinded.absent, votes, assigned: (u) => assignJudges(u, judges).map((j) => j.id), guessGroups: record.guessGroups,
 		...(record.snapshot.experiment !== undefined ? { experiment: record.snapshot.experiment } : {}), exposed: record.snapshot.exposed ?? [],
+		...(picks !== null ? { picks } : {}),
 	});
 	if (!(opts.write ?? opts.runs === undefined)) return result;
 	write(path.join(recordsDir, "RESULT.json"), result);
@@ -781,4 +786,81 @@ export function tallyRun(recordsDir: string, opts: TallyOptions = {}): Result {
 	];
 	fs.writeFileSync(path.join(recordsDir, "RESULT.md"), resultMarkdown(result, limits));
 	return result;
+}
+
+export interface PickRunOptions {
+	mode?: "calibration" | "preference";
+	/** For preference mode on a run record: the arm with the move and the arm without it. */
+	withArm?: string;
+	withoutArm?: string;
+	/** Or explicit preference items, when pairing static messages. */
+	items?: PreferenceItem[];
+	count?: number;
+	seed?: string;
+	input?: NodeJS.ReadableStream;
+	output?: { write: (s: string) => unknown };
+	now?: () => Date;
+}
+
+/**
+ * Runs the human panel on a judged run record, writes `picks.json`, appends state `"picked"` to
+ * `run.json`, and re-tallies `RESULT.json` and `RESULT.md` (Delta-3 stage 1, G2).
+ */
+export async function pickRun(recordsDir: string, opts: PickRunOptions = {}): Promise<{ picks: PicksRecord; result: Result }> {
+	const now = opts.now ?? (() => new Date());
+	const resolved = path.resolve(recordsDir);
+	const read = <T>(f: string): T => JSON.parse(fs.readFileSync(path.join(resolved, f), "utf8")) as T;
+	const record = read<RunRecord>("run.json");
+	const scenarios = new Map(record.snapshot.scenarios.map((x) => [x.id, x]));
+	const blinded = read<Blinded>(path.join("sealed", "units.json"));
+	const votes = read<Vote[]>(path.join("judging", "votes.json"));
+	const judges = record.judges.map((id) => record.snapshot.population.find((m) => m.id === id)!);
+	const seed = opts.seed ?? record.seed;
+	const mode = opts.mode ?? (opts.items || (opts.withArm && opts.withoutArm) ? "preference" : "calibration");
+	let pairs;
+	if (mode === "preference") {
+		let items = opts.items;
+		if (!items) {
+			const withArm = opts.withArm ?? record.snapshot.arms[1];
+			const withoutArm = opts.withoutArm ?? record.snapshot.arms[0];
+			if (!withArm || !withoutArm) throw new Error("preference mode requires two arms or explicit items");
+			const cells = record.cells.map((c) => read<CellRecord>(path.join("cells", `${c}.json`))).filter((c) => c.valid);
+			items = [];
+			for (const s of scenarios.values()) {
+				for (const m of record.population) {
+					for (let r = 1; r <= record.runsPerCell; r++) {
+						const w = cells.find((c) => c.scenario === s.id && c.arm === withArm && c.member === m && c.run === r);
+						const wo = cells.find((c) => c.scenario === s.id && c.arm === withoutArm && c.member === m && c.run === r);
+						if (w?.final && wo?.final) {
+							items.push({ id: `${s.id}.${m}.${r}`, move: s.id, scenario: s.id, with: w.final, without: wo.final });
+						}
+					}
+				}
+			}
+		}
+		pairs = choosePreferencePairs(items, seed);
+	} else {
+		pairs = chooseCalibrationPairs({
+			units: blinded.units,
+			votes,
+			scenarios,
+			assigned: (u) => assignJudges(u, judges).map((j) => j.id),
+			seed,
+			...(opts.count !== undefined ? { count: opts.count } : {}),
+		});
+	}
+	const picks = await runHumanPanel({
+		pairs,
+		seed,
+		...(opts.input !== undefined ? { input: opts.input } : {}),
+		...(opts.output !== undefined ? { output: opts.output } : {}),
+		now,
+	});
+	write(path.join(resolved, "picks.json"), picks);
+	if (!record.states.some((s) => s.state === "picked")) {
+		record.states.push({ state: "picked", at: now().toISOString() });
+		write(path.join(resolved, "run.json"), record);
+	}
+	const result = tallyRun(resolved);
+	return { picks, result };
 }

@@ -19,6 +19,7 @@ import type { CellRecord } from "./run-conductor.js";
 import { propertiesOf, type Experiment, type Scenario } from "./pack-schema.js";
 import { detectable, linkRates, type Detectable, type LinkRow, type RestatedFlag } from "./measures.js";
 import type { Exposure } from "./experiment-register.js";
+import { tallyHumanPicks, type HumanPicksTally, type PicksRecord } from "./human-panel.js";
 
 export interface Rate { mean: number | null; of: number; incomplete: number }
 
@@ -64,6 +65,8 @@ export interface Result {
 		pooled: Detectable | null;
 		byProperty: { scenario: string; property: string; detectable: Detectable | null }[];
 	};
+	/** A person's picks on paired outcomes: preference wins per move, or judge-person calibration agreement. */
+	humanPicks?: HumanPicksTally | null;
 }
 
 export interface TallyInput {
@@ -80,6 +83,7 @@ export interface TallyInput {
 	guessGroups: Record<string, string[]>;
 	experiment?: { variation?: Experiment["variation"]; default?: string };
 	exposed?: Exposure[];
+	picks?: PicksRecord | null;
 }
 
 const mean = (xs: number[]): number | null => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
@@ -181,7 +185,8 @@ export function tally(t: TallyInput): Result {
 	const restated = t.cells.flatMap((c) => c.restated ?? []);
 	const heldCell = (cell: string): boolean => isHeldOut(t.cells.find((c) => c.cell === cell)?.scenario ?? "");
 	const exposed = (t.exposed ?? []).filter((e) => isHeldOut(e.scenario));
-	return { run: t.run, status: t.status, arms: t.arms, members: t.members, properties, totals, excluded, absent: t.absent.filter((a) => !heldCell(a.cell)), guesses, unreachable, cellValues, heldOut, heldOutCellValues, heldOutAbsent: t.absent.filter((a) => heldCell(a.cell)), heldOutGuesses, exposed, link, restated, variation };
+	const humanPicks = t.picks ? tallyHumanPicks(t.picks) : null;
+	return { run: t.run, status: t.status, arms: t.arms, members: t.members, properties, totals, excluded, absent: t.absent.filter((a) => !heldCell(a.cell)), guesses, unreachable, cellValues, heldOut, heldOutCellValues, heldOutAbsent: t.absent.filter((a) => heldCell(a.cell)), heldOutGuesses, exposed, link, restated, variation, ...(humanPicks ? { humanPicks } : {}) };
 }
 
 /** A warning where a difference of the stated size would usually go undetected, in the stated scope. */
@@ -198,10 +203,14 @@ const dd = (d: Detectable | null): string => (d === null ? "- (an arm has no out
 const fmt = (r: Rate): string => (r.mean === null ? "-" : `${r.mean.toFixed(2)} (${r.of})`) + (r.incomplete ? ` +${r.incomplete} inc` : "");
 
 export function resultMarkdown(r: Result, limits: string[]): string {
+	const calRate = r.humanPicks?.mode === "calibration" ? r.humanPicks.agreement?.rate ?? null : null;
+	const allLimits = calRate !== null && calRate < 0.75
+		? [...limits, `Judge-person calibration agreement is ${(calRate * 100).toFixed(0)}%, below the 75% threshold: review the keys before the next run.`]
+		: limits;
 	const lines = [
 		`# Result - ${r.run}`, "",
 		`Status: **${r.status}**.`, "",
-		"## Limits", "", ...limits.map((l) => `- ${l}`), "",
+		"## Limits", "", ...allLimits.map((l) => `- ${l}`), "",
 		"## Properties", "",
 		`| Scenario | Property | ${r.arms.join(" | ")} | votes agree |`, `|---|---|${r.arms.map(() => "---").join("|")}|---|`,
 		...r.properties.map((p) => `| ${p.scenario} | ${p.property} | ${r.arms.map((a) => fmt(p.byArm[a]!)).join(" | ")} | ${p.agreement.of ? `${p.agreement.agree}/${p.agreement.of}` : "-"} |`),
@@ -227,6 +236,21 @@ export function resultMarkdown(r: Result, limits: string[]): string {
 		"## Restated guidance", "",
 		...(r.restated.length ? [`Diagnostic only; flags change no score. ${r.restated.length} flag(s):`, "", ...r.restated.map((f) => `- ${f.cell}, ${f.phase}, ${f.source} ${f.path}, shares ${f.words.split(" ").length} words with ${f.delivered.file} (${f.delivered.path}): "${f.words}"`)] : ["No note or final message shares a run of twelve words with a delivered file."]),
 		"",
+		...(r.humanPicks ? [
+			"## Human panel", "",
+			...(r.humanPicks.mode === "preference"
+				? [
+					`Preference picks (${r.humanPicks.complete ? "complete" : "incomplete"}): with ${r.humanPicks.totals.with}, without ${r.humanPicks.totals.without}, same ${r.humanPicks.totals.same}.`, "",
+					...Object.entries(r.humanPicks.byMove).map(([m, v]) => {
+						const tags = Object.entries(v.tags).map(([k, n]) => `${k} x${n}`).join(", ");
+						return `- ${m}: with ${v.with}, without ${v.without}, same ${v.same}${tags ? ` (faults named in without: ${tags})` : ""}`;
+					}),
+				]
+				: [
+					`Calibration agreement (${r.humanPicks.complete ? "complete" : "incomplete"}): ${r.humanPicks.agreement?.agree ?? 0} of ${r.humanPicks.agreement?.of ?? 0} (${r.humanPicks.agreement?.rate === null || r.humanPicks.agreement?.rate === undefined ? "-" : `${(r.humanPicks.agreement.rate * 100).toFixed(0)}%`}).`,
+				]),
+			"",
+		] : []),
 	];
 	return lines.join("\n");
 }

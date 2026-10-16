@@ -15,12 +15,14 @@
 //                                                  run a suite on the driven runtimes, to a tallied result
 //   context-lab resume <pack> <run-dir> [--parallel P] [--work DIR]
 //                                                  resume a run that stopped during execution
+//   context-lab pick   <pack> <run-dir> [--mode calibration|preference] [--count N] [--with ARM] [--without ARM]
+//                                                  run the human panel on a judged run and re-tally
 
 import fs from "node:fs";
-import { assertIdenticalArms, checkPack, codexAdapter, compare, conductRun, deriveThresholds, entryView, opencodeAdapter, readTable, readThresholds, recordExperiment, recordExposure, recordThresholds, resolveSuite, resumeRun, runStatus, type LoadedPack } from "./index.js";
+import { assertIdenticalArms, checkPack, codexAdapter, compare, conductRun, deriveThresholds, entryView, opencodeAdapter, pickRun, readTable, readThresholds, recordExperiment, recordExposure, recordThresholds, resolveSuite, resumeRun, runStatus, type LoadedPack } from "./index.js";
 
 const [cmd, packDir, arg, arg2] = process.argv.slice(2);
-const usage = "usage: context-lab check|record|status|suite|entries|expose|thresholds|compare|run|resume <pack> [experiment|suite|scenario|comparison|run-dir] [change|run-dir] [--runs N] [--parallel P] [--work DIR] [--revision REV]";
+const usage = "usage: context-lab check|record|status|suite|entries|expose|thresholds|compare|run|resume|pick <pack> [experiment|suite|scenario|comparison|run-dir] [change|run-dir] [--runs N] [--parallel P] [--work DIR] [--revision REV]";
 import { runFlags } from "./cli-flags.js";
 const flag = (n: string): string | undefined => { const i = process.argv.indexOf(n); return i > 0 ? process.argv[i + 1] : undefined; };
 const comparisonOf = (l: LoadedPack, id: string) => { const c = (l.pack.comparisons ?? []).find((x) => x.id === id); if (!c) { console.error(`no comparison ${id} in pack ${l.pack.id}`); process.exit(2); } return c; };
@@ -83,6 +85,19 @@ switch (cmd) {
 			...(flags.work !== undefined ? { work: flags.work } : {}),
 		});
 		console.log(`resumed ${record.run}: ${record.status} (${record.statusReason}); ${record.cells.length} cell(s); probes ${record.probes.filter((p) => p.pass).length}/${record.probes.length} passed; record at ${dir}`);
+		break;
+	}
+	case "pick": {
+		await load();
+		const modeFlag = flag("--mode") as "calibration" | "preference" | undefined;
+		const countFlag = flag("--count"), withArm = flag("--with"), withoutArm = flag("--without");
+		const { picks } = await pickRun(need(arg), {
+			...(modeFlag !== undefined ? { mode: modeFlag } : {}),
+			...(countFlag !== undefined ? { count: Number(countFlag) } : {}),
+			...(withArm !== undefined ? { withArm } : {}),
+			...(withoutArm !== undefined ? { withoutArm } : {}),
+		});
+		console.log(`picked ${picks.answers.length} item(s) (${picks.complete ? "complete" : "incomplete"})`);
 		break;
 	}
 	default: console.error(usage); process.exit(2);

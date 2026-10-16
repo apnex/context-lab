@@ -153,7 +153,9 @@ This delta does not build or change:
 
 ## Record
 
-*(To be populated as stages 1-4 are built and verified.)*
+**Stage 1 (`M3.1a`).**\
+Built `packages/core/src/pair-chooser.ts` (`flipFor`, `choosePreferencePairs`, `chooseCalibrationPairs`), `packages/core/src/human-panel.ts` (`runHumanPanel`, `readLegacyHumanRun`, `tallyHumanPicks`), `pickRun` (`context-lab pick`) in `run-conductor.ts`, and `humanPicks` integration in `tally.ts` (including the `< 0.75` calibration agreement limit warning).\
+314 tests; 6 stage-1 mutants applied and killed.
 
 ---
 
