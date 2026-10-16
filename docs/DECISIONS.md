@@ -44,6 +44,7 @@ They are not copied here; this register starts at the vision.
 | 0022 | 2026-10-14 | In Delta-2's live runs on the new population, one member of each family judges - Claude Opus 5.5, Gemini 4 Argon, Grok 4.20 and GPT - so every outcome has three judges, none of its agent's family. | director | ratified | amends 0021 |
 | 0023 | 2026-10-14 | Delta-2 is amended to include run resumption (`B16`): a run stopped during execution (after probing, before blinding) may be resumed from its completed cells once the experiment hash, variant manifests, model routes and recorded cell files are verified intact. | director | ratified | amends 0019 |
 | 0024 | 2026-10-14 | Delta-2 is complete: every exit criterion (F1 to F15) was evaluated green by an agent that built none of the code, F4's trap-file clause is confirmed, M2 is done (`B2`, `B3`, `B12`, `B16` closed), and the five-member `adherence` and `explain` baseline runs in mission-kit are selected next. | director | ratified | amends 0019 |
+| 0025 | 2026-10-16 | Milestone M3 (M3.1 and M3.2), together with B18 (on-demand multi-model review orchestration), is selected from the board and opens as Delta-3. | director | ratified | - |
 
 ---
 
@@ -371,3 +372,14 @@ Opening milestone M3 before running the five-member `adherence` and `explain` ba
 
 **Source.**\
 `[V, director ruling 2026-10-14; docs/DELTAS/DELTA-2.md Record, closing evaluation]`
+
+### 0025
+
+**Ruling.**\
+Milestone M3 (`M3.1` and `M3.2`), expanded with `B18` (on-demand multi-model review orchestration), is selected from the board and opens as Delta-3.
+
+**Alternatives refuted.**\
+Triaging mission-kit's `B81` and `B82` ahead of M3 - not chosen; the director selected M3 and `B18` first.
+
+**Source.**\
+`[V, director selection 2026-10-16]`

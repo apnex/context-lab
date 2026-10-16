@@ -1,8 +1,7 @@
 # context-lab - board
 
 The live, triaged set of legal next moves, for the director to select from.\
-M1 (`docs/DELTAS/DELTA-1.md`, `0017`) and M2 (`docs/DELTAS/DELTA-2.md`, `0024`) are done.\
-The next move is for the director to select.
+M1 (`docs/DELTAS/DELTA-1.md`, `0017`) and M2 (`docs/DELTAS/DELTA-2.md`, `0024`) are done; M3 (`docs/DELTAS/DELTA-3.md`, `0025`) is active.
 
 ---
 
@@ -28,7 +27,7 @@ Order on the higher: a mandate breach ranks with S2 and a signal with S4; ties g
 | `B1` | S3 | A3 mandate | M3.1 | The duty this component exists for is implemented twice, outside it, and diverging. |
 | `B11` | S3 | A3 mandate | M3.2 | Neither first user has a project pack. |
 | `B14` | S3 | A8 signal | held | Judges' replies to large batches are cut off, leaving values incomplete. |
-| `B18` | S3 | A3 signal | held | context-lab orchestrates experiments only; the director wants it to run several models on demand. |
+| `B18` | S3 | A3 signal | M3.1 | context-lab orchestrates experiments only; the director wants it to run several models on demand. |
 | `B4` | S4 | A9 signal | M4.1 | No failure injection exercises the validity classifier. |
 | `B5` | S4 | A8 signal | M4.3 | Blinding to arm was not achieved on one trap. |
 | `B7` | S4 | A7 signal | M4.2 | Content filters and rate limits are uncharacterised. |
@@ -60,11 +59,11 @@ It carries mission-kit's adherence suite and one comprehension suite as single-p
 | M2.2 | Phase driver with branches and notes; the note-generator hook | `B1` | M2.1 |
 | M2.3 | Threshold deriver and comparator, with an A/A run and a held-out A/A check; run resumption for runs stopped during execution (`B12`, `B16`, `B19`, closed) | `B1`, `B12`, `B16`, `B19` | M1.1 |
 
-## M3 - People, chains, and the second user `OPEN`
+## M3 - People, chains, and the second user `ACTIVE`
 
 | Item | Move | Cites | Depends on |
 |---|---|---|---|
-| M3.1 | Pair chooser and human panel; classify-then-verify judging chains; candidate writer | `B1` | M1.1 |
+| M3.1 | Pair chooser and human panel; classify-then-verify judging chains; candidate writer; on-demand multi-model review orchestration (`B18`) | `B1`, `B18` | M1.1 |
 | M3.2 | zorg's pack, run on the core and compared with its last results; both projects retire their copies | `B11` | M3.1, M2.2 |
 
 ## M4 - Hardening `OPEN`
@@ -83,7 +82,6 @@ It carries mission-kit's adherence suite and one comprehension suite as single-p
 | Row | Impact | Principle | Finding | Revival trigger |
 |---|---|---|---|---|
 | `B14` | S3 | A8 signal | Judges' replies to large batches are cut off, leaving values incomplete. | planned, before a suite with many properties per outcome is judged again |
-| `B18` | S3 | A3 signal | context-lab orchestrates experiments only; the director wants it to run several models on demand. | planned |
 | `B8` | S4 | A5 signal | Local delivery differs from fetching over a network. | a project's decision turns on networked behaviour |
 | `B9` | S4 | A14 signal | Findings travelling between projects has no mechanism beyond records a project chooses to share. | two projects use context-lab |
 | `B10` | S4 | A10 signal | No loop files context-lab's own failures as its defects. | the first run on the core |
