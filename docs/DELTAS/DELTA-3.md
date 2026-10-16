@@ -1,7 +1,7 @@
 # Delta-3 - people, chains, on-demand review, and the second user - a vertical slice
 
 ```yaml
-status:     draft - revision 2, adversarial review findings applied; ready for director ratification
+status:     ratified (docs/DECISIONS.md 0026) - revision 2; stage 1 open
 selected:   docs/DECISIONS.md 0025, board items M3.1, M3.2
 from-state: Delta-2's to-state (0024): multi-phase episodes, diagnostic measures, threshold deriver, comparator, run resumption
 to-state:   docs/ARCHITECTURE-TARGET.md (0006, reopened under section 1 for 0025/B18), all 22 components of section 5

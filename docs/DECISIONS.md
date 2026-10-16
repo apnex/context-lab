@@ -45,6 +45,7 @@ They are not copied here; this register starts at the vision.
 | 0023 | 2026-10-14 | Delta-2 is amended to include run resumption (`B16`): a run stopped during execution (after probing, before blinding) may be resumed from its completed cells once the experiment hash, variant manifests, model routes and recorded cell files are verified intact. | director | ratified | amends 0019 |
 | 0024 | 2026-10-14 | Delta-2 is complete: every exit criterion (F1 to F15) was evaluated green by an agent that built none of the code, F4's trap-file clause is confirmed, M2 is done (`B2`, `B3`, `B12`, `B16` closed), and the five-member `adherence` and `explain` baseline runs in mission-kit are selected next. | director | ratified | amends 0019 |
 | 0025 | 2026-10-16 | Milestone M3 (M3.1 and M3.2), together with B18 (on-demand multi-model review orchestration), is selected from the board and opens as Delta-3. | director | ratified | - |
+| 0026 | 2026-10-16 | Delta-3 is ratified, revision 2, including the reopening of `docs/ARCHITECTURE-TARGET.md` for `B18` (Review panel as the 22nd component) and the explicit retirement disposition in G11. | director | ratified | amends 0006, 0025 |
 
 ---
 
@@ -383,3 +384,22 @@ Triaging mission-kit's `B81` and `B82` ahead of M3 - not chosen; the director se
 
 **Source.**\
 `[V, director selection 2026-10-16]`
+
+### 0026
+
+**Ruling.**\
+Delta-3 (`docs/DELTAS/DELTA-3.md`, revision 2) is ratified as written after adversarial review:
+- `docs/ARCHITECTURE-TARGET.md` sections 2, 3, 5, 6 and 9 reopen under section 1's triggers to absorb `B18` (**Review panel**, the 22nd component);
+- Stage 1 builds the pair chooser and human panel (`G1`-`G3`);
+- Stage 2 builds classify-then-verify judging chains and the candidate writer (`G4`-`G6`);
+- Stage 3 updates `docs/ARCHITECTURE-TARGET.md` and builds `context-lab review` (`G7`-`G8`);
+- Stage 4 builds `zorg/evals/context-lab/`, proves 26-finding parity on `l-02`, runs a live zorg scenario, and deletes the six duplicated files while keeping `mission-kit/tools/eval.mjs` (`B80`) and `zorg`'s domain helper scripts (`G9`-`G12`).
+
+**Alternatives refuted.**\
+Expanding stage 4 to migrate mission-kit's ~20 historical one-off comprehension suites before closing M3 - not chosen; those suites remain governed by mission-kit `B80`.
+
+**Disclosed.**\
+The director replied "continue" to a list whose first pick was this option, and it is recorded as that pick.
+
+**Source.**\
+`[V, director ruling 2026-10-16]`
