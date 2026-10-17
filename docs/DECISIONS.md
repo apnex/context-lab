@@ -46,6 +46,7 @@ They are not copied here; this register starts at the vision.
 | 0024 | 2026-10-14 | Delta-2 is complete: every exit criterion (F1 to F15) was evaluated green by an agent that built none of the code, F4's trap-file clause is confirmed, M2 is done (`B2`, `B3`, `B12`, `B16` closed), and the five-member `adherence` and `explain` baseline runs in mission-kit are selected next. | director | ratified | amends 0019 |
 | 0025 | 2026-10-16 | Milestone M3 (M3.1 and M3.2), together with B18 (on-demand multi-model review orchestration), is selected from the board and opens as Delta-3. | director | ratified | - |
 | 0026 | 2026-10-16 | Delta-3 is ratified, revision 2, including the reopening of `docs/ARCHITECTURE-TARGET.md` for `B18` (Review panel as the 22nd component) and the explicit retirement disposition in G11. | director | ratified | amends 0006, 0025 |
+| 0027 | 2026-10-17 | Delta-3 is complete: every exit criterion (G1 to G12) was evaluated green by an agent that built none of the code, milestone M3 is done (`B1`, `B11`, `B18` closed), and milestone M4 (Hardening: `M4.1` `B4`, `M4.2` `B7`, `M4.3` `B5`) is selected next as Delta-4. | director | ratified | - |
 
 ---
 
@@ -403,3 +404,16 @@ The director replied "continue" to a list whose first pick was this option, and 
 
 **Source.**\
 `[V, director ruling 2026-10-16]`
+
+### 0027
+
+**Ruling.**\
+Delta-3 reached its to-state: all twenty-two components of `docs/ARCHITECTURE-TARGET.md` section 5 are built (pair chooser, human panel, classify-then-verify judging chains, candidate writer, and the on-demand multi-model review panel), `zorg/evals/context-lab/` passed 26-finding parity on `l-02` and ran live on the core, and the six duplicated runner files in `mission-kit` and `zorg` are deleted (`B1`, `B11`, `B18` closed; milestone M3 complete).\
+Every exit criterion (G1 to G12) was evaluated green by an agent that built none of the code.\
+Milestone M4 (Hardening: `M4.1` `B4`, `M4.2` `B7`, `M4.3` `B5`) is selected next and opens as Delta-4.
+
+**Alternatives refuted.**\
+Moving to `mission-kit` `B81`/`B82` before closing `context-lab`'s final milestone M4 - not chosen; the director selected Option 1 to complete `context-lab` M4 first.
+
+**Source.**\
+`[V, director ruling 2026-10-17; docs/DELTAS/DELTA-3.md Record, closing evaluation]`

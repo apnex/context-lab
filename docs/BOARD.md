@@ -1,8 +1,7 @@
 # context-lab - board
 
 The live, triaged set of legal next moves, for the director to select from.\
-M1 (`docs/DELTAS/DELTA-1.md`, `0017`), M2 (`docs/DELTAS/DELTA-2.md`, `0024`) and M3 (`docs/DELTAS/DELTA-3.md`, `0026`) are done.\
-The next move is for the director to select.
+M1 (`docs/DELTAS/DELTA-1.md`, `0017`), M2 (`docs/DELTAS/DELTA-2.md`, `0024`) and M3 (`docs/DELTAS/DELTA-3.md`, `0027`) are done; M4 (`docs/DELTAS/DELTA-4.md`, `0027`) is active.
 
 ---
 
@@ -64,7 +63,7 @@ It carries mission-kit's adherence suite and one comprehension suite as single-p
 | M3.1 | Pair chooser and human panel; classify-then-verify judging chains; candidate writer; on-demand multi-model review orchestration (`B1`, `B18`, closed) | `B1`, `B18` | M1.1 |
 | M3.2 | zorg's pack, run on the core and compared with its last results; both projects retire their copies (`B11`, closed) | `B11` | M3.1, M2.2 |
 
-## M4 - Hardening `OPEN`
+## M4 - Hardening `ACTIVE`
 
 | Item | Move | Cites | Depends on |
 |---|---|---|---|
