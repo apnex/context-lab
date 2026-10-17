@@ -83,14 +83,28 @@ function prepare(inv: Invocation, adapter: Adapter): { home: string; instr: stri
 	return { home, instr };
 }
 
-/** Copy the arm's instruction files into the invocation's own folder, numbered to keep their order. */
+/** Copy the arm's instruction files into the invocation's own folder, numbered to keep their order; multiple canary files are merged into one so runtimes that index by basename see every canary. */
 function copyInstructions(arm: ComposedArm, into: string): { name: string; path: string }[] {
-	return arm.instructions.map((f, i) => {
+	const out: { name: string; path: string }[] = [];
+	const canaryTexts: string[] = [];
+	let idx = 0;
+	for (const f of arm.instructions) {
 		const name = path.basename(f.file);
-		const p = path.join(into, `${String(i).padStart(2, "0")}-${name}`);
+		if (name === "context-lab-canary.md") {
+			canaryTexts.push(fs.readFileSync(f.path, "utf8").trimEnd());
+			continue;
+		}
+		const p = path.join(into, `${String(idx++).padStart(2, "0")}-${name}`);
 		fs.copyFileSync(f.path, p);
-		return { name, path: p };
-	});
+		out.push({ name, path: p });
+	}
+	if (canaryTexts.length > 0) {
+		const unique = [...new Set(canaryTexts.flatMap((t) => t.split("\n")).filter(Boolean))];
+		const p = path.join(into, `${String(idx++).padStart(2, "0")}-context-lab-canary.md`);
+		fs.writeFileSync(p, unique.map((c) => `${c}\n`).join(""));
+		out.push({ name: "context-lab-canary.md", path: p });
+	}
+	return out;
 }
 
 function writeEvents(inv: Invocation, r: SandboxResult, secrets: string[]): string {
@@ -316,7 +330,11 @@ export function codexAdapter(opts: CodexOptions = {}): Adapter {
 			fs.chmodSync(path.join(codexHome, "auth.json"), 0o600);
 			// The instructions go only into config.toml, which Codex itself must read; no second copy is made.
 			fs.rmdirSync(instr);
-			const dev = inv.arm.instructions.map((f) => `<file name="${path.basename(f.file)}">\n${fs.readFileSync(f.path, "utf8")}</file>`).join("\n\n");
+			const nonCanary = inv.arm.instructions.filter((f) => path.basename(f.file) !== "context-lab-canary.md");
+			const canaryLines = [...new Set(inv.arm.instructions.filter((f) => path.basename(f.file) === "context-lab-canary.md").flatMap((f) => fs.readFileSync(f.path, "utf8").split("\n")).filter(Boolean))];
+			const devParts = nonCanary.map((f) => `<file name="${path.basename(f.file)}">\n${fs.readFileSync(f.path, "utf8")}</file>`);
+			if (canaryLines.length > 0) devParts.push(`<file name="context-lab-canary.md">\n${canaryLines.map((c) => `${c}\n`).join("")}</file>`);
+			const dev = devParts.join("\n\n");
 			if (inv.continueFrom) fs.cpSync(path.join(inv.continueFrom.work, "codex-home", "sessions"), path.join(codexHome, "sessions"), { recursive: true });
 			// No --ephemeral, so a session can be resumed; and the sandbox mode in configuration, since
 			// exec resume takes no --sandbox.

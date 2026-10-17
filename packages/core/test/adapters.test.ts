@@ -369,3 +369,27 @@ test("opencode: outputTokenMax is passed into the sandbox from the member, and o
 	assert.match(cx.refuse(invocation(e, "codex", { member: { id: "x", family: "f", runtime: "codex", model: "m", settings: { outputTokenMax: 1000 } } })) ?? "", /outputTokenMax is not one Codex can apply/);
 	assert.deepEqual(a.route!(member).memberSettings, { outputTokenMax: 1048576 });
 });
+
+test("adapters: multiple context-lab-canary.md instructions from multiple variants are merged into one file", async () => {
+	for (const kind of ["opencode", "codex"] as const) {
+		const e = setup();
+		const v2 = path.join(e.dir, "variant2");
+		fs.mkdirSync(v2);
+		fs.writeFileSync(path.join(e.dir, "variant", "context-lab-canary.md"), "Canary one.\n");
+		fs.writeFileSync(path.join(v2, "context-lab-canary.md"), "Canary two.\nCanary one.\n");
+		e.arm.instructions.push(
+			{ variant: "v", file: "context-lab-canary.md", path: path.join(e.dir, "variant", "context-lab-canary.md") },
+			{ variant: "v2", file: "context-lab-canary.md", path: path.join(v2, "context-lab-canary.md") },
+		);
+		await adapterFor(kind, e, {}).invoke(invocation(e, kind));
+		if (kind === "opencode") {
+			const ocInstr = fs.readdirSync(path.join(e.work, "instructions")).filter((f) => f.endsWith("context-lab-canary.md"));
+			assert.equal(ocInstr.length, 1, "opencode must receive exactly one context-lab-canary.md instruction file");
+			assert.equal(fs.readFileSync(path.join(e.work, "instructions", ocInstr[0]!), "utf8"), "Canary one.\nCanary two.\n");
+		} else {
+			const tomlText = fs.readFileSync(path.join(e.work, "codex-home", "config.toml"), "utf8");
+			assert.equal((tomlText.match(/name=\\"context-lab-canary\.md\\"/g) ?? []).length, 1, "codex developer_instructions must hold one context-lab-canary.md block");
+			assert.match(tomlText, /Canary one\.\\nCanary two\./);
+		}
+	}
+});

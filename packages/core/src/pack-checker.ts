@@ -5,6 +5,7 @@
 // passes every check is loaded and returned; one that fails is returned with every defect, each
 // naming its check and where it was found.
 
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { runHook } from "./hook-runner.js";
@@ -293,7 +294,18 @@ export async function checkPack(packDir: string, options: CheckOptions = {}): Pr
 	}
 	const hooks = new Map(pack.hooks.map((h) => [h.id, h]));
 	for (const v of pack.variants) {
-		if (!pack.sources.some((s) => s.id === v.source)) defects.push({ check: "variant-source", where: `variants.${v.id}`, message: `names undeclared source ${v.source}` });
+		const src = pack.sources.find((s) => s.id === v.source);
+		if (!src) defects.push({ check: "variant-source", where: `variants.${v.id}`, message: `names undeclared source ${v.source}` });
+		else if (v.revision !== undefined) {
+			const srcDir = path.resolve(dir, src.path);
+			if (fs.existsSync(srcDir) && fs.statSync(srcDir).isDirectory()) {
+				try {
+					execFileSync("git", ["rev-parse", "--verify", `${v.revision}^{commit}`], { cwd: srcDir, stdio: "ignore" });
+				} catch {
+					defects.push({ check: "variant-source", where: `variants.${v.id}.revision`, message: `revision ${v.revision} does not resolve in source ${v.source}` });
+				}
+			}
+		}
 		if (v.transform !== undefined && hooks.get(v.transform)?.kind !== "variant-transform") defects.push({ check: "variant-transform", where: `variants.${v.id}`, message: `${v.transform} is not a variant-transform hook` });
 	}
 	for (const a of pack.arms) for (const d of a.deliver) {

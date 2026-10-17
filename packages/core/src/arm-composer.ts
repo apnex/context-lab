@@ -55,7 +55,7 @@ export function composeArm(loaded: LoadedPack, armId: string, built: Map<string,
 		const v = built.get(id);
 		if (v?.ok) {
 			out.instructions.push({ variant: id, file: CANARY_FILE, path: path.join(v.dir, CANARY_FILE) });
-			out.canaries.push(...v.manifest.canaries);
+			for (const c of v.manifest.canaries) if (!out.canaries.includes(c)) out.canaries.push(c);
 		}
 	}
 	for (const [id, v] of built) if (!used.has(id) && v.ok) out.negativeCanaries.push(...v.manifest.canaries.filter((c) => !out.canaries.includes(c)));

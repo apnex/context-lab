@@ -439,3 +439,20 @@ test("resumeRun completes a run stopped during execution, skips recorded cells, 
 	assert.deepEqual(resJson.totals, fullJson.totals);
 });
 
+test("an outcome-measure hook receives outcome.snapshot and can read the phase's workspace snapshot directly", async () => {
+	const { dir, work, records } = await setup((d) => {
+		fs.writeFileSync(
+			path.join(d, "hooks", "count.mjs"),
+			'import fs from "node:fs"; import path from "node:path";\n' +
+			'const inp = JSON.parse(fs.readFileSync(0, "utf8"));\n' +
+			'const snap = inp.outcome?.snapshot;\n' +
+			'const ok = typeof snap === "string" && fs.existsSync(path.join(snap, "NOTE.txt")) && fs.readFileSync(path.join(snap, "NOTE.txt"), "utf8").trim() === "grafted";\n' +
+			'console.log(JSON.stringify({ scores: Object.fromEntries(inp.properties.map((p) => [p, ok ? 1 : 0])) }));\n',
+		);
+	});
+	await conductRun(dir, { experiment: "orchard", adapters: { opencode: scripted("opencode"), codex: scripted("codex") }, work, records });
+	for (const c of cellsOf(records).filter((c) => c.scenario === "graft")) {
+		assert.deepEqual(c.codeScores.map((s) => [s.property, "value" in s ? s.value : s.incomplete]), [["graft-2", 1]]);
+	}
+});
+

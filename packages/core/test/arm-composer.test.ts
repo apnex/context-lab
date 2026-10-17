@@ -73,3 +73,19 @@ test("an arm whose variant was never built is not composed", async () => {
 	if (!r.ok) throw new Error("pack");
 	assert.equal(composeArm(r.loaded, "almanac", new Map()).ok, false);
 });
+
+test("an arm composing two variants deduplicates shared canaries and keeps distinct ones in order", async () => {
+	const dir = copyPack();
+	editJson(path.join(dir, "pack.json"), (j) => {
+		j.variants.push({ id: "almanac-extra", source: "almanac", canaries: ["The heron counts eleven stones.", "The owl keeps the gate key."] });
+		j.arms[1].deliver.push({ variant: "almanac-extra", file: ".", as: "on-request" });
+	});
+	commitAll(dir);
+	const loaded = await load(dir);
+	const built = new Map<string, BuiltVariant>();
+	for (const v of ["almanac-full", "almanac-extra"]) built.set(v, await buildVariant(loaded, v, "HEAD", path.join(scratch(), v)));
+	const c = composeArm(loaded, "almanac", built);
+	assert.equal(c.ok, true);
+	if (!c.ok) return;
+	assert.deepEqual(c.arm.canaries, ["The heron counts eleven stones.", "The owl keeps the gate key."]);
+});

@@ -439,7 +439,7 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 			const props = propertiesOf(scenario).filter((x) => x.decidedBy === "code" && cr.propertyPhases?.[x.id]?.phase === p.phase && cr.propertyPhases[x.id]!.state === "valid");
 			if (!props.length || p.outcome === null) continue;
 			const sub: Scenario = { ...scenario, properties: props, trapPairs: [] };
-			cr.codeScores.push(...await measure(loaded, sub, { final: p.outcome.final, diff: p.diff ?? "", scored: cr.phaseOutcomes?.[p.phase]?.scored ?? null }, now));
+			cr.codeScores.push(...await measure(loaded, sub, { final: p.outcome.final, diff: p.diff ?? "", scored: cr.phaseOutcomes?.[p.phase]?.scored ?? null, snapshot: p.snapshot }, now));
 		}
 		write(path.join(recordsDir, "cells", `${cr.cell}.json`), cr);
 	}
@@ -717,7 +717,7 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 				const props = propertiesOf(scenario).filter((x) => x.decidedBy === "code" && cr.propertyPhases?.[x.id]?.phase === p.phase && cr.propertyPhases[x.id]!.state === "valid");
 				if (!props.length || p.outcome === null) continue;
 				const sub: Scenario = { ...scenario, properties: props, trapPairs: [] };
-				cr.codeScores.push(...await measure(loaded, sub, { final: p.outcome.final, diff: p.diff ?? "", scored: cr.phaseOutcomes?.[p.phase]?.scored ?? null }, now));
+				cr.codeScores.push(...await measure(loaded, sub, { final: p.outcome.final, diff: p.diff ?? "", scored: cr.phaseOutcomes?.[p.phase]?.scored ?? null, snapshot: p.snapshot }, now));
 			}
 			write(path.join(resolvedRecords, "cells", `${cr.cell}.json`), cr);
 		}

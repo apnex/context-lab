@@ -14,6 +14,8 @@ export interface MeasuredOutcome {
 	final: string;
 	diff: string;
 	scored: string | null;
+	/** Read-only path to the phase's ending workspace snapshot on disk, if present. */
+	snapshot?: string | null;
 }
 
 export type CodeScore = { property: string; value: number; measuredAt: string } | { property: string; incomplete: string; measuredAt: string };
@@ -21,7 +23,8 @@ export type CodeScore = { property: string; value: number; measuredAt: string } 
 export async function measure(loaded: LoadedPack, scenario: Scenario, outcome: MeasuredOutcome, now: () => Date = () => new Date()): Promise<CodeScore[]> {
 	const byHook = new Map<string, string[]>();
 	for (const p of scenario.properties) if (p.decidedBy === "code" && p.measure !== undefined) byHook.set(p.measure, [...(byHook.get(p.measure) ?? []), p.id]);
-	const readable = loaded.pack.sources.map((s) => path.resolve(loaded.dir, s.path)).filter((p) => fs.existsSync(p));
+	const snap = outcome.snapshot && fs.existsSync(outcome.snapshot) ? [path.resolve(outcome.snapshot)] : [];
+	const readable = [...loaded.pack.sources.map((s) => path.resolve(loaded.dir, s.path)).filter((p) => fs.existsSync(p)), ...snap];
 	const out: CodeScore[] = [];
 	for (const [hookId, props] of byHook) {
 		const hook = loaded.pack.hooks.find((h) => h.id === hookId);

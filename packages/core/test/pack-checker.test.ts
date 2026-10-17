@@ -48,7 +48,10 @@ const defects: Record<CheckId, ((dir: string) => void)[]> = {
 		(d) => editJson(graft(d), (j) => { j.fixture = "../outside-fixture"; }),
 		(d) => editJson(packJson(d), (j) => { j.sources[0].exclude = ["."]; }),
 	],
-	"variant-source": [(d) => editJson(packJson(d), (j) => { j.variants[0].source = "ghost"; })],
+	"variant-source": [
+		(d) => editJson(packJson(d), (j) => { j.variants[0].source = "ghost"; }),
+		(d) => editJson(packJson(d), (j) => { j.variants[0].revision = "0000000000000000000000000000000000000000"; }),
+	],
 	"variant-transform": [(d) => editJson(packJson(d), (j) => { j.variants[0].transform = "count-words"; })],
 	"arm-variant": [(d) => editJson(packJson(d), (j) => { j.arms[1].deliver[0].variant = "ghost"; })],
 	"hook-file": [(d) => editJson(packJson(d), (j) => { j.hooks[2].file = "hooks/no-such-hook.mjs"; })],

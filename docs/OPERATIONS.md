@@ -74,7 +74,7 @@ Top-level fields of `pack.json` (no unknown fields are permitted):
   - `canaries` *(required, string[])*: canary strings planted in `context-lab-canary.md` at the variant root to prove delivery.
   - `include` *(optional, string[])*: glob patterns of files to keep.
   - `transform` *(optional, string)*: id of a `"variant-transform"` hook.
-  - `revision` *(optional, string)*: git revision to export (overrides the run's `--revision` / `HEAD`).
+  - `revision` *(optional, string)*: git revision to export (overrides the run's `--revision` / `HEAD`; verified by `context-lab check <pack>` against the source repository).
 - `arms` *(required, array)*: context conditions compared in experiments:
   - `id` *(required, lowercase slug)*: e.g. `"control"`, `"guided"`.
   - `deliver` *(required, array)*: list of `{ "variant": "<variant-id>", "file": "<relative-path-in-variant>", "as": "instruction" | "folder-file" | "on-request" }`. An empty array `[]` delivers nothing.
@@ -86,7 +86,7 @@ Top-level fields of `pack.json` (no unknown fields are permitted):
   - `settings` *(optional, object)*: for `"opencode"`, supports `"outputTokenMax"` (positive integer, e.g. `1048576`) and `"reasoningEffort"`; for `"codex"`, supports `"reasoningEffort"` (e.g. `"high"`).
 - `hooks` *(required, array)*: `[]` if none, or objects with:
   - `id` *(required, lowercase slug)*
-  - `kind` *(required)*: `"declaration-check"` | `"variant-transform"` | `"outcome-measure"` | `"note-generator"`.
+  - `kind` *(required)*: `"declaration-check"` | `"variant-transform"` | `"outcome-measure"` | `"note-generator"` (`outcome-measure` hooks receive `{ scenario, properties, outcome: { final, diff, scored, snapshot } }` on stdin, with `outcome.snapshot` mounted read-only inside the `bwrap` sandbox so the hook can inspect the agent's workspace tree directly).
   - `file` *(required, relative path)*: script path inside the pack.
   - `timeLimitSeconds` *(required, positive integer)*.
 - `masks` *(required, object)*:
