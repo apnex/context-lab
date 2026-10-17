@@ -49,6 +49,7 @@ They are not copied here; this register starts at the vision.
 | 0027 | 2026-10-17 | Delta-3 is complete: every exit criterion (G1 to G12) was evaluated green by an agent that built none of the code, milestone M3 is done (`B1`, `B11`, `B18` closed), and milestone M4 (Hardening: `M4.1` `B4`, `M4.2` `B7`, `M4.3` `B5`) is selected next as Delta-4. | director | ratified | - |
 | 0028 | 2026-10-17 | Delta-4 is ratified, revision 2: end-to-end failure injection across all 9 fault modes (`H1`), provider fault characterisation in `Result.faults` and `docs/probes/2026-10-17-provider-faults.json` (`H2`), per-scenario and per-property arm-guess blinding (`notBlind` when `all >= 6 && rate >= 0.75 && rate > baseRate + 0.25`, `H3`), and closing `B4`, `B5`, `B7` and milestone M4 (`H4`). | director | ratified | - |
 | 0029 | 2026-10-17 | Delta-4 is complete: every exit criterion (H1 to H4) was evaluated green by an agent that built none of the code, closing `B4`, `B5` and `B7` and completing milestone M4 (all four planned milestones M1-M4 on context-lab's board are done). | director | ratified | - |
+| 0030 | 2026-10-17 | `README.md` (in `S4`/`S9` four-journey layout) and `docs/OPERATIONS.md` document all 13 CLI commands, the complete `context-lab.pack/1` schema, a copy-pasteable minimal pack, and step-by-step operator workflows, verified by dogfooding `context-lab` on itself across all 5 models with `packages/` excluded (`2.80/10 -> 10.00/10`, `P0` `0/5 -> 5/5` passing `checkPack`). | director | ratified | - |
 
 ---
 
@@ -445,3 +446,15 @@ The director replied "continue" to a list whose first pick was this option, and 
 
 **Source.**\
 `[V, director ruling 2026-10-17; docs/DELTAS/DELTA-4.md Record, closing evaluation]`
+
+### 0030
+
+**Ruling.**\
+`README.md` (restructured to `mission-kit` `S4`/`S9` four-journey layout) and `docs/OPERATIONS.md` provide the consumer operations and pack authoring guide for `context-lab`: all 13 CLI commands, the complete `context-lab.pack/1` schema (`pack.json`, `experiments/*.json`, `scenarios/*.json`, `hooks/*.mjs`), a copy-pasteable minimal pack, and step-by-step operator workflows across `M1`-`M4`.\
+Verified by dogfooding `context-lab` on itself (`mission-kit` `0097`, run `2026-10-17-100515-c2`) across all 5 models (`c`, `a`, `f`, `x`, `o`) with `packages/` excluded from the delivered variant: cold-agent pack authoring (`P0`, scored by `checkPack`) rose from `0.00/2` (`0/5` models) on baseline (`2ffda23`) to `2.00/2` (`5/5` models, zero defects) on head (`5cd7366`), and total score rose from `2.80/10` to `10.00/10`.
+
+**Alternatives refuted.**\
+Keeping the 33-line Delta-1 `README.md` without a pack schema or operations guide - refuted by the baseline arm of `2026-10-17-100515-c2`, where 0 of 5 models could construct a valid pack without reading `packages/core/src/`.
+
+**Source.**\
+`[V, director ruling 2026-10-17; mission-kit docs/DECISIONS.md 0097; mission-kit docs/evals/runs/context-lab/2026-10-17-100515-c2/RESULT.md]`
