@@ -35,8 +35,8 @@ Every command takes `<pack>` (the path to the directory containing `pack.json`) 
 | `run` | `context-lab run <pack> <suite> [--runs N] [--parallel P] [--work DIR] [--revision REV]` | Drives a suite through the full lifecycle (`validated -> recorded -> built -> probed -> executed -> measured -> blinded -> judged -> tallied`). Writes the run record under `<pack>/<records.path>/<run-id>/` (`run.json`, `cells/*.json`, `sealed/units.json`, `judging/votes.json`, `RESULT.json`, `RESULT.md`) and workspaces/variants under `--work` (`~/context-lab-work` by default). |
 | `resume` | `context-lab resume <pack> <run-dir> [--parallel P] [--work DIR]` | Resumes an interrupted run from `<run-dir>`. Before continuing, verifies that: (1) the run stopped during execution (at state `probed`, before `executed`) and `end` is not `"completed"`, (2) the experiment's register hash and model `routes` match `run.json`, (3) the built variants on disk match their recorded manifests in `run.json`, and (4) every recorded cell file (`cells/<cell>.json`) is present and well-formed. Executes only the remaining cells, records `resumedAt`, and finishes measurement, blinding, judging, and tallying. |
 | `thresholds` | `context-lab thresholds <pack> <comparison> <aa-run-dir>` | Checks that the two arms of `<comparison>` delivered identical context in `<aa-run-dir>` (`assertIdenticalArms`), derives the two-stage A/A noise thresholds (size-3 and size-9 per-property and pooled thresholds, two-stage false-positive rate, and drift rate), and appends them to `<pack>/register/thresholds/<comparison>.jsonl`. |
-| `compare` | `context-lab compare <pack> <comparison> <base-run-dir> [--head DIR] [--runs K] [--nine DIR] [--nine-head DIR] [--out FILE]` | Compares `<comparison>`'s `base` and `head` arms using the rule declared on `<comparison>` (`"aa"`, `"tolerance"`, or `"improve"`). If `--head` is omitted, reads both `base` and `head` arms from `<base-run-dir>`. When `--nine` (and optional `--nine-head`) is given under `rule: "aa"`, runs stage-2 size-9 confirmation on properties flagged at stage 1. Prints the comparison JSON and writes it to `--out` if given. |
-| `pick` | `context-lab pick <pack> <run-dir> [--mode calibration\|preference] [--count N] [--with ARM] [--without ARM]` | Runs the interactive human panel in the terminal on blinded outcome pairs from `<run-dir>` (`calibration` checks judge-person agreement; `preference` compares `--with` against `--without`). Writes `<run-dir>/picks.json` and re-tallies `<run-dir>/RESULT.json` and `<run-dir>/RESULT.md`. |
+| `compare` | `context-lab compare <pack> <comparison> <base-run-dir> [--head DIR] [--runs K] [--nine DIR] [--nine-head DIR] [--out FILE]` | Compares `<comparison>`'s `base` and `head` arms using the rule declared on `<comparison>` (`"aa"`, `"tolerance"`, or `"improve"`). Reads the latest recorded threshold set from `<pack>/register/thresholds/<comparison>.jsonl` when present. If `--head` is omitted, reads both `base` and `head` arms from `<base-run-dir>`. `--runs K` limits the comparison to the first `K` cell runs (`run <= K`) of each arm. When `--nine` (and optional `--nine-head`) is given under `rule: "aa"`, runs stage-2 size-9 confirmation on properties flagged at stage 1. Prints the comparison JSON and writes it to `--out` if given. |
+| `pick` | `context-lab pick <pack> <run-dir> [--mode calibration\|preference] [--count N] [--with ARM] [--without ARM]` | Runs the interactive human panel in the terminal on blinded outcome pairs from `<run-dir>`. Defaults to `--mode calibration` and `--count 12` when omitted (`calibration` checks judge-person agreement; `preference` compares `--with` against `--without`). Writes `<run-dir>/picks.json` and re-tallies `<run-dir>/RESULT.json` and `<run-dir>/RESULT.md`. |
 | `candidates` | `context-lab candidates <pack> <run-dir>` | Extracts recurring findings from `<run-dir>` (wrong firings, comprehension-without-adherence gaps, and classify-then-verify chain findings meeting threshold) and writes `<run-dir>/CANDIDATES.json` and `<run-dir>/CANDIDATES.md`. |
 | `review` | `context-lab review <pack> --prompt <file> [--files <path,...>] --out <dir> [--members <id,...>] [--verify] [--parallel N] [--work <dir>]` | Orchestrates an on-demand multi-model review across model families. Selects one member per family from `<pack>`'s population by default (or the comma-separated `--members`), runs `<prompt>` (with optional comma-separated `--files` attached) in parallel, extracts structured findings, and when `--verify` is passed, sends each finding to every other family's reviewer for a boolean `supports: true\|false` verdict (recording `verdicts`, `supportingFamilies`, and `familyCount` on each finding). Writes `REVIEW.json` and `REVIEW.md` into `--out`. |
 
@@ -54,7 +54,8 @@ evals/context-lab/
   register/                  # committed preregistration hashes, exposures, and A/A thresholds
 ```
 
-Every `id` in `pack.json`, `sources`, `variants`, `arms`, `population`, `hooks`, `suites`, `isolation.leakProbes`, `experiments`, and `scenarios` must be a **lowercase slug** matching `/^[a-z0-9][a-z0-9.-]*$/` (`slug-ids`), and every relative path inside a source, variant, fixture, or pack must stay inside its directory (`contained-paths`).
+Every `id` in `pack.json`, `sources`, `variants`, `arms`, `population`, `hooks`, `suites`, `isolation.leakProbes`, `experiments`, and `scenarios` must be a **lowercase slug** matching `/^[a-z0-9][a-z0-9.-]*$/` (`slug-ids`).\
+Paths that reference files inside a source, variant, fixture, or the pack itself (`sources[].exclude`, `arms[].deliver[].file`, `hooks[].file`, `scenarios[].fixture`, `scenarios[].scoredFile`, `phases[].note.file`, `phases[].withhold`) must be relative and stay inside that directory (`contained-paths`), whereas `sources[].path`, `isolation.forbidden.paths`, and `records.path` resolve relative to the pack directory and may point to parent or sibling directories (`../..`, `../runs`).
 
 ### 3.1 `pack.json` schema
 
@@ -93,11 +94,14 @@ Top-level fields of `pack.json` (no unknown fields are permitted):
   - `selfExplanationMarker` *(optional, string)*: marker line from which self-explanation is stripped before judging.
 - `isolation` *(required, object)*:
   - `leakProbes` *(required, array)*: `{ "id": "<slug>", "question": "<string>", "leak": "<regex>", "arms": ["<arm-id>", ...] }`. Asked before any cell runs; if an arm listed in `arms` matches `leak`, the probe fails and that arm does not run.
-  - `forbidden` *(required, object)*: `{ "paths": ["<path>", ...], "addresses": ["<url>", ...] }`. Any tool call touching a forbidden path or address outside the cell's workspace and delivered `on-request` folders invalidates the cell (`cause: "isolation"`).
+  - `forbidden` *(required, object)*: `{ "paths": ["<path>", ...], "addresses": ["<url>", ...] }`. Relative `paths` are resolved against the pack directory. Any tool call touching a forbidden path or address outside the cell's workspace and delivered `on-request` folders invalidates the cell (`cause: "isolation"`).
 - `experiments` *(required, string[])*: relative paths to experiment JSON files (e.g. `["experiments/pilot.json"]`).
 - `suites` *(required, array)*: `{ "id": "<slug>", "experiment": "<experiment-id>", "select": { "allTags"?: string[], "anyTags"?: string[], "scenarios"?: string[] } }`. Every suite must select at least one scenario.
 - `records` *(required, object)*: `{ "path": "<relative-or-absolute-dir>" }` where run directories are written (e.g. `{"path": "../runs"}`).
-- `comparisons` *(optional, array)*: `{ "id": "<string>", "experiment": "<experiment-id>", "rule": "aa" | "tolerance" | "improve", "base": "<arm-id>", "head": "<arm-id>", "m"?: <positive-int>, "tolerance"?: <number> }`.
+- `comparisons` *(optional, array)*: `{ "id": "<string>", "experiment": "<experiment-id>", "rule": "aa" | "tolerance" | "improve", "base": "<arm-id>", "head": "<arm-id>", "m"?: <positive-int>, "tolerance"?: <number> }`:
+  - `rule: "aa"`: two-stage A/A noise-threshold rule (`m` is the number of properties in the experiment used for family-wise threshold calibration; compares stage-1 size-3 differences against `register/thresholds/<comparison>.jsonl` and confirms flagged properties at size-9 when `--nine` is supplied).
+  - `rule: "tolerance"`: flags any property whose `head` mean falls below `base - (tolerance ?? 0)`, or the pooled total if it drops.
+  - `rule: "improve"`: requires every property's `head` mean to be `>= base` and the pooled `head` total to be strictly `> base`.
 - `findingRules` *(optional, object)*: `{ "wrongFiringThreshold"?: <number>, "knowsNotActsThreshold"?: <number> }`.
 
 ### 3.2 `experiments/<id>.json` schema
@@ -448,7 +452,8 @@ Before executing any remaining cells, `resume` verifies four preconditions again
 3. **Variant manifests:** every built variant directory under the working folder still matches its recorded `VariantManifest` in `run.json`.
 4. **Recorded cells:** every cell listed in `run.json` has a present, well-formed `cells/<cell>.json` file on disk.
 
-Once verified, `resume` executes only the unfinished cells, records `resumedAt` in `run.json`, and runs `measured -> blinded -> judged -> tallied` to completion.
+Once verified, `resume` executes only the unfinished cells, records `resumedAt` in `run.json`, and runs `measured -> blinded -> judged -> tallied` to completion.\
+(`resume` is specifically for runs that stopped before `executed`; a run that already reached `executed` has all cell outcomes on disk.)
 
 ---
 

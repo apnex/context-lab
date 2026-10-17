@@ -52,7 +52,7 @@ Run the core's unit, conformance, and end-to-end sandbox failure-injection suite
 npm test
 ```
 
-See [`docs/OPERATIONS.md#1-install-and-verify`](docs/OPERATIONS.md#1-install-and-verify) and [`packages/core/test/conformance/CASES.md`](packages/core/test/conformance/CASES.md) for what the test suite proves.
+See [`docs/OPERATIONS.md#1-install-and-verify`](docs/OPERATIONS.md#1-install-and-verify) for what the test suite proves.
 
 ---
 
