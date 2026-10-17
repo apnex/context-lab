@@ -1,7 +1,7 @@
 # Delta-4 - hardening: failure injection, provider fault characterisation, and per-property arm-guess blinding - a vertical slice
 
 ```yaml
-status:     draft - revision 2, adversarial review findings applied; ready for director ratification
+status:     ratified (docs/DECISIONS.md 0028) - revision 2; stage 2 open
 selected:   docs/DECISIONS.md 0027, board items M4.1, M4.2, M4.3
 from-state: Delta-3's to-state (0027): all 22 components of docs/ARCHITECTURE-TARGET.md section 5 built, mission-kit and zorg packs running on the core
 to-state:   docs/ARCHITECTURE-TARGET.md (0006, 0026), section 4 tensions for A8 and A9 and section 9 rows 3, 4 and 6 discharged
@@ -125,7 +125,8 @@ This delta does not build or change:
 
 ## Record
 
-*(To be populated as stages 1-2 are built and verified.)*
+**Stage 1 (`M4.1`).**\
+Built `packages/core/test/failure-injection.test.ts` driving `conductRun` through `opencodeAdapter` and `codexAdapter` inside `runSandboxed` (`bwrap`) across all 9 fault modes (`isolation-address`, `isolation-path-open`, `isolation-path-sandboxed`, `infra-filter`, `infra-provider-503`, `infra-crash`, `timeout-open-step-0012` / Codex `timeout-model` & `timeout-tool`, `behaviour-overflow`, `behaviour-empty`); 5 stage-1 mutants applied and killed; 320 tests.
 
 ---
 

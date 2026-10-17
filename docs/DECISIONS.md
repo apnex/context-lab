@@ -47,6 +47,7 @@ They are not copied here; this register starts at the vision.
 | 0025 | 2026-10-16 | Milestone M3 (M3.1 and M3.2), together with B18 (on-demand multi-model review orchestration), is selected from the board and opens as Delta-3. | director | ratified | - |
 | 0026 | 2026-10-16 | Delta-3 is ratified, revision 2, including the reopening of `docs/ARCHITECTURE-TARGET.md` for `B18` (Review panel as the 22nd component) and the explicit retirement disposition in G11. | director | ratified | amends 0006, 0025 |
 | 0027 | 2026-10-17 | Delta-3 is complete: every exit criterion (G1 to G12) was evaluated green by an agent that built none of the code, milestone M3 is done (`B1`, `B11`, `B18` closed), and milestone M4 (Hardening: `M4.1` `B4`, `M4.2` `B7`, `M4.3` `B5`) is selected next as Delta-4. | director | ratified | - |
+| 0028 | 2026-10-17 | Delta-4 is ratified, revision 2: end-to-end failure injection across all 9 fault modes (`H1`), provider fault characterisation in `Result.faults` and `docs/probes/2026-10-17-provider-faults.json` (`H2`), per-scenario and per-property arm-guess blinding (`notBlind` when `all >= 6 && rate >= 0.75 && rate > baseRate + 0.25`, `H3`), and closing `B4`, `B5`, `B7` and milestone M4 (`H4`). | director | ratified | - |
 
 ---
 
@@ -417,3 +418,16 @@ Moving to `mission-kit` `B81`/`B82` before closing `context-lab`'s final milesto
 
 **Source.**\
 `[V, director ruling 2026-10-17; docs/DELTAS/DELTA-3.md Record, closing evaluation]`
+
+### 0028
+
+**Ruling.**\
+Delta-4 (`docs/DELTAS/DELTA-4.md`, revision 2) is ratified as written after adversarial review:
+- Stage 1 builds the end-to-end failure injection suite through `opencodeAdapter`, `codexAdapter`, `runSandboxed` (`bwrap`), and `conductRun` across all 9 fault modes (`H1`);
+- Stage 2 builds `faultProfile` (`Result.faults`) and `docs/probes/2026-10-17-provider-faults.json` across all 21 recorded live run directories (`H2`), `Result.guesses.byScenario` and `byProperty` with `notBlind` (`all >= 6 && rate >= 0.75 && rate > baseRate + 0.25`) and the `RESULT.md` limit warning (`H3`), and closes `B4`, `B5`, `B7` and milestone M4 (`H4`).
+
+**Alternatives refuted.**\
+Lowering the `notBlind` margin from `rate > baseRate + 0.25` to `rate > baseRate + 0.15` - not chosen; the director selected Option 1 (`rate > baseRate + 0.25`).
+
+**Source.**\
+`[V, director ruling 2026-10-17]`
