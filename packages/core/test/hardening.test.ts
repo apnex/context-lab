@@ -126,8 +126,9 @@ test("H2: classifyFaultKind and faultProfile classify all 10 fault kinds, inspec
 
 test("H3: Result.guesses.byScenario and byProperty flag notBlind iff all >= 6 && rate >= 0.75 && rate > baseRate + 0.25, warn in RESULT.md, and reproduce 2026-10-11-092325-adherence and 2026-10-14-112229-adherence", () => {
 	// 1. Synthetic fixture testing all boundaries:
-	//    - s-blind: 6 guesses, 4 right (rate 4/6 = 0.6667 < 0.75, baseRate 0.5) -> notBlind: false
-	//    - s-unblind: 6 guesses, 5 right (rate 5/6 = 0.8333 >= 0.75, baseRate 0.5, 0.8333 > 0.75) -> notBlind: true
+	//    - s-blind: 6 guesses, 4 right across 2 groups (rate 4/6 = 0.6667 < 0.75, baseRate 0.5) -> notBlind: false
+	//    - s-lowfloor: 6 guesses, 4 right across 3 equal groups (rate 4/6 = 0.6667 < 0.75, baseRate 2/6 = 0.3333, so rate > baseRate + 0.25 holds, but rate < 0.75) -> notBlind: false
+	//    - s-unblind: 6 guesses, 5 right across 2 groups (rate 5/6 = 0.8333 >= 0.75, baseRate 0.5, 0.8333 > 0.75) -> notBlind: true
 	//    - s-small: 5 guesses, 5 right (all = 5 < 6) -> notBlind: false
 	//    - s-held: heldOut scenario, 6 guesses, 6 right -> excluded from byScenario and byProperty
 	const mkSc = (id: string, prop: string, heldOut = false): Scenario => ({
@@ -136,6 +137,7 @@ test("H3: Result.guesses.byScenario and byProperty flag notBlind iff all >= 6 &&
 	});
 	const scenarios = new Map<string, Scenario>([
 		["s-blind", mkSc("s-blind", "pb")],
+		["s-lowfloor", mkSc("s-lowfloor", "pl")],
 		["s-unblind", mkSc("s-unblind", "pu")],
 		["s-small", mkSc("s-small", "ps")],
 		["s-held", mkSc("s-held", "ph", true)],
@@ -154,24 +156,26 @@ test("H3: Result.guesses.byScenario and byProperty flag notBlind iff all >= 6 &&
 			const uid = `u-${cid}`;
 			cells.push(mkCell(cid, sc, arm));
 			units.push({ id: uid, cell: cid, scenario: sc, arm, member: "p1", family: "f1", properties: [prop], text: "t", blindedAt: "" });
-			const truth = arm === "on" ? "guided" : "unguided";
+			const truth = arm === "on" ? "guided" : arm === "mid" ? "midgroup" : "unguided";
 			const guess = idx < rightCount ? truth : truth === "guided" ? "unguided" : "guided";
 			votes.push({ unit: uid, property: prop, judge: "j1", family: "f2", value: 1, reason: "r", guess, prompt: "p" });
 		});
 	};
 	addBucket("s-blind", "pb", ["on", "on", "on", "off", "off", "off"], 4);
+	addBucket("s-lowfloor", "pl", ["on", "on", "mid", "mid", "off", "off"], 4);
 	addBucket("s-unblind", "pu", ["on", "on", "on", "off", "off", "off"], 5);
 	addBucket("s-small", "ps", ["on", "on", "on", "off", "off"], 5);
 	addBucket("s-held", "ph", ["on", "on", "on", "off", "off", "off"], 6);
 
 	const res = tally({
-		run: "test-guesses", status: "result", arms: ["on", "off"], members: ["p1"], scenarios, cells, units, absent: [], votes,
-		assigned: () => ["j1"], guessGroups: { guided: ["on"], unguided: ["off"] },
+		run: "test-guesses", status: "result", arms: ["on", "mid", "off"], members: ["p1"], scenarios, cells, units, absent: [], votes,
+		assigned: () => ["j1"], guessGroups: { guided: ["on"], midgroup: ["mid"], unguided: ["off"] },
 	});
 	assert.equal("s-held" in res.guesses.byScenario, false, "held-out scenario must not appear in byScenario");
 	assert.equal("s-held/ph" in res.guesses.byProperty, false, "held-out property must not appear in byProperty");
 
 	assert.equal(res.guesses.byScenario["s-blind"]!.notBlind, false);
+	assert.equal(res.guesses.byScenario["s-lowfloor"]!.notBlind, false, "rate 4/6 < 0.75 must not flag notBlind even when > baseRate + 0.25");
 	assert.equal(res.guesses.byScenario["s-unblind"]!.notBlind, true);
 	assert.equal(res.guesses.byScenario["s-small"]!.notBlind, false);
 	assert.equal(res.guesses.byProperty["s-unblind/pu"]!.notBlind, true);
