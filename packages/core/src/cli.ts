@@ -18,12 +18,14 @@
 //   context-lab pick   <pack> <run-dir> [--mode calibration|preference] [--count N] [--with ARM] [--without ARM]
 //                                                  run the human panel on a judged run and re-tally
 //   context-lab candidates <pack> <run-dir>        write CANDIDATES.json and CANDIDATES.md for a run
+//   context-lab review <pack> --prompt <file> [--files <path,...>] --out <dir> [--members <id,...>] [--verify] [--parallel N]
+//                                                  run a review prompt across model families and optionally cross-verify
 
 import fs from "node:fs";
-import { assertIdenticalArms, checkPack, codexAdapter, compare, conductRun, deriveThresholds, entryView, opencodeAdapter, pickRun, readTable, readThresholds, recordExperiment, recordExposure, recordThresholds, resolveSuite, resumeRun, runStatus, writeRunCandidates, type LoadedPack } from "./index.js";
+import { assertIdenticalArms, checkPack, codexAdapter, compare, conductRun, deriveThresholds, entryView, opencodeAdapter, pickRun, readTable, readThresholds, recordExperiment, recordExposure, recordThresholds, resolveSuite, resumeRun, runReview, runStatus, writeRunCandidates, type LoadedPack } from "./index.js";
 
 const [cmd, packDir, arg, arg2] = process.argv.slice(2);
-const usage = "usage: context-lab check|record|status|suite|entries|expose|thresholds|compare|run|resume|pick|candidates <pack> [experiment|suite|scenario|comparison|run-dir] [change|run-dir] [--runs N] [--parallel P] [--work DIR] [--revision REV]";
+const usage = "usage: context-lab check|record|status|suite|entries|expose|thresholds|compare|run|resume|pick|candidates|review <pack> [experiment|suite|scenario|comparison|run-dir] [change|run-dir] [--runs N] [--parallel P] [--work DIR] [--revision REV]";
 import { runFlags } from "./cli-flags.js";
 const flag = (n: string): string | undefined => { const i = process.argv.indexOf(n); return i > 0 ? process.argv[i + 1] : undefined; };
 const comparisonOf = (l: LoadedPack, id: string) => { const c = (l.pack.comparisons ?? []).find((x) => x.id === id); if (!c) { console.error(`no comparison ${id} in pack ${l.pack.id}`); process.exit(2); } return c; };
@@ -104,6 +106,21 @@ switch (cmd) {
 	case "candidates": {
 		const packet = await writeRunCandidates(packDir ?? "", need(arg));
 		console.log(`candidates ${packet.run}: ${packet.candidates.length} candidate(s) written`);
+		break;
+	}
+	case "review": {
+		const promptFile = need(flag("--prompt")), outDir = need(flag("--out"));
+		const filesArg = flag("--files"), membersArg = flag("--members"), parallelArg = flag("--parallel"), workArg = flag("--work");
+		const verify = process.argv.includes("--verify");
+		const packet = await runReview(packDir ?? "", {
+			promptFile, outDir, verify,
+			...(filesArg !== undefined ? { files: filesArg.split(",").filter(Boolean) } : {}),
+			...(membersArg !== undefined ? { members: membersArg.split(",").filter(Boolean) } : {}),
+			...(parallelArg !== undefined ? { parallel: Number(parallelArg) } : {}),
+			...(workArg !== undefined ? { work: workArg } : {}),
+			adapters: { opencode: opencodeAdapter(), codex: codexAdapter() },
+		});
+		console.log(`review ${packet.pack}: ${packet.members.length} model(s), ${packet.findings.length} finding(s), written to ${outDir}`);
 		break;
 	}
 	default: console.error(usage); process.exit(2);

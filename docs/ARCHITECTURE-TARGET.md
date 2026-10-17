@@ -15,7 +15,7 @@ It contains no plan, order or estimate; those belong to the board and to deltas.
 ## 1. Status and authority
 
 Authored by the architect, ratified by the director per section; approval is aggregate-only.\
-Ratified 2026-10-10 (`docs/DECISIONS.md` `0006`).
+Ratified 2026-10-10 (`docs/DECISIONS.md` `0006`); sections 2, 3, 5, 6 and 9 reopened and updated 2026-10-16 (`0025`, `0026`, `B18`).
 
 | Section | Maturity | Reopens on |
 |---|---|---|
@@ -46,6 +46,7 @@ A project supplies everything specific to it as a **project pack**; the operator
 - Experiments whose factors are context - content, manner, amount, moment of delivery, source revision - with models, agent runtimes and their settings as declared factors.
 - Comprehension, behaviour, precision and cost as measured outcomes.
 - Judging by code where a check can decide, by agents of other model families where reading is needed, by chains of agents where one classifies and another verifies, and by people where the outcome is for a person.
+- On-demand multi-model review of a project artifact or prompt across distinct model families, with optional cross-family verification (`0025`, `0026`, `B18`).
 
 **Non-goals.**
 
@@ -85,7 +86,7 @@ Every result is attributable to the declared differences between conditions alon
 | P9 | **Evidence, not verdicts.** A comparison flags; the project's authority decides | `A13`; vision non-authority 2 |
 
 **Decisions.**\
-`0001` the vision; `0002` all four existing mechanisms are absorbed; `0003` packs may carry scripts at fixed hooks; `0004` the universal parts of mission-kit's standing-suite design are adopted, and `0005` a note-generator hook is added to `0003`'s three; `0008` suites are an entity.
+`0001` the vision; `0002` all four existing mechanisms are absorbed; `0003` packs may carry scripts at fixed hooks; `0004` the universal parts of mission-kit's standing-suite design are adopted, and `0005` a note-generator hook is added to `0003`'s three; `0008` suites are an entity; `0009`-`0024` Delta-1 and Delta-2; `0025` and `0026` Delta-3 and on-demand multi-model review (`B18`).
 
 **Model.**\
 Single-duty components (section 5), each serving a principle, driven by a project pack through fixed hooks, producing a run record the project keeps.
@@ -146,6 +147,7 @@ Each component has one duty and serves at least one principle.
 | **Comparator** | Compares two results under a declared rule | Two results; the rule - per-property tolerance, a property absent from the head counting as a drop; A/A threshold with extension; or improve-without-worsening across families | Flags, held-out scenarios reported apart, never a verdict | P9 |
 | **Candidate writer** | Writes candidate findings from results | Results; the pack's finding rules | Candidates with evidence, for the project to triage | P9 |
 | **Run conductor** | Conducts a run through its lifecycle | An experiment and its factors, or a suite by name | The run record: configuration, method version, revisions, consent, events, outcomes, votes, mapping, results | P8 |
+| **Review panel** | Orchestrates an on-demand review prompt across members of distinct model families and cross-verifies their findings (`0025`, `0026`, `B18`) | A pack's population, adapters, a prompt and read-only files | Per-family findings, cross-family verification verdicts, and supporting family counts | P1, P3, P6, P8 |
 
 **Adapters.**\
 Each agent runtime has one, and one **external** adapter hands prompts out and takes answers back, for any harness context-lab does not drive.\
@@ -176,6 +178,7 @@ A comprehension run is one phase in which a reader answers probes, parsed by the
 | Threshold set | Rule, size, threshold, false-alarm rate, the A/A runs it came from |
 | Result | Rates per property and factor level, agreement, limits, which validity rules it met |
 | Candidate finding | Rule triggered, evidence |
+| Review packet | Prompt, read-only files, reviewer replies, extracted findings, cross-family verification verdicts, supporting families (`0026`, `B18`) |
 | Consent | Owner, material, scope, when given - required for any experiment touching material not built for it |
 | Run record | All of the above for one run |
 
@@ -247,8 +250,8 @@ Each trap pair is met once per episode, its version and position rotated across 
 
 | # | Owed or open | Why it matters |
 |---|---|---|
-| 1 | Session continuation under isolation is unprobed on both driven runtimes | Multi-session phases depend on it |
-| 2 | Whether each runtime's compaction keeps instruction files is unknown | Experiments simulating compaction assume it |
+| 1 | **CLOSED** (`0024`, `B2`): session continuation probed and implemented on both runtimes (`docs/probes/2026-10-11-sessions.json`) | Multi-session phases depend on it |
+| 2 | **CLOSED** (`0024`, `B3`): compaction keeps instruction files on both runtimes (`docs/probes/2026-10-11-sessions.json`) | Experiments simulating compaction assume it |
 | 3 | No failure injection exercises the validity classifier (`A9`) | Its causes are asserted, not tested |
 | 4 | Blinding to arm was not achieved on one trap | Judge scores on such properties lean on code-scored ones |
 | 5 | Two runtimes have adapters | Generality across runtimes is a claim |
