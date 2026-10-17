@@ -123,6 +123,15 @@ export interface Pack {
 	records: { path: string };
 	/** Comparison rules the pack declares. */
 	comparisons?: Comparison[];
+	/** Thresholds for writing candidate findings from a run's result. */
+	findingRules?: FindingRules;
+}
+
+export interface FindingRules {
+	/** Scale-normalised fail rate above which a precision property in a guided arm emits a candidate; 0.25 by default. */
+	wrongFiringThreshold?: number;
+	/** Pairs-weighted metNot rate across guided arms above which a guidance entry emits a candidate; 0.5 by default. */
+	knowsNotActsThreshold?: number;
 }
 
 export interface Property {
@@ -245,6 +254,24 @@ export interface Experiment {
 	notes?: string;
 }
 
+export interface ChainFinding {
+	id: string;
+	kind: "named" | "computed" | "named or computed";
+	statement: string;
+	countsWhen: string;
+}
+
+export interface ChainThreshold {
+	minScenarios: number;
+	minHeldOut: number;
+	minFamilies: number;
+}
+
+export interface JudgingChain {
+	findings: ChainFinding[];
+	threshold?: ChainThreshold;
+}
+
 export interface Judging {
 	/** Population members who judge; each outcome is judged by every one of another family than its agent's. */
 	judges?: string[];
@@ -252,6 +279,8 @@ export interface Judging {
 	guessGroups?: Record<string, string[]>;
 	/** Outcomes per judge prompt; 6 by default. */
 	outcomesPerPrompt?: number;
+	/** A classify-then-verify judging chain across three model families (Delta-3 stage 2). */
+	chain?: JudgingChain;
 }
 
 /** A pack loaded with its experiments and scenarios, after it has passed the checker. */

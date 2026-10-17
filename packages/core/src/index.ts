@@ -27,3 +27,5 @@ export { MIN_POOL, SIZES, SPLITS, assertIdenticalArms, compare, deriveThresholds
 export { runFlags, type RunFlags } from "./cli-flags.js";
 export { chooseCalibrationPairs, choosePreferencePairs, flipFor, type CalibrationOptions, type CalibrationPair, type PreferenceItem, type PreferencePair } from "./pair-chooser.js";
 export { readLegacyHumanRun, runHumanPanel, tallyHumanPicks, type FaultTag, type HumanPanelOptions, type HumanPicksTally, type PickAnswer, type PicksRecord } from "./human-panel.js";
+export { MAX_QUOTE_WORDS, assignChainJudges, countChain, quoteInOutcome, runJudgingChain, type ChainCountResult, type ChainEvidence, type ChainFindingRow, type ChainRecord, type ChainSummaryStats, type ClassifiedHit, type CodeRejectedHit, type CountChainInput, type RunChainOptions, type UnlistedItem, type VerifiedVerdict } from "./judging-chain.js";
+export { candidatesMarkdown, evaluateCandidates, writeCandidates, writeRunCandidates, type CandidateFinding, type CandidateRuleId, type CandidatesPacket, type EvaluateCandidatesOptions } from "./candidate-writer.js";

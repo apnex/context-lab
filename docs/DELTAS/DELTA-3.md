@@ -158,6 +158,10 @@ Built `packages/core/src/pair-chooser.ts` (`flipFor`, `choosePreferencePairs`, `
 Verification evaluated G1, G2 and G3 PASS; all three minor findings from verification (tests for `M3`, `M11`, `M15`, EOF on the tag prompt, and empty-string `final` check in `pickRun`) are fixed and mutation-tested (15 of 15 mutants killed).\
 314 tests; stage 1 is complete.
 
+**Stage 2 (`M3.1b`).**\
+Built `packages/core/src/judging-chain.ts` (`assignChainJudges`, `quoteInOutcome`, `runJudgingChain`, `countChain`), `packages/core/src/candidate-writer.ts` (`evaluateCandidates`, `writeCandidates`, `writeRunCandidates`), `judging.chain` and `pack.findingRules` validation in `pack-schema.ts` and `pack-checker.ts`, `chain` integration in `run-conductor.ts` and `tally.ts`, and `context-lab candidates` in `cli.ts`.\
+317 tests; 10 stage-2 mutants applied and killed.
+
 ---
 
 ## Adversarial review

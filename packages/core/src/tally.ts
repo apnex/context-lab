@@ -20,6 +20,7 @@ import { propertiesOf, type Experiment, type Scenario } from "./pack-schema.js";
 import { detectable, linkRates, type Detectable, type LinkRow, type RestatedFlag } from "./measures.js";
 import type { Exposure } from "./experiment-register.js";
 import { tallyHumanPicks, type HumanPicksTally, type PicksRecord } from "./human-panel.js";
+import { countChain, type ChainCountResult, type ChainRecord } from "./judging-chain.js";
 
 export interface Rate { mean: number | null; of: number; incomplete: number }
 
@@ -67,6 +68,8 @@ export interface Result {
 	};
 	/** A person's picks on paired outcomes: preference wins per move, or judge-person calibration agreement. */
 	humanPicks?: HumanPicksTally | null;
+	/** Classify-then-verify judging chain counts across scenarios, held-out scenarios and families. */
+	chain?: ChainCountResult | null;
 }
 
 export interface TallyInput {
@@ -84,6 +87,8 @@ export interface TallyInput {
 	experiment?: { variation?: Experiment["variation"]; default?: string };
 	exposed?: Exposure[];
 	picks?: PicksRecord | null;
+	chain?: ChainRecord | null;
+	memberFamilies?: Map<string, string>;
 }
 
 const mean = (xs: number[]): number | null => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
@@ -186,7 +191,16 @@ export function tally(t: TallyInput): Result {
 	const heldCell = (cell: string): boolean => isHeldOut(t.cells.find((c) => c.cell === cell)?.scenario ?? "");
 	const exposed = (t.exposed ?? []).filter((e) => isHeldOut(e.scenario));
 	const humanPicks = t.picks ? tallyHumanPicks(t.picks) : null;
-	return { run: t.run, status: t.status, arms: t.arms, members: t.members, properties, totals, excluded, absent: t.absent.filter((a) => !heldCell(a.cell)), guesses, unreachable, cellValues, heldOut, heldOutCellValues, heldOutAbsent: t.absent.filter((a) => heldCell(a.cell)), heldOutGuesses, exposed, link, restated, variation, ...(humanPicks ? { humanPicks } : {}) };
+	const heldOutSet = new Set([...t.scenarios.values()].filter((s) => s.heldOut === true).map((s) => s.id));
+	const chain = t.chain
+		? countChain({
+			record: t.chain,
+			cells: t.cells.filter((c) => (cellValues[c.cell] ?? heldOutCellValues[c.cell]) !== undefined),
+			members: t.memberFamilies ?? new Map(),
+			heldOutScenarios: heldOutSet,
+		})
+		: null;
+	return { run: t.run, status: t.status, arms: t.arms, members: t.members, properties, totals, excluded, absent: t.absent.filter((a) => !heldCell(a.cell)), guesses, unreachable, cellValues, heldOut, heldOutCellValues, heldOutAbsent: t.absent.filter((a) => heldCell(a.cell)), heldOutGuesses, exposed, link, restated, variation, ...(humanPicks ? { humanPicks } : {}), ...(chain ? { chain } : {}) };
 }
 
 /** A warning where a difference of the stated size would usually go undetected, in the stated scope. */
@@ -249,6 +263,16 @@ export function resultMarkdown(r: Result, limits: string[]): string {
 				: [
 					`Calibration agreement (${r.humanPicks.complete ? "complete" : "incomplete"}): ${r.humanPicks.agreement?.agree ?? 0} of ${r.humanPicks.agreement?.of ?? 0} (${r.humanPicks.agreement?.rate === null || r.humanPicks.agreement?.rate === undefined ? "-" : `${(r.humanPicks.agreement.rate * 100).toFixed(0)}%`}).`,
 				]),
+			"",
+		] : []),
+		...(r.chain ? [
+			"## Judging chain", "",
+			`Threshold: at least ${r.chain.threshold.minScenarios} scenario(s), ${r.chain.threshold.minHeldOut} held out, ${r.chain.threshold.minFamilies} model famil${r.chain.threshold.minFamilies === 1 ? "y" : "ies"}.`, "",
+			...(r.chain.rows.length ? [
+				"| Finding | Readers | Scenarios | Held out | Families | Rejected | Meets |",
+				"|---|---|---|---|---|---|---|",
+				...r.chain.rows.map((row) => `| ${row.id} | ${row.readers} | ${row.scenarios.length} | ${row.heldOut.join(", ") || "none"} | ${row.families.join(", ") || "none"} | ${row.rejected} | ${row.meets ? "yes" : "no"} |`),
+			] : ["No finding had evidence."]),
 			"",
 		] : []),
 	];

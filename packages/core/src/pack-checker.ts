@@ -99,7 +99,8 @@ function packShape(raw: unknown, out: Defect[]): raw is Pack {
 	if (!shape(raw, "pack", {
 		schema: "string", id: "string", sources: "array", variants: "array", arms: "array", population: "array", hooks: "array",
 		masks: "object", isolation: "object", experiments: "string[]", suites: "array", records: "object",
-	}, { comparisons: "array" }, out)) return false;
+	}, { comparisons: "array", findingRules: "object" }, out)) return false;
+	if (isObj(raw["findingRules"])) shape(raw["findingRules"], "findingRules", {}, { wrongFiringThreshold: "number", knowsNotActsThreshold: "number" }, out);
 	eachShape(raw["comparisons"], "comparisons", { id: "string", experiment: "string", rule: oneOf(["aa", "tolerance", "improve"]), base: "string", head: "string" }, { m: positiveInt, tolerance: "number" }, out);
 	eachShape(raw["sources"], "sources", { id: "string", path: "string", addresses: "string[]" }, { exclude: "string[]" }, out);
 	eachShape(raw["variants"], "variants", { id: "string", source: "string", canaries: "string[]" }, { include: "string[]", transform: "string", revision: "string" }, out);
@@ -123,7 +124,15 @@ function experimentShape(raw: unknown, where: string, out: Defect[]): raw is Exp
 	const before = out.length;
 	if (!shape(raw, where, { id: "string", declaredStatus: oneOf(STATUSES), scenarios: "string[]", factors: "object", runsPerCell: positiveInt, phases: "array" }, { instructions: "string", preamble: "string", judgeInstructions: "string", judging: "object", notes: "string", variation: "object", default: "string" }, out)) return false;
 	if (isObj(raw["variation"])) shape(raw["variation"], `${where}.variation`, { difference: (v: unknown) => typeof v === "number" && v > 0 && v <= 1, scope: oneOf(["pooled", "property"]) }, {}, out);
-	if (isObj(raw["judging"])) shape(raw["judging"], `${where}.judging`, {}, { judges: "string[]", guessGroups: "object", outcomesPerPrompt: positiveInt }, out);
+	if (isObj(raw["judging"])) {
+		shape(raw["judging"], `${where}.judging`, {}, { judges: "string[]", guessGroups: "object", outcomesPerPrompt: positiveInt, chain: "object" }, out);
+		const ch = raw["judging"]["chain"];
+		if (isObj(ch)) {
+			shape(ch, `${where}.judging.chain`, { findings: "array" }, { threshold: "object" }, out);
+			eachShape(ch["findings"], `${where}.judging.chain.findings`, { id: "string", kind: oneOf(["named", "computed", "named or computed"]), statement: "string", countsWhen: "string" }, {}, out);
+			if (isObj(ch["threshold"])) shape(ch["threshold"], `${where}.judging.chain.threshold`, { minScenarios: positiveInt, minHeldOut: (v: unknown) => typeof v === "number" && Number.isInteger(v) && v >= 0, minFamilies: positiveInt }, {}, out);
+		}
+	}
 	shape(raw["factors"], `${where}.factors`, { arms: "string[]", population: "string[]" }, {}, out);
 	eachShape(raw["phases"], `${where}.phases`, { id: "string", session: oneOf(["new"]) }, {}, out);
 	return out.length === before;

@@ -37,6 +37,7 @@ import { EMPTY_ARM, assignJudges, judgeAll, type Vote } from "./judge-panel.js";
 import { resultMarkdown, tally, type Result } from "./tally.js";
 import { chooseCalibrationPairs, choosePreferencePairs, type PreferenceItem } from "./pair-chooser.js";
 import { runHumanPanel, type PicksRecord } from "./human-panel.js";
+import { runJudgingChain, type ChainRecord } from "./judging-chain.js";
 
 const EMPTY_OUTCOME: Outcome = { final: "", exit: null, signal: null, stop: { reason: "error", inFlight: "none" }, cost: { seconds: 0, inputTokens: null, cachedInputTokens: null, outputTokens: null, toolCalls: 0 }, tools: [], filtered: false, error: null, session: null, trace: [], events: "" };
 
@@ -460,6 +461,12 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 		guessOptions: Object.keys(record.guessGroups), recordsDir, work, seed: record.seed, timeLimitSeconds: opts.judgeTimeLimitSeconds ?? 900, parallel: opts.parallel ?? 4,
 	});
 	write(path.join(recordsDir, "judging", "votes.json"), votes);
+	if (exp.experiment.judging?.chain !== undefined) {
+		await runJudgingChain({
+			loaded, chain: exp.experiment.judging.chain, units: blinded.units, judges, adapters: opts.adapters,
+			recordsDir, work, timeLimitSeconds: opts.judgeTimeLimitSeconds ?? 900,
+		});
+	}
 	enter("judged");
 	save();
 
@@ -732,6 +739,12 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 			guessOptions: Object.keys(record.guessGroups), recordsDir: resolvedRecords, work, seed: record.seed, timeLimitSeconds: opts.judgeTimeLimitSeconds ?? 900, parallel: opts.parallel ?? 4,
 		});
 		write(path.join(resolvedRecords, "judging", "votes.json"), votes);
+		if (exp.experiment.judging?.chain !== undefined) {
+			await runJudgingChain({
+				loaded, chain: exp.experiment.judging.chain, units: blinded.units, judges, adapters: opts.adapters,
+				recordsDir: resolvedRecords, work, timeLimitSeconds: opts.judgeTimeLimitSeconds ?? 900,
+			});
+		}
 		enter("judged");
 		save();
 
@@ -770,11 +783,15 @@ export function tallyRun(recordsDir: string, opts: TallyOptions = {}): Result {
 	const judges = record.judges.map((id) => record.snapshot.population.find((m) => m.id === id)!);
 	const picksFile = path.join(recordsDir, "picks.json");
 	const picks = fs.existsSync(picksFile) ? read<PicksRecord>("picks.json") : null;
+	const chainFile = path.join(recordsDir, "judging", "chain.json");
+	const chain = fs.existsSync(chainFile) ? read<ChainRecord>(path.join("judging", "chain.json")) : null;
+	const memberFamilies = new Map(record.snapshot.population.map((m) => [m.id, m.family]));
 	const result = tally({
 		run: record.run, status: record.status, arms: record.snapshot.arms, members: record.population, scenarios, cells,
 		units: blinded.units, absent: blinded.absent, votes, assigned: (u) => assignJudges(u, judges).map((j) => j.id), guessGroups: record.guessGroups,
 		...(record.snapshot.experiment !== undefined ? { experiment: record.snapshot.experiment } : {}), exposed: record.snapshot.exposed ?? [],
 		...(picks !== null ? { picks } : {}),
+		...(chain !== null ? { chain, memberFamilies } : {}),
 	});
 	if (!(opts.write ?? opts.runs === undefined)) return result;
 	write(path.join(recordsDir, "RESULT.json"), result);
