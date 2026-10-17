@@ -175,6 +175,8 @@ export interface Scenario {
 	scoring?: string;
 	/** A file in the outcome that is scored in place of the final message. */
 	scoredFile?: string;
+	/** Where answers under answerHeading are split from: the scenario's scoredFile, or the phase's final message ("final"). */
+	answerSource?: "scored-file" | "final";
 	/** Anything a reader of the pack needs to know; never shown to an agent or judge. */
 	notes?: string;
 	/** The scenario's own phases, overriding the experiment's; the first phase's task is the scenario's task. */
@@ -238,6 +240,8 @@ export interface Experiment {
 	scenarios: string[];
 	factors: { arms: string[]; population: string[] };
 	runsPerCell: number;
+	/** Maximum attempts per cell when an infrastructure or isolation failure triggers a re-run (1 for no retries, 2 by default). */
+	maxAttemptsPerCell?: 1 | 2;
 	phases: Phase[];
 	/** Instructions every agent in the experiment receives before its task. */
 	instructions?: string;

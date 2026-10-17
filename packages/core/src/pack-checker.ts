@@ -35,7 +35,7 @@ export const PACK_CHECKS = {
 	"probe-arms": "every leak probe names declared arms",
 	"property-measure": "a code-decided property names an outcome-measure hook, and a judged one names none",
 	"scale": "a property's scale runs from a lower to a higher number",
-	"answer-heading": "a property with an answer heading belongs to a scenario that names a scored file",
+	"answer-heading": "a property with an answer heading belongs to a scenario that names a scored file or answerSource final",
 	"phases": "a scenario's phases begin with a new session, follow only earlier phases, take notes only in new sessions, hold at most one continuing branch at a point, and continue only on runtimes that can",
 	"trap-pairs": "every trap pair's positions are slots in exactly one phase's task, with two or more versions, and unique property ids",
 	"comparison-refs": "a comparison names a declared experiment and two of its arms",
@@ -123,7 +123,7 @@ function packShape(raw: unknown, out: Defect[]): raw is Pack {
 
 function experimentShape(raw: unknown, where: string, out: Defect[]): raw is Experiment {
 	const before = out.length;
-	if (!shape(raw, where, { id: "string", declaredStatus: oneOf(STATUSES), scenarios: "string[]", factors: "object", runsPerCell: positiveInt, phases: "array" }, { instructions: "string", preamble: "string", judgeInstructions: "string", judging: "object", notes: "string", variation: "object", default: "string" }, out)) return false;
+	if (!shape(raw, where, { id: "string", declaredStatus: oneOf(STATUSES), scenarios: "string[]", factors: "object", runsPerCell: positiveInt, phases: "array" }, { maxAttemptsPerCell: (v: unknown) => v === 1 || v === 2, instructions: "string", preamble: "string", judgeInstructions: "string", judging: "object", notes: "string", variation: "object", default: "string" }, out)) return false;
 	if (isObj(raw["variation"])) shape(raw["variation"], `${where}.variation`, { difference: (v: unknown) => typeof v === "number" && v > 0 && v <= 1, scope: oneOf(["pooled", "property"]) }, {}, out);
 	if (isObj(raw["judging"])) {
 		shape(raw["judging"], `${where}.judging`, {}, { judges: "string[]", guessGroups: "object", outcomesPerPrompt: positiveInt, chain: "object" }, out);
@@ -141,7 +141,7 @@ function experimentShape(raw: unknown, where: string, out: Defect[]): raw is Exp
 
 function scenarioShape(raw: unknown, where: string, out: Defect[]): raw is Scenario {
 	const before = out.length;
-	if (!shape(raw, where, { id: "string", tags: "string[]", fixture: fixtureShape, task: "string", properties: "array" }, { heldOut: "boolean", start: "string", scoring: "string", scoredFile: "string", notes: "string", phases: "array", trapPairs: "array" }, out)) return false;
+	if (!shape(raw, where, { id: "string", tags: "string[]", fixture: fixtureShape, task: "string", properties: "array" }, { heldOut: "boolean", start: "string", scoring: "string", scoredFile: "string", answerSource: oneOf(["scored-file", "final"]), notes: "string", phases: "array", trapPairs: "array" }, out)) return false;
 	const propOptional: Record<string, Shape> = { guidance: "string[]", measure: "string", rubric: "string", notes: "string", answerHeading: "string", question: "string", phase: "string", judgedWith: (v: unknown) => Array.isArray(v) && v.every((x) => x === "note" || x === "start") };
 	eachShape(raw["properties"], `${where}.properties`, { id: "string", type: oneOf(PROPERTY_TYPES), decidedBy: oneOf(DECIDERS), key: "string", scale: pair }, propOptional, out);
 	const noteShape = (v: unknown): boolean => isObj(v) && Object.keys(v).length === 1 && (typeof v["file"] === "string" || typeof v["generator"] === "string");
@@ -368,7 +368,7 @@ export async function checkPack(packDir: string, options: CheckOptions = {}): Pr
 				if (p.decidedBy === "code" && hooks.get(p.measure ?? "")?.kind !== "outcome-measure") defects.push({ check: "property-measure", where, message: "is decided by code but names no outcome-measure hook" });
 				if (p.decidedBy === "judge" && p.measure !== undefined) defects.push({ check: "property-measure", where, message: "is judged but names a measure hook" });
 				if (!(p.scale[0] < p.scale[1])) defects.push({ check: "scale", where, message: `scale ${JSON.stringify(p.scale)} does not rise` });
-				if (p.answerHeading !== undefined && scenario.scoredFile === undefined) defects.push({ check: "answer-heading", where, message: "names an answer heading, but its scenario names no scored file" });
+				if (p.answerHeading !== undefined && scenario.scoredFile === undefined && scenario.answerSource !== "final") defects.push({ check: "answer-heading", where, message: "names an answer heading, but its scenario names no scored file and answerSource is not final" });
 			}
 		}
 	}

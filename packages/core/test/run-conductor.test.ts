@@ -456,3 +456,32 @@ test("an outcome-measure hook receives outcome.snapshot and can read the phase's
 	}
 });
 
+test("maxAttemptsPerCell: 1 disables automatic cell retries on infrastructure failure, and answerSource: 'final' splits answers from the final message without scoredFile", async () => {
+	const { dir, work, records } = await setup((d) => {
+		editJson(path.join(d, "experiments", "orchard.json"), (j) => {
+			j.maxAttemptsPerCell = 1;
+			j.scenarios = ["scenarios/graft.json"];
+			j.factors.arms = ["bare"];
+		});
+		editJson(path.join(d, "scenarios", "graft.json"), (j) => {
+			j.answerSource = "final";
+			delete j.scoredFile;
+			j.properties = [
+				{ id: "Q1", type: "comprehension", decidedBy: "judge", key: "quince", rubric: "2 if quince", scale: [0, 2], answerHeading: "orchard.Q1", question: "What is the rootstock?" },
+			];
+		});
+	});
+	// opencode fails with provider error on attempt 1; codex replies with ### orchard.Q1\nquince in final message.
+	const oc = scripted("opencode", () => outcome("", { error: { cause: "provider", name: "APIError", message: "503" } }));
+	const cx = scripted("codex", () => outcome("### orchard.Q1\nThe rootstock is quince.\n"));
+	await conductRun(dir, { experiment: "orchard", adapters: { opencode: oc, codex: cx }, work, records });
+	const cells = cellsOf(records);
+	const ocCell = cells.find((c) => c.member === "p1")!;
+	const cxCell = cells.find((c) => c.member === "p2")!;
+	assert.equal(ocCell.attempts.length, 1, "maxAttemptsPerCell: 1 must stop after 1 attempt without retrying");
+	assert.equal(ocCell.valid, false);
+	assert.equal(cxCell.valid, true);
+	assert.equal(cxCell.scoredFile, null);
+	assert.equal(cxCell.answers["Q1"], "The rootstock is quince.");
+});
+

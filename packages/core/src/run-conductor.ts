@@ -55,6 +55,8 @@ export interface RunOptions {
 	/** The source revision variants are built from; each source's HEAD if not given. */
 	revision?: string;
 	runsPerCell?: number;
+	/** Maximum attempts per cell when an infrastructure or isolation failure triggers a re-run (1 for no retries, 2 by default). */
+	maxAttemptsPerCell?: 1 | 2;
 	timeLimitSeconds?: number;
 	judgeTimeLimitSeconds?: number;
 	parallel?: number;
@@ -373,7 +375,8 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 				lastPhases = [];
 			}
 			attempts.push(a);
-			if (a.validity.valid || !RERUN[a.validity.cause] || attempt >= 2) break;
+			const maxAttempts = opts.maxAttemptsPerCell ?? exp.experiment.maxAttemptsPerCell ?? 2;
+			if (a.validity.valid || !RERUN[a.validity.cause] || attempt >= maxAttempts) break;
 		}
 		const last = attempts[attempts.length - 1]!;
 		const marker = loaded.pack.masks.selfExplanationMarker;
@@ -402,7 +405,9 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 		for (const pr of propertiesOf(c.scenario).filter((x) => x.answerHeading !== undefined)) {
 			const pp = propertyPhases[pr.id]!;
 			if (pp.state !== "valid") continue;
-			answers[pr.id] = splitAnswers(phaseOutcomes[pp.phase]?.scored ?? "", [pr.answerHeading!], marker).get(pr.answerHeading!) ?? null;
+			const po = phaseOutcomes[pp.phase];
+			const sourceText = c.scenario.answerSource === "final" ? (po?.final ?? "") : (po?.scored ?? "");
+			answers[pr.id] = splitAnswers(sourceText, [pr.answerHeading!], marker).get(pr.answerHeading!) ?? null;
 		}
 		// Restated guidance: every final message and every note a session was given, in the last attempt,
 		// against every file delivered to the arm as an instruction or a folder file.
@@ -654,7 +659,8 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 					lastPhases = [];
 				}
 				attempts.push(a);
-				if (a.validity.valid || !RERUN[a.validity.cause] || attempt >= 2) break;
+				const maxAttempts = exp.experiment.maxAttemptsPerCell ?? 2;
+				if (a.validity.valid || !RERUN[a.validity.cause] || attempt >= maxAttempts) break;
 			}
 			const last = attempts[attempts.length - 1]!;
 			const marker = loaded.pack.masks.selfExplanationMarker;
@@ -683,7 +689,9 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 			for (const pr of propertiesOf(c.scenario).filter((x) => x.answerHeading !== undefined)) {
 				const pp = propertyPhases[pr.id]!;
 				if (pp.state !== "valid") continue;
-				answers[pr.id] = splitAnswers(phaseOutcomes[pp.phase]?.scored ?? "", [pr.answerHeading!], marker).get(pr.answerHeading!) ?? null;
+				const po = phaseOutcomes[pp.phase];
+				const sourceText = c.scenario.answerSource === "final" ? (po?.final ?? "") : (po?.scored ?? "");
+				answers[pr.id] = splitAnswers(sourceText, [pr.answerHeading!], marker).get(pr.answerHeading!) ?? null;
 			}
 			const restated: RestatedFlag[] = [];
 			const delivered = [...c.arm.instructions, ...c.arm.folderFiles].map((f) => ({ file: f.file, path: f.path, text: fs.readFileSync(f.path, "utf8") }));
