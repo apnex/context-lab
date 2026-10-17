@@ -49,7 +49,8 @@ export function sandboxMounts(spec: SandboxSpec): string[] {
 	];
 	for (const e of ETC) if (fs.existsSync(e)) a.push("--ro-bind", e, e);
 	a.push("--tmpfs", "/home");
-	a.push("--ro-bind", nodeBinary(), "/usr/bin/node");
+	const nb = nodeBinary();
+	a.push("--ro-bind", nb, nb);
 	a.push("--ro-bind", spec.install, spec.install);
 	for (const w of spec.writable) a.push("--bind", w, w);
 	for (const r of spec.readOnly) a.push("--ro-bind", r, r);

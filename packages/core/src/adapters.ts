@@ -141,6 +141,10 @@ export interface OpencodeOptions {
 }
 
 const OPENCODE_TOOLS = ["bash", "edit", "write", "read", "glob", "grep", "list", "patch", "webfetch", "websearch", "codesearch", "task", "todowrite", "todoread", "skill", "question", "lsp"];
+const sandboxPath = (): string => {
+	const dir = path.dirname(fs.realpathSync(process.execPath));
+	return ["/usr/bin", "/bin"].includes(dir) ? "/usr/bin:/bin" : `/usr/bin:/bin:${dir}`;
+};
 
 export function which(name: string, env: NodeJS.ProcessEnv): string {
 	for (const d of (env["PATH"] ?? "").split(":")) {
@@ -228,7 +232,7 @@ export function opencodeAdapter(opts: OpencodeOptions = {}): Adapter {
 			} else args.push("--", inv.prompt);
 			const secrets = p.credentialVars.map((v) => env[v] ?? "").filter(Boolean);
 			const runEnv: Record<string, string> = {
-				PATH: "/usr/bin:/bin", PWD: inv.workspace, HOME: home,
+				PATH: sandboxPath(), PWD: inv.workspace, HOME: home,
 				XDG_CONFIG_HOME: xdg, XDG_DATA_HOME: path.join(inv.work, "data"), XDG_STATE_HOME: path.join(inv.work, "state"), XDG_CACHE_HOME: path.join(inv.work, "cache"),
 				OPENCODE_DISABLE_CLAUDE_CODE: "1",
 			};
@@ -357,7 +361,7 @@ export function codexAdapter(opts: CodexOptions = {}): Adapter {
 			const secrets = authSecrets(auth);
 			const r = await runSandboxed({
 				install: vendor, writable: inv.tools === "off" ? [inv.work] : [inv.work, inv.workspace], readOnly: inv.tools === "off" ? [] : inv.arm.onRequest.map((o) => o.path), home, cwd: workspace,
-				command: [binary, ...args], env: { PATH: "/usr/bin:/bin", PWD: workspace, HOME: home, CODEX_HOME: codexHome }, stdin: inv.mode === "stdin" ? inv.prompt : null, timeLimitSeconds: inv.timeLimitSeconds,
+				command: [binary, ...args], env: { PATH: sandboxPath(), PWD: workspace, HOME: home, CODEX_HOME: codexHome }, stdin: inv.mode === "stdin" ? inv.prompt : null, timeLimitSeconds: inv.timeLimitSeconds,
 			});
 			// The login copy and Codex's own databases are removed, so no run record carries them.
 			fs.rmSync(path.join(codexHome, "auth.json"), { force: true });

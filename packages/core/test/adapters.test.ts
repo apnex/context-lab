@@ -394,7 +394,7 @@ test("adapters: multiple context-lab-canary.md instructions from multiple varian
 	}
 });
 
-test("runtime-sandbox: node is bound at /usr/bin/node on PATH inside the sandbox without leaking the operator's home (B15)", async () => {
+test("runtime-sandbox: node is bound on PATH inside the sandbox without leaking the operator's home (B15)", async () => {
 	const e = setup();
 	fs.writeFileSync(path.join(e.workspace, "check-node.js"), "console.log(21 * 2);\n");
 	const bin = path.join(e.dir, "stub-node", "opencode");

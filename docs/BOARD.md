@@ -66,7 +66,7 @@ It carries mission-kit's adherence suite and one comprehension suite as single-p
 | M4.1 | Failure injection for the validity classifier (`B4`, closed) | `B4` | M1.1 |
 | M4.2 | Characterise content filters and rate limits per provider (`B7`, closed) | `B7` | M1.1 |
 | M4.3 | Arm-guess blinding test reported per property, and a repeat of a recorded experiment (`B5`, closed; B12 closed in M2.3) | `B5` | M1.1 |
-| M4.4 | Raise opencode reply token cap for large judge batches (`B14`, closed) and bind `node` at `/usr/bin/node` inside the runtime sandbox (`B15`, closed) | `B14`, `B15` | M1.1 |
+| M4.4 | Raise opencode reply token cap for large judge batches (`B14`, closed) and bind `node` on `PATH` inside the runtime sandbox (`B15`, closed) | `B14`, `B15` | M1.1 |
 
 ---
 
