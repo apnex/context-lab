@@ -1,7 +1,7 @@
 # Delta-3 - people, chains, on-demand review, and the second user - a vertical slice
 
 ```yaml
-status:     ratified (docs/DECISIONS.md 0026) - revision 2; stage 3 open
+status:     ratified (docs/DECISIONS.md 0026) - revision 2; stage 4 open
 selected:   docs/DECISIONS.md 0025, board items M3.1, M3.2
 from-state: Delta-2's to-state (0024): multi-phase episodes, diagnostic measures, threshold deriver, comparator, run resumption
 to-state:   docs/ARCHITECTURE-TARGET.md (0006, reopened under section 1 for 0025/B18), all 22 components of section 5
@@ -166,7 +166,9 @@ Verification evaluated G4, G5 and G6 PASS; all three minor findings from verific
 **Stage 3 (`B18`).**\
 Reopened and updated `docs/ARCHITECTURE-TARGET.md` sections 2, 3, 5, 6 and 9 under section 1's triggers (`0025`, `0026`, `B18`, **Review panel** as the 22nd component); built `packages/core/src/review-panel.ts` (`selectReviewMembers`, `parseReviewFindings`, `runReview`, `reviewMarkdown`) and `context-lab review` in `cli.ts`.\
 Dogfooded live across all four model families (`c` Claude Opus 5.5, `a` Gemini 4 Argon, `x` Grok 4.20, `o` GPT) with `--verify` on `review-panel.ts` and `DELTA-3.md` (`mission-kit/docs/evals/runs/context-lab/2026-10-16-review-g8`, 13 findings across all 4 families), and applied the improvements the 4-family review surfaced (collision-free duplicate-id suffixing, deterministic sorting of concurrent verifier verdicts, fenced-block priority over bracket fallback, and aligning Section 1's wording with all-other-family verification).\
-318 tests; 4 stage-3 mutants applied and killed.
+318 tests; 4 stage-3 mutants applied and killed.\
+Verification evaluated G7 and G8 PASS; both minor findings from verification (removing default `~/context-lab-work/review-*` scratch directories in `finally` and listing `review` flags in `cli.ts`'s `usage` string) are fixed.\
+Stage 3 is complete.
 
 ---
 

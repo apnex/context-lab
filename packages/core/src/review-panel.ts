@@ -398,5 +398,6 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 		return packet;
 	} finally {
 		if (fs.existsSync(roFilesDir)) makeWritable(roFilesDir);
+		if (opts.work === undefined) fs.rmSync(workDir, { recursive: true, force: true });
 	}
 }
