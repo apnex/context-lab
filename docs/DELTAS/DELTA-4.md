@@ -1,7 +1,7 @@
 # Delta-4 - hardening: failure injection, provider fault characterisation, and per-property arm-guess blinding - a vertical slice
 
 ```yaml
-status:     ratified (docs/DECISIONS.md 0028) - revision 2; stage 2 open
+status:     complete - every exit criterion evaluated green by an agent that built none of the code (0029)
 selected:   docs/DECISIONS.md 0027, board items M4.1, M4.2, M4.3
 from-state: Delta-3's to-state (0027): all 22 components of docs/ARCHITECTURE-TARGET.md section 5 built, mission-kit and zorg packs running on the core
 to-state:   docs/ARCHITECTURE-TARGET.md (0006, 0026), section 4 tensions for A8 and A9 and section 9 rows 3, 4 and 6 discharged
@@ -131,7 +131,8 @@ Built `packages/core/test/failure-injection.test.ts` driving `conductRun` throug
 **Stage 2 (`M4.2`, `M4.3`).**\
 Built `classifyFaultKind` and `faultProfile` in `packages/core/src/measures.ts`, `Result.faults` and `Result.guesses.byScenario` / `byProperty` (with `notBlind` and the `RESULT.md` limit warning) in `packages/core/src/tally.ts`, `docs/probes/2026-10-17-provider-faults.json` across all 21 recorded live run directories (14 completed runs / 1,625 cells and 7 stopped runs / 239 cells; 1,864 cells, 1,890 attempts, 26 retried cells, 12 excluded cells, 38 failed attempts: 26 `provider-5xx` and 10 `rate-limit` on `o`/Codex in `2026-10-14-053958-aa`, and 2 `provider-other` on `a`/Argon in `2026-10-13-222555-handoff` before the OpenAI-compatible route fix), and `packages/core/test/hardening.test.ts` (including re-tally checks on `2026-10-11-092325-adherence` and `2026-10-14-112229-adherence`); updated `docs/ARCHITECTURE-TARGET.md`, closed `B4`, `B5`, and `B7` in `docs/BACKLOG.md`, and marked milestone `M4` `DONE` in `docs/BOARD.md`.\
 322 tests.\
-Verification evaluated H1, H2, H3 and H4 PASS (17 of 17 mutants killed, 0 defects).
+Verification evaluated H1, H2, H3 and H4 PASS (17 of 17 mutants killed, 0 defects).\
+Sealed complete by the director (`0029`).
 
 ---
 

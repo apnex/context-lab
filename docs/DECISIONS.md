@@ -48,6 +48,7 @@ They are not copied here; this register starts at the vision.
 | 0026 | 2026-10-16 | Delta-3 is ratified, revision 2, including the reopening of `docs/ARCHITECTURE-TARGET.md` for `B18` (Review panel as the 22nd component) and the explicit retirement disposition in G11. | director | ratified | amends 0006, 0025 |
 | 0027 | 2026-10-17 | Delta-3 is complete: every exit criterion (G1 to G12) was evaluated green by an agent that built none of the code, milestone M3 is done (`B1`, `B11`, `B18` closed), and milestone M4 (Hardening: `M4.1` `B4`, `M4.2` `B7`, `M4.3` `B5`) is selected next as Delta-4. | director | ratified | - |
 | 0028 | 2026-10-17 | Delta-4 is ratified, revision 2: end-to-end failure injection across all 9 fault modes (`H1`), provider fault characterisation in `Result.faults` and `docs/probes/2026-10-17-provider-faults.json` (`H2`), per-scenario and per-property arm-guess blinding (`notBlind` when `all >= 6 && rate >= 0.75 && rate > baseRate + 0.25`, `H3`), and closing `B4`, `B5`, `B7` and milestone M4 (`H4`). | director | ratified | - |
+| 0029 | 2026-10-17 | Delta-4 is complete: every exit criterion (H1 to H4) was evaluated green by an agent that built none of the code, closing `B4`, `B5` and `B7` and completing milestone M4 (all four planned milestones M1-M4 on context-lab's board are done). | director | ratified | - |
 
 ---
 
@@ -431,3 +432,16 @@ Lowering the `notBlind` margin from `rate > baseRate + 0.25` to `rate > baseRate
 
 **Source.**\
 `[V, director ruling 2026-10-17]`
+
+### 0029
+
+**Ruling.**\
+Delta-4 reached its to-state: end-to-end failure injection across all 9 fault modes (`H1`), provider fault characterisation per member, family and arm in `Result.faults` and across all 21 live run directories in `docs/probes/2026-10-17-provider-faults.json` (`H2`), per-scenario and per-property arm-guess blinding in `Result.guesses` (`H3`), and closure of `B4`, `B5`, `B7` and milestone M4 (`H4`).\
+Every exit criterion (H1 to H4) was evaluated green by an agent that built none of the code.\
+All four milestones (`M1`-`M4`) on context-lab's board are complete; work moves next to `mission-kit`'s fired S1 mandate rows `B81` and `B82`.
+
+**Disclosed.**\
+The director replied "continue" to a list whose first pick was this option, and it is recorded as that pick.
+
+**Source.**\
+`[V, director ruling 2026-10-17; docs/DELTAS/DELTA-4.md Record, closing evaluation]`

@@ -1,7 +1,7 @@
 # context-lab - board
 
 The live, triaged set of legal next moves, for the director to select from.\
-M1 (`docs/DELTAS/DELTA-1.md`, `0017`), M2 (`docs/DELTAS/DELTA-2.md`, `0024`), M3 (`docs/DELTAS/DELTA-3.md`, `0027`) and M4 (`docs/DELTAS/DELTA-4.md`, `0028`) are done.\
+M1 (`docs/DELTAS/DELTA-1.md`, `0017`), M2 (`docs/DELTAS/DELTA-2.md`, `0024`), M3 (`docs/DELTAS/DELTA-3.md`, `0027`) and M4 (`docs/DELTAS/DELTA-4.md`, `0029`) are done.\
 The next move is for the director to select.
 
 ---
