@@ -110,7 +110,8 @@ export async function buildVariant(loaded: LoadedPack, variantId: string, revisi
 		// The hook writes into a scratch folder; its output is then copied in with every link
 		// resolved inside it, so a link the hook made cannot carry a read past the hook's bounds.
 		const hookOut = fs.mkdtempSync(`${path.resolve(outDir)}.hook-`);
-		const r = await runHook(loaded.dir, hook, { variant: variantId, from: staging, to: hookOut }, { readable: [staging], writable: hookOut });
+		const sourcePaths = loaded.pack.sources.map((s) => path.resolve(loaded.dir, s.path)).filter((p) => fs.existsSync(p));
+		const r = await runHook(loaded.dir, hook, { variant: variantId, from: staging, to: hookOut }, { readable: [staging, ...sourcePaths], writable: hookOut });
 		fs.rmSync(staging, { recursive: true, force: true });
 		if (!r.ok) {
 			fs.rmSync(hookOut, { recursive: true, force: true });

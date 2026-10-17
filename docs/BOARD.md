@@ -1,7 +1,8 @@
 # context-lab - board
 
 The live, triaged set of legal next moves, for the director to select from.\
-M1 (`docs/DELTAS/DELTA-1.md`, `0017`) and M2 (`docs/DELTAS/DELTA-2.md`, `0024`) are done; M3 (`docs/DELTAS/DELTA-3.md`, `0025`) is active.
+M1 (`docs/DELTAS/DELTA-1.md`, `0017`), M2 (`docs/DELTAS/DELTA-2.md`, `0024`) and M3 (`docs/DELTAS/DELTA-3.md`, `0026`) are done.\
+The next move is for the director to select.
 
 ---
 
@@ -24,10 +25,7 @@ Order on the higher: a mandate breach ranks with S2 and a signal with S4; ties g
 <!-- BEGIN GENERATED: ledger. Run tools/check-board.mjs --write; do not edit by hand. -->
 | Row | Impact | Principle | Planned in | Finding |
 |---|---|---|---|---|
-| `B1` | S3 | A3 mandate | M3.1 | The duty this component exists for is implemented twice, outside it, and diverging. |
-| `B11` | S3 | A3 mandate | M3.2 | Neither first user has a project pack. |
 | `B14` | S3 | A8 signal | held | Judges' replies to large batches are cut off, leaving values incomplete. |
-| `B18` | S3 | A3 signal | M3.1 | context-lab orchestrates experiments only; the director wants it to run several models on demand. |
 | `B4` | S4 | A9 signal | M4.1 | No failure injection exercises the validity classifier. |
 | `B5` | S4 | A8 signal | M4.3 | Blinding to arm was not achieved on one trap. |
 | `B7` | S4 | A7 signal | M4.2 | Content filters and rate limits are uncharacterised. |
@@ -59,12 +57,12 @@ It carries mission-kit's adherence suite and one comprehension suite as single-p
 | M2.2 | Phase driver with branches and notes; the note-generator hook | `B1` | M2.1 |
 | M2.3 | Threshold deriver and comparator, with an A/A run and a held-out A/A check; run resumption for runs stopped during execution (`B12`, `B16`, `B19`, closed) | `B1`, `B12`, `B16`, `B19` | M1.1 |
 
-## M3 - People, chains, and the second user `ACTIVE`
+## M3 - People, chains, and the second user `DONE`
 
 | Item | Move | Cites | Depends on |
 |---|---|---|---|
-| M3.1 | Pair chooser and human panel; classify-then-verify judging chains; candidate writer; on-demand multi-model review orchestration (`B18`) | `B1`, `B18` | M1.1 |
-| M3.2 | zorg's pack, run on the core and compared with its last results; both projects retire their copies | `B11` | M3.1, M2.2 |
+| M3.1 | Pair chooser and human panel; classify-then-verify judging chains; candidate writer; on-demand multi-model review orchestration (`B1`, `B18`, closed) | `B1`, `B18` | M1.1 |
+| M3.2 | zorg's pack, run on the core and compared with its last results; both projects retire their copies (`B11`, closed) | `B11` | M3.1, M2.2 |
 
 ## M4 - Hardening `OPEN`
 

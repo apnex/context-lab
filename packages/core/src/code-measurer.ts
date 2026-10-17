@@ -5,6 +5,8 @@
 // the score the hook returns for that property, with the time it was taken. A hook that fails, or
 // returns no valid score for a property, leaves that property incomplete; nothing else is affected.
 
+import path from "node:path";
+import fs from "node:fs";
 import { runHook, type HookResult } from "./hook-runner.js";
 import type { LoadedPack, Scenario } from "./pack-schema.js";
 
@@ -19,12 +21,13 @@ export type CodeScore = { property: string; value: number; measuredAt: string } 
 export async function measure(loaded: LoadedPack, scenario: Scenario, outcome: MeasuredOutcome, now: () => Date = () => new Date()): Promise<CodeScore[]> {
 	const byHook = new Map<string, string[]>();
 	for (const p of scenario.properties) if (p.decidedBy === "code" && p.measure !== undefined) byHook.set(p.measure, [...(byHook.get(p.measure) ?? []), p.id]);
+	const readable = loaded.pack.sources.map((s) => path.resolve(loaded.dir, s.path)).filter((p) => fs.existsSync(p));
 	const out: CodeScore[] = [];
 	for (const [hookId, props] of byHook) {
 		const hook = loaded.pack.hooks.find((h) => h.id === hookId);
 		const r: HookResult = hook === undefined
 			? { ok: false, reason: "exit", detail: `no hook ${hookId}`, seconds: 0 }
-			: await runHook(loaded.dir, hook, { scenario: scenario.id, properties: props, outcome });
+			: await runHook(loaded.dir, hook, { scenario: scenario.id, properties: props, outcome }, { readable });
 		const at = now().toISOString();
 		const scores = r.ok && typeof r.output === "object" && r.output !== null ? (r.output as { scores?: Record<string, unknown> }).scores : undefined;
 		for (const id of props) {

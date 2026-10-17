@@ -170,6 +170,13 @@ Dogfooded live across all four model families (`c` Claude Opus 5.5, `a` Gemini 4
 Verification evaluated G7 and G8 PASS; both minor findings from verification (removing default `~/context-lab-work/review-*` scratch directories in `finally` and listing `review` flags in `cli.ts`'s `usage` string) are fixed.\
 Stage 3 is complete.
 
+**Stage 4 (`M3.2`).**\
+Built `zorg`'s project pack in `zorg/evals/context-lab/` (`pack.json`, `experiments/census.json`, 13 brief scenarios including held-out `agent-memory` and `feature-flags`, `hooks/census-corpus.mjs`, and `hooks/composition-check.mjs`), extended `variant-builder.ts` and `code-measurer.ts` so pack-declared source paths are bound read-only inside hook sandboxes, and built `readZorgLegacyRun` in `packages/core/src/judging-chain.ts`.\
+Parity check (`G9`, in `packages/core/test/chain-candidates.test.ts`): `readZorgLegacyRun` + `countChain` on `/home/apnex/taceng/zorg-eval-runs/runs/l-02` compared 289 values (`readers`, `briefs`, `heldOut`, `families`, `namedOnly`, `meets`, `rejected`, `unverified`, `unclassified`, `news.length`) across all 26 findings (`L1`-`L26`) against `l-02/FINDINGS-COUNT.json` with 0 mismatches.\
+Live run (`G10`, `zorg/evals/runs/context-lab/2026-10-17-021542-census`): ran suite `census-zorg` across all 5 members (4 model families: `c`, `a`, `f`, `x`, `o`), completing through `validated`, `recorded`, `built`, `probed` (5/5 agent probes, 4/4 judge probes passed), `executed` (5/5 valid cells), `measured` (`composition-check` hook running `tools/check-capabilities.mjs`), `blinded`, `judged` (classify-then-verify chain across 4 families, 13 finding rows), and `tallied`.\
+Retired (`G11`, `G12`): deleted `mission-kit/tools/adherence.mjs`, `mission-kit/tools/eval-human.mjs`, `mission-kit/tools/eval-human.test.sh`, `zorg/evals/tools/run-agents.mjs`, `zorg/evals/tools/classify-findings.mjs`, and `zorg/evals/tools/count-findings.mjs`; updated `mission-kit/tools/README.md`, `mission-kit/docs/ARCHITECTURE.md`, and `zorg/evals/composition-census.md`; closed `B77` in `mission-kit/docs/BACKLOG.md` and `B1`, `B11`, `B18` in `context-lab/docs/BACKLOG.md`.\
+319 tests.
+
 ---
 
 ## Adversarial review

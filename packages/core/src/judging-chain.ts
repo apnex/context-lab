@@ -310,6 +310,123 @@ export interface CountChainInput {
 	heldOutScenarios: Set<string>;
 }
 
+export interface LegacyZorgRunOptions {
+	runDir: string;
+	findings: ChainFinding[];
+	heldOutScenarios: string[];
+	families?: Record<string, string>;
+	threshold?: ChainThreshold;
+}
+
+/**
+ * Converts a recorded zorg composition-census run (such as `l-02`, with `sealed/manifest.json`,
+ * `classify/classify-*.jsonl`, `verify/verify-*.items.json` + `.jsonl`, and `AGGREGATE.json`) into
+ * a `CountChainInput` by format conversion only, with no arithmetic (Delta-3 stage 4, G9).
+ */
+export function readZorgLegacyRun(o: LegacyZorgRunOptions): CountChainInput {
+	const families = o.families ?? { c: "claude", g: "gemini", o: "gpt" };
+	const threshold = o.threshold ?? { minScenarios: 3, minHeldOut: 1, minFamilies: 2 };
+	const manifest = JSON.parse(fs.readFileSync(path.join(o.runDir, "sealed", "manifest.json"), "utf8")) as {
+		prompts: { pid: string; label: string; group: string }[];
+	};
+	const briefOf = (group: string): string => {
+		const id = group.replace(/^census-/, "");
+		return ({ zorg: "zorg", fleet: "fleet-config", tasks: "task-claims" } as Record<string, string>)[id] ?? id;
+	};
+	const byPid = new Map(manifest.prompts.map((p) => [p.pid, p]));
+
+	const verified: VerifiedVerdict[] = [];
+	const verifyDir = path.join(o.runDir, "verify");
+	if (fs.existsSync(verifyDir)) {
+		for (const f of fs.readdirSync(verifyDir).filter((x) => /^verify-.*\.items\.json$/.test(x)).sort()) {
+			const items = JSON.parse(fs.readFileSync(path.join(verifyDir, f), "utf8")) as { item: string; pid: string; id: string; quote: string; suffix: string }[];
+			const outFile = path.join(verifyDir, f.replace(".items.json", ".jsonl"));
+			const byItem = new Map<string, { supports: boolean; reason: string }>();
+			if (fs.existsSync(outFile)) {
+				for (const line of fs.readFileSync(outFile, "utf8").split("\n")) {
+					try {
+						const v = JSON.parse(line) as { item?: unknown; supports?: unknown; reason?: unknown };
+						if (typeof v.item === "string" && typeof v.supports === "boolean") {
+							byItem.set(v.item, { supports: v.supports, reason: typeof v.reason === "string" ? v.reason : "" });
+						}
+					} catch {
+						// ignore non-JSON lines
+					}
+				}
+			}
+			for (const it of items) {
+				const v = byItem.get(it.item);
+				if (v) {
+					verified.push({
+						unit: "", pid: it.pid, finding: it.id, quote: it.quote,
+						verifier: f, verifierFamily: "", supports: v.supports, reason: v.reason,
+					});
+				}
+			}
+		}
+	}
+
+	const classified: ClassifiedHit[] = [];
+	const unclassifiedSet = new Set(manifest.prompts.map((p) => p.pid));
+	const news: UnlistedItem[] = [];
+	const classifyDir = path.join(o.runDir, "classify");
+	for (const f of fs.readdirSync(classifyDir).filter((x) => /^classify-[a-z]\d+\.jsonl$/.test(x)).sort()) {
+		for (const line of fs.readFileSync(path.join(classifyDir, f), "utf8").split("\n")) {
+			let parsed: { pid?: unknown; findings?: Record<string, unknown>; new?: unknown[] };
+			try { parsed = JSON.parse(line) as typeof parsed; } catch { continue; }
+			if (typeof parsed.pid !== "string" || !byPid.has(parsed.pid)) continue;
+			unclassifiedSet.delete(parsed.pid);
+			const promptMeta = byPid.get(parsed.pid)!;
+			const suffix = promptMeta.label.split("-").pop() ?? "";
+			const readerFamily = families[suffix] ?? suffix;
+			const scenario = briefOf(promptMeta.group);
+			for (const [fid, quote] of Object.entries(parsed.findings ?? {})) {
+				if (typeof quote !== "string") continue;
+				classified.push({
+					unit: "", pid: parsed.pid, scenario, readerFamily,
+					classifier: f, classifierFamily: "", finding: fid, quote,
+				});
+			}
+			for (const n of parsed.new ?? []) {
+				if (typeof n === "string") news.push({ pid: parsed.pid, family: readerFamily, scenario, text: n });
+			}
+		}
+	}
+
+	const cells: CountChainInput["cells"] = [];
+	const aggFile = path.join(o.runDir, "AGGREGATE.json");
+	if (fs.existsSync(aggFile)) {
+		const agg = JSON.parse(fs.readFileSync(aggFile, "utf8")) as {
+			rows: { pid: string; family: string; brief: string; block: string; census: Record<string, { unused: string[] }> }[];
+		};
+		for (const r of agg.rows) {
+			const codeScores: CellRecord["codeScores"] = [];
+			if (r.block === "all used" || r.block === "all unused") {
+				codeScores.push({ property: "L1", value: 1, measuredAt: "" });
+			}
+			if (r.census["agp"]?.unused.includes("request-correlation")) {
+				codeScores.push({ property: "L8", value: 1, measuredAt: "" });
+			}
+			cells.push({ cell: r.pid, scenario: r.brief, member: r.family, codeScores });
+		}
+	}
+
+	return {
+		record: {
+			findings: o.findings,
+			threshold,
+			classified,
+			codeRejected: [],
+			verified,
+			unclassified: [...unclassifiedSet],
+			news,
+		},
+		cells,
+		members: new Map(Object.values(families).map((f) => [f, f])),
+		heldOutScenarios: new Set(o.heldOutScenarios),
+	};
+}
+
 /**
  * Joins classified evidence, stage-2 verifier verdicts, and code-measured computed findings, and
  * computes per-finding reader, scenario (`brief`), held-out, and family counts against the

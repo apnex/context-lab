@@ -6,7 +6,7 @@ import path from "node:path";
 import { test } from "node:test";
 import {
 	CANARY_QUESTION, assignChainJudges, checkPack, conductRun, countChain, evaluateCandidates,
-	quoteInOutcome, runJudgingChain, writeRunCandidates,
+	quoteInOutcome, readZorgLegacyRun, runJudgingChain, writeRunCandidates,
 	type Adapter, type ChainRecord, type Invocation, type Member, type Outcome, type Result, type Scenario, type Unit,
 } from "../src/index.js";
 import { commitAll, copyPack, editJson, judgeReply, scratch } from "./helpers.js";
@@ -264,4 +264,88 @@ test("G6: evaluateCandidates and writeRunCandidates emit candidates for all four
 	const updatedRun = JSON.parse(fs.readFileSync(path.join(rd, "run.json"), "utf8"));
 	assert.ok(updatedRun.states.some((st: { state: string }) => st.state === "candidates-written"));
 	assert.deepEqual(fs.readdirSync(dir).sort(), packBefore, "writeRunCandidates must not add files to the pack directory");
+});
+
+test("G9: readZorgLegacyRun converts a legacy zorg census folder and countChain reproduces exact counts; when l-02 is present on disk, all 26 findings match FINDINGS-COUNT.json", async () => {
+	// 1. Self-contained synthetic legacy zorg folder (passes even when sibling repos are absent, per E7).
+	const synDir = scratch();
+	fs.mkdirSync(path.join(synDir, "sealed"), { recursive: true });
+	fs.mkdirSync(path.join(synDir, "classify"), { recursive: true });
+	fs.mkdirSync(path.join(synDir, "verify"), { recursive: true });
+	fs.writeFileSync(path.join(synDir, "sealed", "manifest.json"), JSON.stringify({
+		prompts: [
+			{ pid: "r-1", label: "V-c", group: "census-zorg" },
+			{ pid: "r-2", label: "V-g", group: "census-fleet" },
+			{ pid: "r-3", label: "V-o", group: "census-feature-flags" },
+		],
+	}));
+	fs.writeFileSync(path.join(synDir, "classify", "classify-c1.jsonl"), JSON.stringify({ pid: "r-1", findings: { L2: "q1" }, new: ["obs1"] }) + "\n");
+	fs.writeFileSync(path.join(synDir, "classify", "classify-g1.jsonl"), JSON.stringify({ pid: "r-2", findings: { L2: "q2" }, new: [] }) + "\n");
+	fs.writeFileSync(path.join(synDir, "classify", "classify-o1.jsonl"), JSON.stringify({ pid: "r-3", findings: { L2: "q3" }, new: [] }) + "\n");
+	fs.writeFileSync(path.join(synDir, "verify", "verify-c1.items.json"), JSON.stringify([
+		{ item: "v1", pid: "r-1", id: "L2", quote: "q1", suffix: "c" },
+		{ item: "v2", pid: "r-2", id: "L2", quote: "q2", suffix: "g" },
+		{ item: "v3", pid: "r-3", id: "L2", quote: "q3", suffix: "o" },
+	]));
+	fs.writeFileSync(path.join(synDir, "verify", "verify-c1.jsonl"), [
+		JSON.stringify({ item: "v1", supports: true, reason: "ok" }),
+		JSON.stringify({ item: "v2", supports: true, reason: "ok" }),
+		JSON.stringify({ item: "v3", supports: true, reason: "ok" }),
+	].join("\n") + "\n");
+	fs.writeFileSync(path.join(synDir, "AGGREGATE.json"), JSON.stringify({
+		rows: [
+			{ pid: "r-1", family: "claude", brief: "zorg", block: "all used", census: { agp: { unused: ["request-correlation"] } } },
+			{ pid: "r-2", family: "gemini", brief: "fleet-config", block: "all unused", census: { agp: { unused: ["request-correlation"] } } },
+			{ pid: "r-3", family: "gpt", brief: "feature-flags", block: "all used", census: { agp: { unused: ["request-correlation"] } } },
+		],
+	}));
+	const synInput = readZorgLegacyRun({
+		runDir: synDir,
+		findings: [
+			{ id: "L1", kind: "computed", statement: "s1", countsWhen: "c1" },
+			{ id: "L2", kind: "named", statement: "s2", countsWhen: "c2" },
+			{ id: "L8", kind: "named or computed", statement: "s8", countsWhen: "c8" },
+		],
+		heldOutScenarios: ["feature-flags"],
+	});
+	const synCount = countChain(synInput);
+	assert.equal(synCount.rows.length, 3);
+	assert.ok(synCount.rows.every((r) => r.meets === true && r.readers === 3));
+
+	// 2. Real l-02 parity check across all 26 findings when zorg-eval-runs/runs/l-02 is present on disk.
+	const l02Dir = "/home/apnex/taceng/zorg-eval-runs/runs/l-02";
+	const zorgFindingsFile = "/home/apnex/taceng/zorg/evals/census-findings.json";
+	if (fs.existsSync(l02Dir) && fs.existsSync(zorgFindingsFile)) {
+		const zorgPack = "/home/apnex/taceng/zorg/evals/context-lab";
+		if (fs.existsSync(zorgPack)) {
+			const chk = await checkPack(zorgPack);
+			assert.equal(chk.ok, true, chk.ok ? "" : JSON.stringify(chk.defects));
+		}
+		const findings = (JSON.parse(fs.readFileSync(zorgFindingsFile, "utf8")) as { findings: ChainRecord["findings"] }).findings;
+		const want = JSON.parse(fs.readFileSync(path.join(l02Dir, "FINDINGS-COUNT.json"), "utf8")) as {
+			unclassified: string[];
+			news: unknown[];
+			rows: { id: string; readers: number; briefs: string[]; heldOut: string[]; families: string[]; namedOnly: { readers: number; briefs: string[]; heldOut: string[]; families: string[] }; meets: boolean; rejected: number; unverified: number }[];
+		};
+		const got = countChain(readZorgLegacyRun({ runDir: l02Dir, findings, heldOutScenarios: ["agent-memory", "feature-flags"] }));
+		assert.deepEqual(got.unclassified, want.unclassified);
+		assert.equal(got.news.length, want.news.length);
+		assert.equal(got.rows.length, want.rows.length);
+		for (const w of want.rows) {
+			const g = got.rows.find((r) => r.id === w.id)!;
+			assert.ok(g, `missing row ${w.id}`);
+			assert.equal(g.readers, w.readers, `${w.id}.readers`);
+			assert.deepEqual(g.briefs, w.briefs, `${w.id}.briefs`);
+			assert.deepEqual(g.heldOut, w.heldOut, `${w.id}.heldOut`);
+			assert.deepEqual(g.families, w.families, `${w.id}.families`);
+			assert.deepEqual(
+				{ readers: g.namedOnly.readers, briefs: g.namedOnly.briefs, heldOut: g.namedOnly.heldOut, families: g.namedOnly.families },
+				w.namedOnly,
+				`${w.id}.namedOnly`,
+			);
+			assert.equal(g.meets, w.meets, `${w.id}.meets`);
+			assert.equal(g.rejected, w.rejected, `${w.id}.rejected`);
+			assert.equal(g.unverified, w.unverified, `${w.id}.unverified`);
+		}
+	}
 });
