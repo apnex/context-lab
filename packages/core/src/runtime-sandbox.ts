@@ -12,6 +12,7 @@ import fs from "node:fs";
 import type { Line } from "./outcome.js";
 
 const ETC = ["/etc/resolv.conf", "/etc/hosts", "/etc/nsswitch.conf", "/etc/pki", "/etc/ssl", "/etc/ca-certificates"];
+const nodeBinary = (): string => fs.realpathSync(process.execPath);
 
 export interface SandboxSpec {
 	/** The runtime's installation, mounted read-only: a binary or a directory. */
@@ -48,6 +49,7 @@ export function sandboxMounts(spec: SandboxSpec): string[] {
 	];
 	for (const e of ETC) if (fs.existsSync(e)) a.push("--ro-bind", e, e);
 	a.push("--tmpfs", "/home");
+	a.push("--ro-bind", nodeBinary(), "/usr/bin/node");
 	a.push("--ro-bind", spec.install, spec.install);
 	for (const w of spec.writable) a.push("--bind", w, w);
 	for (const r of spec.readOnly) a.push("--ro-bind", r, r);

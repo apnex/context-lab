@@ -393,3 +393,21 @@ test("adapters: multiple context-lab-canary.md instructions from multiple varian
 		}
 	}
 });
+
+test("runtime-sandbox: node is bound at /usr/bin/node on PATH inside the sandbox without leaking the operator's home (B15)", async () => {
+	const e = setup();
+	fs.writeFileSync(path.join(e.workspace, "check-node.js"), "console.log(21 * 2);\n");
+	const bin = path.join(e.dir, "stub-node", "opencode");
+	fs.mkdirSync(path.dirname(bin), { recursive: true });
+	fs.writeFileSync(
+		bin,
+		'#!/bin/sh\n' +
+		'OUT=$(node "$PWD/check-node.js")\n' +
+		'printf \'{"type":"step_start","part":{}}\\n{"type":"text","part":{"messageID":"m1","text":"%s"}}\\n{"type":"step_finish","part":{"reason":"stop"}}\\n\' "$OUT"\n',
+		{ mode: 0o755 },
+	);
+	const op = operatorFiles(e.dir);
+	const a = opencodeAdapter({ binary: bin, operatorConfig: op.config, operatorCache: op.cache, env: { ...process.env, CL_TEST_KEY: KEY } });
+	const o = await a.invoke(invocation(e, "opencode"));
+	assert.equal(o.final, "42");
+});
