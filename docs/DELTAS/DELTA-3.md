@@ -1,7 +1,7 @@
 # Delta-3 - people, chains, on-demand review, and the second user - a vertical slice
 
 ```yaml
-status:     ratified (docs/DECISIONS.md 0026) - revision 2; stage 2 open
+status:     ratified (docs/DECISIONS.md 0026) - revision 2; stage 3 open
 selected:   docs/DECISIONS.md 0025, board items M3.1, M3.2
 from-state: Delta-2's to-state (0024): multi-phase episodes, diagnostic measures, threshold deriver, comparator, run resumption
 to-state:   docs/ARCHITECTURE-TARGET.md (0006, reopened under section 1 for 0025/B18), all 22 components of section 5
@@ -160,7 +160,8 @@ Verification evaluated G1, G2 and G3 PASS; all three minor findings from verific
 
 **Stage 2 (`M3.1b`).**\
 Built `packages/core/src/judging-chain.ts` (`assignChainJudges`, `quoteInOutcome`, `runJudgingChain`, `countChain`), `packages/core/src/candidate-writer.ts` (`evaluateCandidates`, `writeCandidates`, `writeRunCandidates`), `judging.chain` and `pack.findingRules` validation in `pack-schema.ts` and `pack-checker.ts`, `chain` integration in `run-conductor.ts` and `tally.ts`, and `context-lab candidates` in `cli.ts`.\
-317 tests; 10 stage-2 mutants applied and killed.
+Verification evaluated G4, G5 and G6 PASS; all three minor findings from verification (adding `L10` in `chain-candidates.test.ts` to kill mutant `M13` on `minHeldOut`, using `assignChainJudges` for stage-2 verifier selection, and keying verdicts with `unit` when present) are fixed and mutation-tested (22 of 22 mutants killed).\
+317 tests; stage 2 is complete.
 
 ---
 

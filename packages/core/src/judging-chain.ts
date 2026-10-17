@@ -257,8 +257,7 @@ export async function runJudgingChain(o: RunChainOptions): Promise<ChainRecord> 
 	const verified: VerifiedVerdict[] = [];
 	const unitById = new Map(o.units.map((u) => [u.id, u]));
 	for (const hit of classified) {
-		const verifier = o.judges.find((j) => j.family !== hit.readerFamily && j.family !== hit.classifierFamily);
-		if (!verifier) throw new Error(`no verifier of a third family outside ${hit.readerFamily} and ${hit.classifierFamily}`);
+		const { verifier } = assignChainJudges(hit.readerFamily, o.judges);
 		const adapter = o.adapters[verifier.runtime];
 		if (!adapter) throw new Error(`no adapter for verifier runtime ${verifier.runtime}`);
 		const mode: DeliveryMode = adapter.modes.includes("stdin") ? "stdin" : adapter.modes.includes("attachment") ? "attachment" : adapter.modes[0]!;
@@ -321,6 +320,7 @@ export function countChain(input: CountChainInput): ChainCountResult {
 	const { threshold } = record;
 	const verdictByKey = new Map<string, VerifiedVerdict>();
 	for (const v of record.verified) {
+		if (v.unit) verdictByKey.set(`${v.unit}|${v.pid}|${v.finding}|${v.quote}`, v);
 		verdictByKey.set(`${v.pid}|${v.finding}|${v.quote}`, v);
 	}
 
@@ -338,7 +338,8 @@ export function countChain(input: CountChainInput): ChainCountResult {
 			pid: hit.pid, family: hit.readerFamily, scenario: hit.scenario, brief: hit.scenario,
 			quote: hit.quote, source: "named",
 		};
-		const v = verdictByKey.get(`${hit.pid}|${hit.finding}|${hit.quote}`);
+		const v = (hit.unit ? verdictByKey.get(`${hit.unit}|${hit.pid}|${hit.finding}|${hit.quote}`) : undefined)
+			?? verdictByKey.get(`${hit.pid}|${hit.finding}|${hit.quote}`);
 		if (!v) {
 			(unverified[hit.finding] ??= []).push(ev);
 			continue;

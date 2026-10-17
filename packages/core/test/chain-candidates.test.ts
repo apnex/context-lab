@@ -102,6 +102,7 @@ test("G5: countChain counts only verifier-supported named evidence and >0 codeSc
 		{ id: "L2", kind: "named" as const, statement: "Named gap", countsWhen: "named" },
 		{ id: "L8", kind: "named or computed" as const, statement: "Both", countsWhen: "both" },
 		{ id: "L9", kind: "named" as const, statement: "Single family only", countsWhen: "one fam" },
+		{ id: "L10", kind: "named" as const, statement: "No held-out scenario", countsWhen: "no held-out" },
 	];
 	const record: ChainRecord = {
 		findings,
@@ -123,6 +124,10 @@ test("G5: countChain counts only verifier-supported named evidence and >0 codeSc
 			{ unit: "u2", pid: "s1.a.p1.2", scenario: "s1", readerFamily: "f1", classifier: "p2", classifierFamily: "f2", finding: "L9", quote: "q9" },
 			{ unit: "u7", pid: "s2.a.p1.1", scenario: "s2", readerFamily: "f1", classifier: "p2", classifierFamily: "f2", finding: "L9", quote: "q9" },
 			{ unit: "u4", pid: "s3.a.p1.1", scenario: "s3", readerFamily: "f1", classifier: "p2", classifierFamily: "f2", finding: "L9", quote: "q9" },
+			// L10: 3 non-held-out scenarios (s1, s2, s4) and 2 families (f1, f2), but heldOut.length === 0 < 1 -> meets = false!
+			{ unit: "u1", pid: "s1.a.p1.1", scenario: "s1", readerFamily: "f1", classifier: "p2", classifierFamily: "f2", finding: "L10", quote: "q10" },
+			{ unit: "u3", pid: "s2.a.p2.1", scenario: "s2", readerFamily: "f2", classifier: "p3", classifierFamily: "f3", finding: "L10", quote: "q10" },
+			{ unit: "u8", pid: "s4.a.p1.1", scenario: "s4", readerFamily: "f1", classifier: "p2", classifierFamily: "f2", finding: "L10", quote: "q10" },
 		],
 		codeRejected: [],
 		verified: [
@@ -136,6 +141,9 @@ test("G5: countChain counts only verifier-supported named evidence and >0 codeSc
 			{ unit: "u2", pid: "s1.a.p1.2", finding: "L9", quote: "q9", verifier: "p3", verifierFamily: "f3", supports: true, reason: "ok" },
 			{ unit: "u7", pid: "s2.a.p1.1", finding: "L9", quote: "q9", verifier: "p3", verifierFamily: "f3", supports: true, reason: "ok" },
 			{ unit: "u4", pid: "s3.a.p1.1", finding: "L9", quote: "q9", verifier: "p3", verifierFamily: "f3", supports: true, reason: "ok" },
+			{ unit: "u1", pid: "s1.a.p1.1", finding: "L10", quote: "q10", verifier: "p3", verifierFamily: "f3", supports: true, reason: "ok" },
+			{ unit: "u3", pid: "s2.a.p2.1", finding: "L10", quote: "q10", verifier: "p1", verifierFamily: "f1", supports: true, reason: "ok" },
+			{ unit: "u8", pid: "s4.a.p1.1", finding: "L10", quote: "q10", verifier: "p3", verifierFamily: "f3", supports: true, reason: "ok" },
 		],
 		unclassified: [],
 		news: [],
@@ -171,6 +179,12 @@ test("G5: countChain counts only verifier-supported named evidence and >0 codeSc
 	assert.equal(byId["L9"]!.readers, 4);
 	assert.deepEqual(byId["L9"]!.families, ["f1"]);
 	assert.equal(byId["L9"]!.meets, false);
+
+	// L10: 3 scenarios (s1, s2, s4) and 2 families (f1, f2), but 0 held-out -> meets = false.
+	assert.deepEqual(byId["L10"]!.scenarios, ["s1", "s2", "s4"]);
+	assert.deepEqual(byId["L10"]!.heldOut, []);
+	assert.deepEqual(byId["L10"]!.families, ["f1", "f2"]);
+	assert.equal(byId["L10"]!.meets, false);
 });
 
 test("G6: evaluateCandidates and writeRunCandidates emit candidates for all four rules when and only when thresholds hold, and write CANDIDATES.json/md inside recordsDir only", async () => {
