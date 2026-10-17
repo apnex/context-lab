@@ -791,7 +791,8 @@ export function tallyRun(recordsDir: string, opts: TallyOptions = {}): Result {
 		units: blinded.units, absent: blinded.absent, votes, assigned: (u) => assignJudges(u, judges).map((j) => j.id), guessGroups: record.guessGroups,
 		...(record.snapshot.experiment !== undefined ? { experiment: record.snapshot.experiment } : {}), exposed: record.snapshot.exposed ?? [],
 		...(picks !== null ? { picks } : {}),
-		...(chain !== null ? { chain, memberFamilies } : {}),
+		...(chain !== null ? { chain } : {}),
+		memberFamilies,
 	});
 	if (!(opts.write ?? opts.runs === undefined)) return result;
 	write(path.join(recordsDir, "RESULT.json"), result);

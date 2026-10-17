@@ -3,6 +3,8 @@
 // None of them is a score: they are computed from scores and outcomes, and feed nothing back.
 
 import type { Property, Scenario } from "./pack-schema.js";
+import type { Outcome } from "./outcome.js";
+import type { Attempt, CellRecord } from "./run-conductor.js";
 
 // ---------------------------------------------------------------- words and restated guidance
 
@@ -163,4 +165,104 @@ export function detectable(props: { property: Property; byArm: Record<string, nu
 	const all = perArm.flat();
 	const p = all.reduce((a, b) => a + b, 0) / all.length;
 	return { p, n, difference: detectableDifference(p, n) };
+}
+
+// ---------------------------------------------------------------- provider and agent fault profile
+
+export const FAULT_KINDS = [
+	"isolation",
+	"filter",
+	"rate-limit",
+	"provider-5xx",
+	"provider-other",
+	"timeout-model",
+	"timeout-tool",
+	"overflow",
+	"empty",
+	"crash",
+] as const;
+
+export type FaultKind = (typeof FAULT_KINDS)[number];
+
+export interface FaultRow {
+	member: string;
+	family: string;
+	arm: string;
+	attempts: number;
+	retriedCells: number;
+	excludedCells: number;
+	byKind: Record<FaultKind, number>;
+}
+
+/** Classifies one invalid attempt into its specific fault kind (Delta-4 stage 2, H2). */
+export function classifyFaultKind(a: Attempt): FaultKind | null {
+	if (a.validity.valid) return null;
+	if (a.validity.cause === "isolation") return "isolation";
+	const o: Outcome = a.phases?.find((p) => p.validity !== null && !p.validity.valid)?.outcome ?? a.outcome;
+	if (o.filtered || o.error?.cause === "filter") return "filter";
+	if (o.error?.cause === "provider") {
+		const msg = o.error.message;
+		if (/429|rate.?limit|quota|too many requests/i.test(msg)) return "rate-limit";
+		if (/\b50[0234]\b|service unavailable|bad gateway|overloaded/i.test(msg)) return "provider-5xx";
+		return "provider-other";
+	}
+	if (o.error?.cause === "overflow") return "overflow";
+	if (o.stop.reason === "timeout") {
+		return a.validity.cause === "infrastructure" ? "timeout-model" : "timeout-tool";
+	}
+	if (a.validity.cause === "behaviour" && o.final.trim() === "") return "empty";
+	return "crash";
+}
+
+function emptyByKind(): Record<FaultKind, number> {
+	return {
+		isolation: 0,
+		filter: 0,
+		"rate-limit": 0,
+		"provider-5xx": 0,
+		"provider-other": 0,
+		"timeout-model": 0,
+		"timeout-tool": 0,
+		overflow: 0,
+		empty: 0,
+		crash: 0,
+	};
+}
+
+/**
+ * Aggregates attempt counts, retries, exclusions, and fault kinds per `(member, family, arm)`
+ * across `cells` in `(members, arms)` declaration order.
+ */
+export function faultProfile(
+	cells: Pick<CellRecord, "cell" | "arm" | "member" | "valid" | "attempts">[],
+	members: string[],
+	arms: string[],
+	memberFamilies?: Map<string, string>,
+): FaultRow[] {
+	const out: FaultRow[] = [];
+	for (const m of members) {
+		const family = memberFamilies?.get(m) ?? m;
+		for (const a of arms) {
+			const group = cells.filter((c) => c.member === m && c.arm === a);
+			if (group.length === 0) continue;
+			const byKind = emptyByKind();
+			let attempts = 0;
+			let retriedCells = 0;
+			let excludedCells = 0;
+			for (const c of group) {
+				attempts += c.attempts.length;
+				if (c.attempts.length > 1) retriedCells++;
+				const last = c.attempts[c.attempts.length - 1];
+				if (!c.valid && last && !last.validity.valid && last.validity.cause !== "behaviour") {
+					excludedCells++;
+				}
+				for (const att of c.attempts) {
+					const k = classifyFaultKind(att);
+					if (k !== null) byKind[k]++;
+				}
+			}
+			out.push({ member: m, family, arm: a, attempts, retriedCells, excludedCells, byKind });
+		}
+	}
+	return out;
 }

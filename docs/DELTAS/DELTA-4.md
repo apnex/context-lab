@@ -128,6 +128,10 @@ This delta does not build or change:
 **Stage 1 (`M4.1`).**\
 Built `packages/core/test/failure-injection.test.ts` driving `conductRun` through `opencodeAdapter` and `codexAdapter` inside `runSandboxed` (`bwrap`) across all 9 fault modes (`isolation-address`, `isolation-path-open`, `isolation-path-sandboxed`, `infra-filter`, `infra-provider-503`, `infra-crash`, `timeout-open-step-0012` / Codex `timeout-model` & `timeout-tool`, `behaviour-overflow`, `behaviour-empty`); 5 stage-1 mutants applied and killed; 320 tests.
 
+**Stage 2 (`M4.2`, `M4.3`).**\
+Built `classifyFaultKind` and `faultProfile` in `packages/core/src/measures.ts`, `Result.faults` and `Result.guesses.byScenario` / `byProperty` (with `notBlind` and the `RESULT.md` limit warning) in `packages/core/src/tally.ts`, `docs/probes/2026-10-17-provider-faults.json` across all 21 recorded live run directories (14 completed runs / 1,625 cells and 7 stopped runs / 239 cells; 1,864 cells, 1,890 attempts, 26 retried cells, 12 excluded cells, 38 failed attempts: 26 `provider-5xx` and 10 `rate-limit` on `o`/Codex in `2026-10-14-053958-aa`, and 2 `provider-other` on `a`/Argon in `2026-10-13-222555-handoff` before the OpenAI-compatible route fix), and `packages/core/test/hardening.test.ts` (including re-tally checks on `2026-10-11-092325-adherence` and `2026-10-14-112229-adherence`); updated `docs/ARCHITECTURE-TARGET.md`, closed `B4`, `B5`, and `B7` in `docs/BACKLOG.md`, and marked milestone `M4` `DONE` in `docs/BOARD.md`.\
+322 tests.
+
 ---
 
 ## Adversarial review

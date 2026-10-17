@@ -15,7 +15,7 @@ It contains no plan, order or estimate; those belong to the board and to deltas.
 ## 1. Status and authority
 
 Authored by the architect, ratified by the director per section; approval is aggregate-only.\
-Ratified 2026-10-10 (`docs/DECISIONS.md` `0006`); sections 2, 3, 5, 6 and 9 reopened and updated 2026-10-16 (`0025`, `0026`, `B18`).
+Ratified 2026-10-10 (`docs/DECISIONS.md` `0006`); sections 2, 3, 4, 5, 6 and 9 reopened and updated 2026-10-17 (`0025`-`0028`, `B4`, `B5`, `B7`, `B18`).
 
 | Section | Maturity | Reopens on |
 |---|---|---|
@@ -86,7 +86,7 @@ Every result is attributable to the declared differences between conditions alon
 | P9 | **Evidence, not verdicts.** A comparison flags; the project's authority decides | `A13`; vision non-authority 2 |
 
 **Decisions.**\
-`0001` the vision; `0002` all four existing mechanisms are absorbed; `0003` packs may carry scripts at fixed hooks; `0004` the universal parts of mission-kit's standing-suite design are adopted, and `0005` a note-generator hook is added to `0003`'s three; `0008` suites are an entity; `0009`-`0024` Delta-1 and Delta-2; `0025` and `0026` Delta-3 and on-demand multi-model review (`B18`).
+`0001` the vision; `0002` all four existing mechanisms are absorbed; `0003` packs may carry scripts at fixed hooks; `0004` the universal parts of mission-kit's standing-suite design are adopted, and `0005` a note-generator hook is added to `0003`'s three; `0008` suites are an entity; `0009`-`0024` Delta-1 and Delta-2; `0025`-`0027` Delta-3 and on-demand multi-model review (`B18`); `0028` Delta-4 hardening (`B4`, `B5`, `B7`).
 
 **Model.**\
 Single-duty components (section 5), each serving a principle, driven by a project pack through fixed hooks, producing a run record the project keeps.
@@ -110,8 +110,8 @@ Not declarative.
 | `A5` | Probes show what each agent received (P1) | Deliberate: judges see masked outcomes, not what the agent saw |
 | `A6` | Actors hand over through declared records - outcomes, notes, votes | Open: repetition for independence - two judges, a verifier re-reading a classifier - is friction bought for `A8` |
 | `A7` | Failures classified by cause (P7) | Open: re-running infrastructure and isolation failures once selects which attempts count; bounded by once-only and reported per arm |
-| `A8` | Sealing order: variants probed before cells run, outcomes blinded before judging, rules fixed before outcomes | Open: blinding to arm was not achieved on one trap in one run, mission-kit's `adherence-03`; tested per property |
-| `A9` | - | Open: no failure injection exercises the validity classifier |
+| `A8` | Sealing order: variants probed before cells run, outcomes blinded before judging, rules fixed before outcomes; arm-guess rates reported per scenario and per property and flagged when `notBlind` (`B5`, `0028`) | - |
+| `A9` | End-to-end failure injection exercises every cause and sub-cause of the validity classifier through the sandboxed adapters (`B4`, `0028`) | - |
 | `A10` | - | Open: no loop files context-lab's own invalid-cell causes and audit findings as its defects |
 | `A11` | Code before judges (P2) | Irreducible: judging prose is cognitive work |
 | `A12` | Judge prompts carry instructions, task, key, starting state and outcomes, nothing else | - |
@@ -252,10 +252,10 @@ Each trap pair is met once per episode, its version and position rotated across 
 |---|---|---|
 | 1 | **CLOSED** (`0024`, `B2`): session continuation probed and implemented on both runtimes (`docs/probes/2026-10-11-sessions.json`) | Multi-session phases depend on it |
 | 2 | **CLOSED** (`0024`, `B3`): compaction keeps instruction files on both runtimes (`docs/probes/2026-10-11-sessions.json`) | Experiments simulating compaction assume it |
-| 3 | No failure injection exercises the validity classifier (`A9`) | Its causes are asserted, not tested |
-| 4 | Blinding to arm was not achieved on one trap | Judge scores on such properties lean on code-scored ones |
+| 3 | **CLOSED** (`0028`, `B4`): end-to-end failure injection exercises all 9 fault modes of the validity classifier (`packages/core/test/failure-injection.test.ts`) | Its causes are asserted, not tested |
+| 4 | **CLOSED** (`0028`, `B5`): per-scenario and per-property arm-guess rates and `notBlind` flags reported in `Result.guesses` and `RESULT.md` | Judge scores on such properties lean on code-scored ones |
 | 5 | Two runtimes have adapters | Generality across runtimes is a claim |
-| 6 | Content filters and rate limits are uncharacterised; filter-caused failures clustering by provider is inferred from one provider | Invalid cells may cluster by family |
+| 6 | **CLOSED** (`0028`, `B7`): provider faults, filters and rate limits characterised per member, family and arm in `Result.faults` and `docs/probes/2026-10-17-provider-faults.json` | Invalid cells may cluster by family |
 | 7 | Local delivery differs from fetching over a network | An arm reading files does not reproduce a networked session exactly |
 | 8 | Findings travelling between projects has no mechanism beyond shared records (`A14`) | The vision's fourth success measure has no support |
 | 9 | No loop files context-lab's own failures as its defects (`A10`) | It does not correct itself |

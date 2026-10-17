@@ -20,9 +20,9 @@ export { measure, type CodeScore, type MeasuredOutcome } from "./code-measurer.j
 export { METHOD, STATES, conductRun, pickRun, resumeRun, tallyRun, type Attempt, type CellRecord, type PickRunOptions, type ResumeOptions, type RunOptions, type RunRecord, type State } from "./run-conductor.js";
 export { blind, mask, shuffle, type Absent, type Blinded, type Unit } from "./blinder.js";
 export { EMPTY_ARM, assignJudges, judgeAll, validate, type PanelOptions, type Vote } from "./judge-panel.js";
-export { resultMarkdown, tally, type PropertyResult, type Rate, type Result, type TallyInput } from "./tally.js";
+export { resultMarkdown, tally, type GuessBucket, type PropertyGuessBucket, type PropertyResult, type Rate, type Result, type TallyInput } from "./tally.js";
 export { NO_NOTE, assignTraps, phasePrompt, propertyPhase, runEpisode, Ledger, type EpisodeResult, type EpisodeRun, type PhaseRecord, type TrapAssignment } from "./episode.js";
-export { RESTATED_RUN, detectable, detectableDifference, linkRates, met, sharedRun, words, type Detectable, type LinkRow, type RestatedFlag } from "./measures.js";
+export { FAULT_KINDS, RESTATED_RUN, classifyFaultKind, detectable, detectableDifference, faultProfile, linkRates, met, sharedRun, words, type Detectable, type FaultKind, type FaultRow, type LinkRow, type RestatedFlag } from "./measures.js";
 export { MIN_POOL, SIZES, SPLITS, assertIdenticalArms, compare, deriveThresholds, readTable, readThresholds, recordThresholds, standardisedDrop, thresholdFile, type CompareInput, type ComparisonResult, type Flag, type Side, type Table, type ThresholdSet } from "./comparison.js";
 export { runFlags, type RunFlags } from "./cli-flags.js";
 export { chooseCalibrationPairs, choosePreferencePairs, flipFor, type CalibrationOptions, type CalibrationPair, type PreferenceItem, type PreferencePair } from "./pair-chooser.js";

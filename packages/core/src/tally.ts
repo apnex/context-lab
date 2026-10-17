@@ -17,12 +17,25 @@ import type { Unit, Absent } from "./blinder.js";
 import type { Vote } from "./judge-panel.js";
 import type { CellRecord } from "./run-conductor.js";
 import { propertiesOf, type Experiment, type Scenario } from "./pack-schema.js";
-import { detectable, linkRates, type Detectable, type LinkRow, type RestatedFlag } from "./measures.js";
+import { FAULT_KINDS, detectable, faultProfile, linkRates, type Detectable, type FaultRow, type LinkRow, type RestatedFlag } from "./measures.js";
 import type { Exposure } from "./experiment-register.js";
 import { tallyHumanPicks, type HumanPicksTally, type PicksRecord } from "./human-panel.js";
 import { countChain, type ChainCountResult, type ChainRecord } from "./judging-chain.js";
 
 export interface Rate { mean: number | null; of: number; incomplete: number }
+
+export interface GuessBucket {
+	right: number;
+	all: number;
+	baseRate: number | null;
+	rate: number | null;
+	notBlind: boolean;
+}
+
+export interface PropertyGuessBucket extends GuessBucket {
+	scenario: string;
+	property: string;
+}
 
 export interface PropertyResult {
 	scenario: string;
@@ -41,7 +54,16 @@ export interface Result {
 	totals: Record<string, number | null>;
 	excluded: { cell: string; cause: string }[];
 	absent: Absent[];
-	guesses: { right: number; all: number; byGuess: Record<string, number>; baseRate: number | null };
+	guesses: {
+		right: number;
+		all: number;
+		byGuess: Record<string, number>;
+		baseRate: number | null;
+		byScenario: Record<string, GuessBucket>;
+		byProperty: Record<string, PropertyGuessBucket>;
+	};
+	/** Provider and agent fault profile per member, family and arm across all attempts (Delta-4 stage 2, H2). */
+	faults: FaultRow[];
 	/** Cells whose sandboxed agent named a forbidden path that did not exist for it. */
 	unreachable: string[];
 	cellValues: Record<string, Record<string, number | "incomplete">>;
@@ -157,7 +179,22 @@ export function tally(t: TallyInput): Result {
 	// A total is shown only when every property has a mean for that arm; it sums each property's own scale.
 	const totals = Object.fromEntries(t.arms.map((a) => [a, properties.every((p) => p.byArm[a]!.mean !== null) ? properties.reduce((sum, p) => sum + p.byArm[a]!.mean!, 0) : null]));
 	const groupOf = (arm: string): string | undefined => Object.entries(t.guessGroups).find(([, arms]) => arms.includes(arm))?.[0];
-	const guesses = { right: 0, all: 0, byGuess: {} as Record<string, number>, baseRate: null as number | null };
+	const byScenarioAcc = new Map<string, { right: number; all: number; truth: Map<string, number> }>();
+	const byPropertyAcc = new Map<string, { scenario: string; property: string; right: number; all: number; truth: Map<string, number> }>();
+	for (const s of t.scenarios.values()) {
+		if (s.heldOut === true) continue;
+		byScenarioAcc.set(s.id, { right: 0, all: 0, truth: new Map() });
+		for (const p of propertiesOf(s)) {
+			if (p.decidedBy === "judge") {
+				byPropertyAcc.set(`${s.id}/${p.id}`, { scenario: s.id, property: p.id, right: 0, all: 0, truth: new Map() });
+			}
+		}
+	}
+	const guesses = {
+		right: 0, all: 0, byGuess: {} as Record<string, number>, baseRate: null as number | null,
+		byScenario: {} as Record<string, GuessBucket>,
+		byProperty: {} as Record<string, PropertyGuessBucket>,
+	};
 	const heldOutGuesses = { right: 0, all: 0 };
 	// Keyed by unit and judge as a pair, not a joined string: a unit id may contain the separator.
 	const seen = new Map<string, Unit>();
@@ -168,14 +205,39 @@ export function tally(t: TallyInput): Result {
 		const unit = t.units.find((u) => u.id === v.unit)!;
 		if (isHeldOut(unit.scenario)) { heldSeen.add(key); heldOutGuesses.all++; if (groupOf(unit.arm) === v.guess) heldOutGuesses.right++; continue; }
 		seen.set(key, unit);
+		const g = groupOf(unit.arm) ?? "";
+		const correct = g === v.guess;
 		guesses.all++;
 		guesses.byGuess[v.guess] = (guesses.byGuess[v.guess] ?? 0) + 1;
-		if (groupOf(unit.arm) === v.guess) guesses.right++;
+		if (correct) guesses.right++;
+		const scAcc = byScenarioAcc.get(unit.scenario);
+		if (scAcc) {
+			scAcc.all++;
+			if (correct) scAcc.right++;
+			scAcc.truth.set(g, (scAcc.truth.get(g) ?? 0) + 1);
+		}
+		for (const pid of unit.properties) {
+			const prAcc = byPropertyAcc.get(`${unit.scenario}/${pid}`);
+			if (prAcc) {
+				prAcc.all++;
+				if (correct) prAcc.right++;
+				prAcc.truth.set(g, (prAcc.truth.get(g) ?? 0) + 1);
+			}
+		}
 	}
 	// The base rate: always guessing the condition most of the guessed outcomes came from.
 	const truth = new Map<string, number>();
 	for (const unit of seen.values()) { const g = groupOf(unit.arm) ?? ""; truth.set(g, (truth.get(g) ?? 0) + 1); }
 	if (guesses.all) guesses.baseRate = Math.max(...truth.values()) / guesses.all;
+	const toBucket = (acc: { right: number; all: number; truth: Map<string, number> }): GuessBucket => {
+		const rate = acc.all > 0 ? acc.right / acc.all : null;
+		const baseRate = acc.all > 0 ? Math.max(...acc.truth.values()) / acc.all : null;
+		const notBlind = acc.all >= 6 && rate !== null && baseRate !== null && rate >= 0.75 && rate > baseRate + 0.25;
+		return { right: acc.right, all: acc.all, baseRate, rate, notBlind };
+	};
+	for (const [sid, acc] of byScenarioAcc) guesses.byScenario[sid] = toBucket(acc);
+	for (const [k, acc] of byPropertyAcc) guesses.byProperty[k] = { scenario: acc.scenario, property: acc.property, ...toBucket(acc) };
+	const faults = faultProfile(t.cells, t.members, t.arms, t.memberFamilies);
 	const unreachable = t.cells.filter((c) => c.attempts.some((a) => (a.unreachable ?? []).length > 0)).map((c) => c.cell);
 	const mainCells = t.cells.filter((c) => !isHeldOut(c.scenario));
 	const link = linkRates(mainCells, cellValues, t.scenarios, propertiesOf);
@@ -200,7 +262,7 @@ export function tally(t: TallyInput): Result {
 			heldOutScenarios: heldOutSet,
 		})
 		: null;
-	return { run: t.run, status: t.status, arms: t.arms, members: t.members, properties, totals, excluded, absent: t.absent.filter((a) => !heldCell(a.cell)), guesses, unreachable, cellValues, heldOut, heldOutCellValues, heldOutAbsent: t.absent.filter((a) => heldCell(a.cell)), heldOutGuesses, exposed, link, restated, variation, ...(humanPicks ? { humanPicks } : {}), ...(chain ? { chain } : {}) };
+	return { run: t.run, status: t.status, arms: t.arms, members: t.members, properties, totals, excluded, absent: t.absent.filter((a) => !heldCell(a.cell)), guesses, faults, unreachable, cellValues, heldOut, heldOutCellValues, heldOutAbsent: t.absent.filter((a) => heldCell(a.cell)), heldOutGuesses, exposed, link, restated, variation, ...(humanPicks ? { humanPicks } : {}), ...(chain ? { chain } : {}) };
 }
 
 /** A warning where a difference of the stated size would usually go undetected, in the stated scope. */
@@ -218,9 +280,12 @@ const fmt = (r: Rate): string => (r.mean === null ? "-" : `${r.mean.toFixed(2)} 
 
 export function resultMarkdown(r: Result, limits: string[]): string {
 	const calRate = r.humanPicks?.mode === "calibration" ? r.humanPicks.agreement?.rate ?? null : null;
-	const allLimits = calRate !== null && calRate < 0.75
-		? [...limits, `Judge-person calibration agreement is ${(calRate * 100).toFixed(0)}%, below the 75% threshold: review the keys before the next run.`]
-		: limits;
+	const notBlindProps = Object.entries(r.guesses.byProperty ?? {}).filter(([, v]) => v.notBlind).map(([k]) => k);
+	const allLimits = [
+		...limits,
+		...(calRate !== null && calRate < 0.75 ? [`Judge-person calibration agreement is ${(calRate * 100).toFixed(0)}%, below the 75% threshold: review the keys before the next run.`] : []),
+		...(notBlindProps.length > 0 ? [`Blinding to condition did not hold on ${notBlindProps.join(", ")}: lean on code-scored properties there.`] : []),
+	];
 	const lines = [
 		`# Result - ${r.run}`, "",
 		`Status: **${r.status}**.`, "",
@@ -230,6 +295,12 @@ export function resultMarkdown(r: Result, limits: string[]): string {
 		...r.properties.map((p) => `| ${p.scenario} | ${p.property} | ${r.arms.map((a) => fmt(p.byArm[a]!)).join(" | ")} | ${p.agreement.of ? `${p.agreement.agree}/${p.agreement.of}` : "-"} |`),
 		"", `Totals, each property on its own scale: ${r.arms.map((a) => `${a} ${r.totals[a] === null ? "- (a property has no mean)" : r.totals[a]!.toFixed(2)}`).join(", ")}.`, "",
 		`Judges guessed the condition right ${r.guesses.right} of ${r.guesses.all} times; always guessing the largest condition would score ${r.guesses.baseRate === null ? "-" : `${Math.round(r.guesses.baseRate * 100)}%`}.`, "",
+		...(r.guesses.all > 0 && Object.keys(r.guesses.byScenario ?? {}).length > 0 ? [
+			"| Scenario | right / all | rate | base rate | not blind |",
+			"|---|---|---|---|---|",
+			...Object.entries(r.guesses.byScenario).map(([sid, b]) => `| ${sid} | ${b.right}/${b.all} | ${b.rate === null ? "-" : `${Math.round(b.rate * 100)}%`} | ${b.baseRate === null ? "-" : `${Math.round(b.baseRate * 100)}%`} | ${b.notBlind ? "yes" : "no"} |`),
+			"",
+		] : []),
 		r.excluded.length ? `Excluded cells: ${r.excluded.map((e) => `${e.cell} (${e.cause})`).join(", ")}.` : "No cell excluded.", "",
 		r.absent.length ? `Absent answers, scored at the bottom of their scale: ${r.absent.map((a) => `${a.cell} ${a.property}`).join(", ")}.` : "No answer absent.", "",
 		r.unreachable.length ? `Sandboxed agents named forbidden paths that did not exist for them, in: ${r.unreachable.join(", ")}.` : "No sandboxed agent named a forbidden path.", "",
@@ -250,6 +321,16 @@ export function resultMarkdown(r: Result, limits: string[]): string {
 		"## Restated guidance", "",
 		...(r.restated.length ? [`Diagnostic only; flags change no score. ${r.restated.length} flag(s):`, "", ...r.restated.map((f) => `- ${f.cell}, ${f.phase}, ${f.source} ${f.path}, shares ${f.words.split(" ").length} words with ${f.delivered.file} (${f.delivered.path}): "${f.words}"`)] : ["No note or final message shares a run of twelve words with a delivered file."]),
 		"",
+		"## Provider and agent faults", "",
+		...(r.faults?.length ? [
+			"| Member | Family | Arm | Attempts | Retried cells | Excluded cells | Faults by kind |",
+			"|---|---|---|---|---|---|---|",
+			...r.faults.map((f) => {
+				const kinds = FAULT_KINDS.filter((k) => f.byKind[k] > 0).map((k) => `${k} ${f.byKind[k]}`).join(", ") || "none";
+				return `| ${f.member} | ${f.family} | ${f.arm} | ${f.attempts} | ${f.retriedCells} | ${f.excludedCells} | ${kinds} |`;
+			}),
+			"",
+		] : ["No cells in this run.", ""]),
 		...(r.humanPicks ? [
 			"## Human panel", "",
 			...(r.humanPicks.mode === "preference"

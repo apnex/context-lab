@@ -1,0 +1,745 @@
+{
+  "generatedAt": "2026-10-17T00:00:00.000Z",
+  "totals": {
+    "runs": 21,
+    "completedRuns": 14,
+    "stoppedRuns": 7,
+    "cells": 1864,
+    "attempts": 1890,
+    "retriedCells": 26,
+    "excludedCells": 12,
+    "byKind": {
+      "isolation": 0,
+      "filter": 0,
+      "rate-limit": 10,
+      "provider-5xx": 26,
+      "provider-other": 2,
+      "timeout-model": 0,
+      "timeout-tool": 0,
+      "overflow": 0,
+      "empty": 0,
+      "crash": 0
+    }
+  },
+  "byFamily": {
+    "claude": {
+      "cells": 468,
+      "attempts": 468,
+      "retriedCells": 0,
+      "excludedCells": 0,
+      "byKind": {
+        "isolation": 0,
+        "filter": 0,
+        "rate-limit": 0,
+        "provider-5xx": 0,
+        "provider-other": 0,
+        "timeout-model": 0,
+        "timeout-tool": 0,
+        "overflow": 0,
+        "empty": 0,
+        "crash": 0
+      }
+    },
+    "gemini": {
+      "cells": 713,
+      "attempts": 714,
+      "retriedCells": 1,
+      "excludedCells": 1,
+      "byKind": {
+        "isolation": 0,
+        "filter": 0,
+        "rate-limit": 0,
+        "provider-5xx": 0,
+        "provider-other": 2,
+        "timeout-model": 0,
+        "timeout-tool": 0,
+        "overflow": 0,
+        "empty": 0,
+        "crash": 0
+      }
+    },
+    "gpt": {
+      "cells": 436,
+      "attempts": 461,
+      "retriedCells": 25,
+      "excludedCells": 11,
+      "byKind": {
+        "isolation": 0,
+        "filter": 0,
+        "rate-limit": 10,
+        "provider-5xx": 26,
+        "provider-other": 0,
+        "timeout-model": 0,
+        "timeout-tool": 0,
+        "overflow": 0,
+        "empty": 0,
+        "crash": 0
+      }
+    },
+    "grok": {
+      "cells": 247,
+      "attempts": 247,
+      "retriedCells": 0,
+      "excludedCells": 0,
+      "byKind": {
+        "isolation": 0,
+        "filter": 0,
+        "rate-limit": 0,
+        "provider-5xx": 0,
+        "provider-other": 0,
+        "timeout-model": 0,
+        "timeout-tool": 0,
+        "overflow": 0,
+        "empty": 0,
+        "crash": 0
+      }
+    }
+  },
+  "byMember": {
+    "c (claude)": {
+      "runtime": "opencode",
+      "cells": 468,
+      "attempts": 468,
+      "retriedCells": 0,
+      "excludedCells": 0,
+      "byKind": {
+        "isolation": 0,
+        "filter": 0,
+        "rate-limit": 0,
+        "provider-5xx": 0,
+        "provider-other": 0,
+        "timeout-model": 0,
+        "timeout-tool": 0,
+        "overflow": 0,
+        "empty": 0,
+        "crash": 0
+      }
+    },
+    "g (gemini)": {
+      "runtime": "opencode",
+      "cells": 207,
+      "attempts": 207,
+      "retriedCells": 0,
+      "excludedCells": 0,
+      "byKind": {
+        "isolation": 0,
+        "filter": 0,
+        "rate-limit": 0,
+        "provider-5xx": 0,
+        "provider-other": 0,
+        "timeout-model": 0,
+        "timeout-tool": 0,
+        "overflow": 0,
+        "empty": 0,
+        "crash": 0
+      }
+    },
+    "o (gpt)": {
+      "runtime": "codex",
+      "cells": 436,
+      "attempts": 461,
+      "retriedCells": 25,
+      "excludedCells": 11,
+      "byKind": {
+        "isolation": 0,
+        "filter": 0,
+        "rate-limit": 10,
+        "provider-5xx": 26,
+        "provider-other": 0,
+        "timeout-model": 0,
+        "timeout-tool": 0,
+        "overflow": 0,
+        "empty": 0,
+        "crash": 0
+      }
+    },
+    "a (gemini)": {
+      "runtime": "opencode",
+      "cells": 257,
+      "attempts": 258,
+      "retriedCells": 1,
+      "excludedCells": 1,
+      "byKind": {
+        "isolation": 0,
+        "filter": 0,
+        "rate-limit": 0,
+        "provider-5xx": 0,
+        "provider-other": 2,
+        "timeout-model": 0,
+        "timeout-tool": 0,
+        "overflow": 0,
+        "empty": 0,
+        "crash": 0
+      }
+    },
+    "f (gemini)": {
+      "runtime": "opencode",
+      "cells": 249,
+      "attempts": 249,
+      "retriedCells": 0,
+      "excludedCells": 0,
+      "byKind": {
+        "isolation": 0,
+        "filter": 0,
+        "rate-limit": 0,
+        "provider-5xx": 0,
+        "provider-other": 0,
+        "timeout-model": 0,
+        "timeout-tool": 0,
+        "overflow": 0,
+        "empty": 0,
+        "crash": 0
+      }
+    },
+    "x (grok)": {
+      "runtime": "opencode",
+      "cells": 247,
+      "attempts": 247,
+      "retriedCells": 0,
+      "excludedCells": 0,
+      "byKind": {
+        "isolation": 0,
+        "filter": 0,
+        "rate-limit": 0,
+        "provider-5xx": 0,
+        "provider-other": 0,
+        "timeout-model": 0,
+        "timeout-tool": 0,
+        "overflow": 0,
+        "empty": 0,
+        "crash": 0
+      }
+    }
+  },
+  "byRuntime": {
+    "opencode": {
+      "cells": 1428,
+      "attempts": 1429,
+      "retriedCells": 1,
+      "excludedCells": 1,
+      "byKind": {
+        "isolation": 0,
+        "filter": 0,
+        "rate-limit": 0,
+        "provider-5xx": 0,
+        "provider-other": 2,
+        "timeout-model": 0,
+        "timeout-tool": 0,
+        "overflow": 0,
+        "empty": 0,
+        "crash": 0
+      }
+    },
+    "codex": {
+      "cells": 436,
+      "attempts": 461,
+      "retriedCells": 25,
+      "excludedCells": 11,
+      "byKind": {
+        "isolation": 0,
+        "filter": 0,
+        "rate-limit": 10,
+        "provider-5xx": 26,
+        "provider-other": 0,
+        "timeout-model": 0,
+        "timeout-tool": 0,
+        "overflow": 0,
+        "empty": 0,
+        "crash": 0
+      }
+    }
+  },
+  "probeFailures": [
+    {
+      "run": "2026-10-11-090959-adherence",
+      "pack": "mission-kit",
+      "arm": "on-trigger",
+      "member": "c",
+      "reasons": [
+        "leak probe s15 matched its withheld content"
+      ]
+    },
+    {
+      "run": "2026-10-14-003012-aa",
+      "pack": "mission-kit",
+      "arm": "on-trigger-b",
+      "member": "o",
+      "reasons": [
+        "the agent made a tool call during a probe, with tools off"
+      ]
+    },
+    {
+      "run": "2026-10-14-110210-adherence",
+      "pack": "mission-kit",
+      "arm": "on-trigger",
+      "member": "o",
+      "reasons": [
+        "the agent made a tool call during a probe, with tools off"
+      ]
+    }
+  ],
+  "runs": [
+    {
+      "run": "2026-10-11-090959-adherence",
+      "pack": "mission-kit",
+      "experiment": "adherence",
+      "end": "failed",
+      "cells": 18,
+      "attempts": 18,
+      "retriedCells": 0,
+      "excludedCells": 0,
+      "byKind": {
+        "isolation": 0,
+        "filter": 0,
+        "rate-limit": 0,
+        "provider-5xx": 0,
+        "provider-other": 0,
+        "timeout-model": 0,
+        "timeout-tool": 0,
+        "overflow": 0,
+        "empty": 0,
+        "crash": 0
+      }
+    },
+    {
+      "run": "2026-10-11-092325-adherence",
+      "pack": "mission-kit",
+      "experiment": "adherence",
+      "end": "completed",
+      "cells": 135,
+      "attempts": 135,
+      "retriedCells": 0,
+      "excludedCells": 0,
+      "byKind": {
+        "isolation": 0,
+        "filter": 0,
+        "rate-limit": 0,
+        "provider-5xx": 0,
+        "provider-other": 0,
+        "timeout-model": 0,
+        "timeout-tool": 0,
+        "overflow": 0,
+        "empty": 0,
+        "crash": 0
+      }
+    },
+    {
+      "run": "2026-10-11-102022-explain",
+      "pack": "mission-kit",
+      "experiment": "explain",
+      "end": "completed",
+      "cells": 9,
+      "attempts": 9,
+      "retriedCells": 0,
+      "excludedCells": 0,
+      "byKind": {
+        "isolation": 0,
+        "filter": 0,
+        "rate-limit": 0,
+        "provider-5xx": 0,
+        "provider-other": 0,
+        "timeout-model": 0,
+        "timeout-tool": 0,
+        "overflow": 0,
+        "empty": 0,
+        "crash": 0
+      }
+    },
+    {
+      "run": "2026-10-12-094918-handoff",
+      "pack": "mission-kit",
+      "experiment": "handoff",
+      "end": "completed",
+      "cells": 3,
+      "attempts": 3,
+      "retriedCells": 0,
+      "excludedCells": 0,
+      "byKind": {
+        "isolation": 0,
+        "filter": 0,
+        "rate-limit": 0,
+        "provider-5xx": 0,
+        "provider-other": 0,
+        "timeout-model": 0,
+        "timeout-tool": 0,
+        "overflow": 0,
+        "empty": 0,
+        "crash": 0
+      }
+    },
+    {
+      "run": "2026-10-12-105612-handoff",
+      "pack": "mission-kit",
+      "experiment": "handoff",
+      "end": "completed",
+      "cells": 3,
+      "attempts": 3,
+      "retriedCells": 0,
+      "excludedCells": 0,
+      "byKind": {
+        "isolation": 0,
+        "filter": 0,
+        "rate-limit": 0,
+        "provider-5xx": 0,
+        "provider-other": 0,
+        "timeout-model": 0,
+        "timeout-tool": 0,
+        "overflow": 0,
+        "empty": 0,
+        "crash": 0
+      }
+    },
+    {
+      "run": "2026-10-12-105615-aa",
+      "pack": "mission-kit",
+      "experiment": "aa",
+      "end": "completed",
+      "cells": 270,
+      "attempts": 270,
+      "retriedCells": 0,
+      "excludedCells": 0,
+      "byKind": {
+        "isolation": 0,
+        "filter": 0,
+        "rate-limit": 0,
+        "provider-5xx": 0,
+        "provider-other": 0,
+        "timeout-model": 0,
+        "timeout-tool": 0,
+        "overflow": 0,
+        "empty": 0,
+        "crash": 0
+      }
+    },
+    {
+      "run": "2026-10-12-124816-aa",
+      "pack": "mission-kit",
+      "experiment": "aa",
+      "end": "failed",
+      "cells": 99,
+      "attempts": 99,
+      "retriedCells": 0,
+      "excludedCells": 0,
+      "byKind": {
+        "isolation": 0,
+        "filter": 0,
+        "rate-limit": 0,
+        "provider-5xx": 0,
+        "provider-other": 0,
+        "timeout-model": 0,
+        "timeout-tool": 0,
+        "overflow": 0,
+        "empty": 0,
+        "crash": 0
+      }
+    },
+    {
+      "run": "2026-10-13-061714-aa",
+      "pack": "mission-kit",
+      "experiment": "aa",
+      "end": "failed",
+      "cells": 71,
+      "attempts": 71,
+      "retriedCells": 0,
+      "excludedCells": 0,
+      "byKind": {
+        "isolation": 0,
+        "filter": 0,
+        "rate-limit": 0,
+        "provider-5xx": 0,
+        "provider-other": 0,
+        "timeout-model": 0,
+        "timeout-tool": 0,
+        "overflow": 0,
+        "empty": 0,
+        "crash": 0
+      }
+    },
+    {
+      "run": "2026-10-13-222555-handoff",
+      "pack": "mission-kit",
+      "experiment": "handoff",
+      "end": "completed",
+      "cells": 5,
+      "attempts": 6,
+      "retriedCells": 1,
+      "excludedCells": 1,
+      "byKind": {
+        "isolation": 0,
+        "filter": 0,
+        "rate-limit": 0,
+        "provider-5xx": 0,
+        "provider-other": 2,
+        "timeout-model": 0,
+        "timeout-tool": 0,
+        "overflow": 0,
+        "empty": 0,
+        "crash": 0
+      }
+    },
+    {
+      "run": "2026-10-13-223710-handoff",
+      "pack": "mission-kit",
+      "experiment": "handoff",
+      "end": "completed",
+      "cells": 5,
+      "attempts": 5,
+      "retriedCells": 0,
+      "excludedCells": 0,
+      "byKind": {
+        "isolation": 0,
+        "filter": 0,
+        "rate-limit": 0,
+        "provider-5xx": 0,
+        "provider-other": 0,
+        "timeout-model": 0,
+        "timeout-tool": 0,
+        "overflow": 0,
+        "empty": 0,
+        "crash": 0
+      }
+    },
+    {
+      "run": "2026-10-13-223759-handoff",
+      "pack": "mission-kit",
+      "experiment": "handoff",
+      "end": "failed",
+      "cells": 0,
+      "attempts": 0,
+      "retriedCells": 0,
+      "excludedCells": 0,
+      "byKind": {
+        "isolation": 0,
+        "filter": 0,
+        "rate-limit": 0,
+        "provider-5xx": 0,
+        "provider-other": 0,
+        "timeout-model": 0,
+        "timeout-tool": 0,
+        "overflow": 0,
+        "empty": 0,
+        "crash": 0
+      }
+    },
+    {
+      "run": "2026-10-13-223855-handoff",
+      "pack": "mission-kit",
+      "experiment": "handoff",
+      "end": null,
+      "cells": 0,
+      "attempts": 0,
+      "retriedCells": 0,
+      "excludedCells": 0,
+      "byKind": {
+        "isolation": 0,
+        "filter": 0,
+        "rate-limit": 0,
+        "provider-5xx": 0,
+        "provider-other": 0,
+        "timeout-model": 0,
+        "timeout-tool": 0,
+        "overflow": 0,
+        "empty": 0,
+        "crash": 0
+      }
+    },
+    {
+      "run": "2026-10-14-003010-handoff",
+      "pack": "mission-kit",
+      "experiment": "handoff",
+      "end": "completed",
+      "cells": 5,
+      "attempts": 5,
+      "retriedCells": 0,
+      "excludedCells": 0,
+      "byKind": {
+        "isolation": 0,
+        "filter": 0,
+        "rate-limit": 0,
+        "provider-5xx": 0,
+        "provider-other": 0,
+        "timeout-model": 0,
+        "timeout-tool": 0,
+        "overflow": 0,
+        "empty": 0,
+        "crash": 0
+      }
+    },
+    {
+      "run": "2026-10-14-003012-aa",
+      "pack": "mission-kit",
+      "experiment": "aa",
+      "end": "failed",
+      "cells": 22,
+      "attempts": 22,
+      "retriedCells": 0,
+      "excludedCells": 0,
+      "byKind": {
+        "isolation": 0,
+        "filter": 0,
+        "rate-limit": 0,
+        "provider-5xx": 0,
+        "provider-other": 0,
+        "timeout-model": 0,
+        "timeout-tool": 0,
+        "overflow": 0,
+        "empty": 0,
+        "crash": 0
+      }
+    },
+    {
+      "run": "2026-10-14-004707-aa",
+      "pack": "mission-kit",
+      "experiment": "aa",
+      "end": "completed",
+      "cells": 450,
+      "attempts": 450,
+      "retriedCells": 0,
+      "excludedCells": 0,
+      "byKind": {
+        "isolation": 0,
+        "filter": 0,
+        "rate-limit": 0,
+        "provider-5xx": 0,
+        "provider-other": 0,
+        "timeout-model": 0,
+        "timeout-tool": 0,
+        "overflow": 0,
+        "empty": 0,
+        "crash": 0
+      }
+    },
+    {
+      "run": "2026-10-14-053958-aa",
+      "pack": "mission-kit",
+      "experiment": "aa",
+      "end": "completed",
+      "cells": 450,
+      "attempts": 475,
+      "retriedCells": 25,
+      "excludedCells": 11,
+      "byKind": {
+        "isolation": 0,
+        "filter": 0,
+        "rate-limit": 10,
+        "provider-5xx": 26,
+        "provider-other": 0,
+        "timeout-model": 0,
+        "timeout-tool": 0,
+        "overflow": 0,
+        "empty": 0,
+        "crash": 0
+      }
+    },
+    {
+      "run": "2026-10-14-110208-explain",
+      "pack": "mission-kit",
+      "experiment": "explain",
+      "end": "completed",
+      "cells": 15,
+      "attempts": 15,
+      "retriedCells": 0,
+      "excludedCells": 0,
+      "byKind": {
+        "isolation": 0,
+        "filter": 0,
+        "rate-limit": 0,
+        "provider-5xx": 0,
+        "provider-other": 0,
+        "timeout-model": 0,
+        "timeout-tool": 0,
+        "overflow": 0,
+        "empty": 0,
+        "crash": 0
+      }
+    },
+    {
+      "run": "2026-10-14-110210-adherence",
+      "pack": "mission-kit",
+      "experiment": "adherence",
+      "end": "failed",
+      "cells": 29,
+      "attempts": 29,
+      "retriedCells": 0,
+      "excludedCells": 0,
+      "byKind": {
+        "isolation": 0,
+        "filter": 0,
+        "rate-limit": 0,
+        "provider-5xx": 0,
+        "provider-other": 0,
+        "timeout-model": 0,
+        "timeout-tool": 0,
+        "overflow": 0,
+        "empty": 0,
+        "crash": 0
+      }
+    },
+    {
+      "run": "2026-10-14-112229-adherence",
+      "pack": "mission-kit",
+      "experiment": "adherence",
+      "end": "completed",
+      "cells": 225,
+      "attempts": 225,
+      "retriedCells": 0,
+      "excludedCells": 0,
+      "byKind": {
+        "isolation": 0,
+        "filter": 0,
+        "rate-limit": 0,
+        "provider-5xx": 0,
+        "provider-other": 0,
+        "timeout-model": 0,
+        "timeout-tool": 0,
+        "overflow": 0,
+        "empty": 0,
+        "crash": 0
+      }
+    },
+    {
+      "run": "2026-10-16-212212-adherence",
+      "pack": "mission-kit",
+      "experiment": "adherence",
+      "end": "completed",
+      "cells": 45,
+      "attempts": 45,
+      "retriedCells": 0,
+      "excludedCells": 0,
+      "byKind": {
+        "isolation": 0,
+        "filter": 0,
+        "rate-limit": 0,
+        "provider-5xx": 0,
+        "provider-other": 0,
+        "timeout-model": 0,
+        "timeout-tool": 0,
+        "overflow": 0,
+        "empty": 0,
+        "crash": 0
+      }
+    },
+    {
+      "run": "2026-10-17-021542-census",
+      "pack": "zorg",
+      "experiment": "census",
+      "end": "completed",
+      "cells": 5,
+      "attempts": 5,
+      "retriedCells": 0,
+      "excludedCells": 0,
+      "byKind": {
+        "isolation": 0,
+        "filter": 0,
+        "rate-limit": 0,
+        "provider-5xx": 0,
+        "provider-other": 0,
+        "timeout-model": 0,
+        "timeout-tool": 0,
+        "overflow": 0,
+        "empty": 0,
+        "crash": 0
+      }
+    }
+  ]
+}

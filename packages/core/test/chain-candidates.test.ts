@@ -209,7 +209,8 @@ test("G6: evaluateCandidates and writeRunCandidates emit candidates for all four
 			{ scenario: "sc", property: "prec-bad", byArm: { bare: { mean: 2, of: 2, incomplete: 0 }, almanac: { mean: 1.4, of: 2, incomplete: 0 }, always: { mean: 2, of: 2, incomplete: 0 } }, byArmMember: {}, agreement: { agree: 2, of: 2 } },
 			{ scenario: "sc", property: "prec-ok", byArm: { bare: { mean: 2, of: 2, incomplete: 0 }, almanac: { mean: 1.5, of: 2, incomplete: 0 }, always: { mean: 2, of: 2, incomplete: 0 } }, byArmMember: {}, agreement: { agree: 2, of: 2 } },
 		],
-		totals: { bare: 4, almanac: 2.9, always: 4.5 }, excluded: [], absent: [], guesses: { right: 0, all: 0, byGuess: {}, baseRate: null },
+		totals: { bare: 4, almanac: 2.9, always: 4.5 }, excluded: [], absent: [], guesses: { right: 0, all: 0, byGuess: {}, baseRate: null, byScenario: {}, byProperty: {} },
+		faults: [],
 		unreachable: [], cellValues: {}, heldOut: [], heldOutCellValues: {}, heldOutAbsent: [], heldOutGuesses: { right: 0, all: 0 },
 		exposed: [], restated: [], variation: { stated: null, default: null, pooled: null, byProperty: [] },
 		link: [
