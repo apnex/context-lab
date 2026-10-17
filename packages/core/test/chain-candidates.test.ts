@@ -5,8 +5,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import {
-	CANARY_QUESTION, assignChainJudges, checkPack, conductRun, countChain, evaluateCandidates,
-	quoteInOutcome, readZorgLegacyRun, runJudgingChain, writeRunCandidates,
+	CANARY_QUESTION, assignChainJudges, buildVariant, checkPack, conductRun, countChain, evaluateCandidates,
+	measure, quoteInOutcome, readZorgLegacyRun, runJudgingChain, writeRunCandidates,
 	type Adapter, type ChainRecord, type Invocation, type Member, type Outcome, type Result, type Scenario, type Unit,
 } from "../src/index.js";
 import { commitAll, copyPack, editJson, judgeReply, scratch } from "./helpers.js";
@@ -348,4 +348,32 @@ test("G9: readZorgLegacyRun converts a legacy zorg census folder and countChain 
 			assert.equal(g.unverified, w.unverified, `${w.id}.unverified`);
 		}
 	}
+
+	// 3. Verify that buildVariant (variant-transform) and measure (outcome-measure) bind pack-declared
+	//    sibling source paths read-only inside the hook sandbox (kills M7 and M8 on synthetic fixtures).
+	const siblingSrc = scratch();
+	fs.writeFileSync(path.join(siblingSrc, "SIBLING.txt"), "sibling-marker\n");
+	const dir = copyPack();
+	editJson(path.join(dir, "pack.json"), (j) => {
+		j.sources.push({ id: "sibling", path: siblingSrc, addresses: ["https://sibling.invalid"] });
+	});
+	const sibPathJson = JSON.stringify(path.join(siblingSrc, "SIBLING.txt"));
+	fs.writeFileSync(
+		path.join(dir, "hooks", "trim.mjs"),
+		`import fs from "node:fs"; import path from "node:path";\nconst i = JSON.parse(fs.readFileSync(0, "utf8"));\nconst sib = fs.readFileSync(${sibPathJson}, "utf8").trim();\nfor (const f of fs.readdirSync(i.from)) fs.writeFileSync(path.join(i.to, f), fs.readFileSync(path.join(i.from, f), "utf8") + sib + "\\n");\nconsole.log(JSON.stringify({ ok: true }));\n`,
+	);
+	fs.writeFileSync(
+		path.join(dir, "hooks", "count.mjs"),
+		`import fs from "node:fs";\nconst sib = fs.readFileSync(${sibPathJson}, "utf8").trim();\nconsole.log(JSON.stringify({ scores: { "graft-2": sib === "sibling-marker" ? 1 : 0 } }));\n`,
+	);
+	commitAll(dir);
+	const chkSib = await checkPack(dir);
+	assert.equal(chkSib.ok, true);
+	if (!chkSib.ok) throw new Error("pack invalid");
+	const vOut = path.join(scratch(), "v-out");
+	const bv = await buildVariant(chkSib.loaded, "almanac-full", "HEAD", vOut);
+	assert.equal(bv.ok, true, bv.ok ? "" : bv.reason);
+	const graftSc = chkSib.loaded.experiments.get("orchard")!.scenarios.get("graft")!.scenario;
+	const cs = await measure(chkSib.loaded, graftSc, { final: "done", diff: "", scored: null });
+	assert.deepEqual(cs.map((x) => ("value" in x ? x.value : null)), [1]);
 });
