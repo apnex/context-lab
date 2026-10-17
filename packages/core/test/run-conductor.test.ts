@@ -458,6 +458,9 @@ test("an outcome-measure hook receives outcome.snapshot and can read the phase's
 
 test("maxAttemptsPerCell: 1 disables automatic cell retries on infrastructure failure, and answerSource: 'final' splits answers from the final message without scoredFile", async () => {
 	const { dir, work, records } = await setup((d) => {
+		editJson(path.join(d, "pack.json"), (j) => {
+			j.suites = [j.suites[0]];
+		});
 		editJson(path.join(d, "experiments", "orchard.json"), (j) => {
 			j.maxAttemptsPerCell = 1;
 			j.scenarios = ["scenarios/graft.json"];
