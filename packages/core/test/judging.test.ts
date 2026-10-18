@@ -68,6 +68,32 @@ test("no outcome is judged by a judge of its own agent's family", async () => {
 	assert.ok(A.judged.length > 0 && B.judged.length > 0);
 });
 
+test("a comprehension judge prompt with judgedWith delivered shows the assigned reading, then a marker, then the answer (B22)", async () => {
+	const answer = "### orchard.Q1\nThe rootstock is quince.\n";
+	const { rd, A, B } = await run(
+		(d) => {
+			editJson(path.join(d, "experiments", "orchard.json"), (j) => { j.scenarios = ["scenarios/graft.json"]; j.factors.arms = ["almanac"]; });
+			editJson(path.join(d, "pack.json"), (j) => { j.suites = j.suites.filter((x: { id: string }) => x.id !== "pruning"); });
+			editJson(path.join(d, "scenarios", "graft.json"), (j) => {
+				j.answerSource = "final";
+				delete j.scoredFile;
+				j.properties = [{ id: "Q1", type: "comprehension", decidedBy: "judge", key: "quince", scale: [0, 2], answerHeading: "orchard.Q1", question: "Rootstock?", judgedWith: ["delivered"] }];
+			});
+		},
+		{ runtime: "opencode", work: () => outcome(answer) },
+		{ runtime: "codex", work: () => outcome(answer) },
+	);
+	const units = read<{ units: { text: string }[] }>(rd, "sealed/units.json").units;
+	assert.ok(units.length > 0);
+	for (const u of units) assert.match(u.text, /^--- ASSIGNED READING ---\n[\s\S]+\n--- ANSWER ---\nThe rootstock is quince\.\n$/);
+	const prompts = [...A.judged, ...B.judged];
+	assert.ok(prompts.length > 0);
+	for (const p of prompts) {
+		const block = p.slice(p.indexOf("--- answer a1 ---"));
+		assert.match(block, /^--- answer a1 ---\n--- ASSIGNED READING ---\n[\s\S]+\n--- ANSWER ---\nThe rootstock is quince\.\n/, block);
+	}
+});
+
 test("outcomes are masked: identifiers replaced and the workspace path removed", async () => {
 	const { rd } = await run();
 	const units = read<{ units: { text: string }[] }>(rd, "sealed/units.json").units;

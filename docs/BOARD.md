@@ -26,7 +26,6 @@ Order on the higher: a mandate breach ranks with S2 and a signal with S4; ties g
 | Row | Impact | Principle | Planned in | Finding |
 |---|---|---|---|---|
 | `B21` | S3 | A8 signal | held | Payloads carry run-identifying paths. |
-| `B22` | S3 | A8 signal | held | With `judgedWith: ["delivered"]`, nothing separates the assigned reading from the answer in a comprehension judge prompt. |
 | `B8` | S4 | A5 signal | held | Local delivery differs from fetching over a network. |
 | `B9` | S4 | A14 signal | held | Findings travelling between projects has no mechanism beyond records a project chooses to share. |
 | `B10` | S4 | A10 signal | held | No loop files context-lab's own failures as its defects. |
@@ -80,7 +79,6 @@ It carries mission-kit's adherence suite and one comprehension suite as single-p
 | Row | Impact | Principle | Finding | Revival trigger |
 |---|---|---|---|---|
 | `B21` | S3 | A8 signal | Payloads carry run-identifying paths. | before a pack whose experiment ids name its conditions is run (AGP's browser-scale design would be) |
-| `B22` | S3 | A8 signal | With `judgedWith: ["delivered"]`, nothing separates the assigned reading from the answer in a comprehension judge prompt. | before the next run of a comprehension property with `judgedWith: ["delivered"]` |
 | `B8` | S4 | A5 signal | Local delivery differs from fetching over a network. | a project's decision turns on networked behaviour |
 | `B9` | S4 | A14 signal | Findings travelling between projects has no mechanism beyond records a project chooses to share. | two projects use context-lab |
 | `B10` | S4 | A10 signal | No loop files context-lab's own failures as its defects. | the first run on the core |

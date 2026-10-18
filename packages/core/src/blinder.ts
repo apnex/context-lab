@@ -93,6 +93,13 @@ function cutDiff(diff: string, marker: string | undefined): string {
 
 const judged = (s: Scenario): Property[] => s.properties.filter((p) => p.decidedBy === "judge");
 
+/**
+ * A comprehension unit's text. With an assigned reading, the reading comes first and the answer
+ * after its own marker, so the two cannot run together once a judge prompt strips the leading one
+ * (B22); without, the answer alone, as eval.mjs's scorer had it.
+ */
+const answerUnit = (reading: string, answer: string): string => (reading ? `${reading}--- ANSWER ---\n${answer}\n` : `--- ANSWER ---\n${answer}\n`);
+
 export function blind(loaded: LoadedPack, scenarios: Map<string, Scenario>, cellsIn: CellRecord[], families: Map<string, string>, seed: string, now: () => Date = () => new Date(), ctx: MaskContext = { paths: [], literals: [] }): Blinded {
 	// Ordered by cell id first, so the seed alone fixes the mapping, whatever order cells finished in.
 	const cells = [...cellsIn].sort((a, b) => a.cell.localeCompare(b.cell));
@@ -133,7 +140,7 @@ export function blind(loaded: LoadedPack, scenarios: Map<string, Scenario>, cell
 					const withDelivered = (p.judgedWith ?? []).includes("delivered") && c.deliveredFiles?.length
 						? `--- ASSIGNED READING ---\n${c.deliveredFiles.map((d) => mask(d.text, loaded, ctx, ws).trim()).join("\n\n")}\n`
 						: "";
-					units.push({ id: "", ...base, properties: [p.id], phase: c.propertyPhases[p.id]!.phase, text: `--- ANSWER ---\n${withDelivered}${mask(answer, loaded, ctx, ws)}\n`, blindedAt: "" });
+					units.push({ id: "", ...base, properties: [p.id], phase: c.propertyPhases[p.id]!.phase, text: answerUnit(withDelivered, mask(answer, loaded, ctx, ws)), blindedAt: "" });
 				}
 			}
 			continue;
@@ -154,7 +161,7 @@ export function blind(loaded: LoadedPack, scenarios: Map<string, Scenario>, cell
 				const withDelivered = (p.judgedWith ?? []).includes("delivered") && c.deliveredFiles?.length
 					? `--- ASSIGNED READING ---\n${c.deliveredFiles.map((d) => mask(d.text, loaded, ctx, ws).trim()).join("\n\n")}\n`
 					: "";
-				units.push({ id: "", ...base, properties: [p.id], text: `--- ANSWER ---\n${withDelivered}${mask(answer, loaded, ctx, ws)}\n`, blindedAt: "" });
+				units.push({ id: "", ...base, properties: [p.id], text: answerUnit(withDelivered, mask(answer, loaded, ctx, ws)), blindedAt: "" });
 			}
 		}
 	}

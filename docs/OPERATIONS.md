@@ -150,7 +150,7 @@ Fields of a scenario file (no unknown fields are permitted):
   - `answerHeading` *(optional, string)*: heading (`#` through `######`, matching exact heading, `<prefix>.<id>`, or `<id>` followed by title text such as `## Q01 - Title`) split into an individual comprehension answer unit; requires `scoredFile` or `answerSource: "final"` on the scenario. If a heading appears more than once, the first non-empty occurrence is kept; unrequested headings (such as `Observations`) are not extracted, but an answer ends at the next heading of any level, so a subsection heading inside an answer cuts it there.
   - `question` *(optional, string)*: question text shown to comprehension judges.
   - `phase` *(optional, string)*: id of the phase in `phases` whose outcome this property scores (defaults to the last phase).
-  - `judgedWith` *(optional, array of `"note"` | `"start"` | `"delivered"`)*: includes the phase's incoming `{NOTE}`, `startDiff`, and/or the arm's delivered reading (`--- ASSIGNED READING ---`) in the blinded judge unit.
+  - `judgedWith` *(optional, array of `"note"` | `"start"` | `"delivered"`)*: includes the phase's incoming `{NOTE}`, `startDiff`, and/or the arm's delivered reading (`--- ASSIGNED READING ---`) in the blinded judge unit; for a comprehension property the reading comes first and the answer follows under `--- ANSWER ---`.
   - `guidance` *(optional, string[])*: corpus entry IDs tested by this property (used to compute comprehension-behaviour links).
   - `notes` *(optional, string)*.
 - `scoredFile` *(optional, relative path)*: file inside `{WORKSPACE}` read as the scored artifact (required if any property declares `answerHeading`, unless `answerSource` is `"final"`).
