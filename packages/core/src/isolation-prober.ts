@@ -70,13 +70,14 @@ export async function probeArm(loaded: LoadedPack, arm: ComposedArm, member: Mem
 		fs.rmdirSync(work);
 		const inv: Invocation = { arm, workspace: ws.dir, prompt: q.text, mode: adapter.modes[0]!, member, tools: "off", timeLimitSeconds: opts.timeLimitSeconds ?? 300, work };
 		let o = await adapter.invoke(inv);
-		// A tools-off probe has no on-request folders mounted; if the runtime's shell still ran a
-		// command on the first attempt, retry once in a fresh invocation before failing the probe (B19).
-		if (o.tools.length > 0) {
-			const ws2 = createWorkspace(loaded, scenario, arm, { base: path.join(opts.base, "workspaces"), rulesFiles: adapter.rulesFiles });
-			const work2 = fs.mkdtempSync(path.join(opts.base, "work", "p-"));
-			fs.rmdirSync(work2);
-			o = await adapter.invoke({ ...inv, workspace: ws2.dir, work: work2 });
+		// A tools-off probe has no on-request folders mounted; if the first attempt had a tool call or
+		// an infrastructure/provider failure (such as a 429 rate limit), retry up to two more times in a
+		// fresh invocation before failing the probe (B19).
+		for (let retry = 1; retry <= 2 && (o.tools.length > 0 || (!answeredOf(o) && !o.filtered)); retry++) {
+			const wsRetry = createWorkspace(loaded, scenario, arm, { base: path.join(opts.base, "workspaces"), rulesFiles: adapter.rulesFiles });
+			const workRetry = fs.mkdtempSync(path.join(opts.base, "work", "p-"));
+			fs.rmdirSync(workRetry);
+			o = await adapter.invoke({ ...inv, workspace: wsRetry.dir, work: workRetry, ...(o.tools.length > 0 ? { prompt: `CRITICAL: Do NOT execute any shell command or tool. Reply directly from memory only.\n\n${q.text}` } : {}) });
 		}
 		const answered = answeredOf(o);
 		let finding: ProbeAnswer["finding"] = answered ? "ok" : "unanswered";

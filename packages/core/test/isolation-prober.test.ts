@@ -78,7 +78,7 @@ test("a guided arm whose canary question was filtered fails", async () => {
 	assert.match(r.reasons.join(), /delivery is unshown/);
 });
 
-test("an answer reached by a tool call on both tries does not count; a single tool call retried cleanly passes (B19)", async () => {
+test("an answer reached by a tool call on all three tries does not count; a tool call or provider failure retried cleanly passes (B19)", async () => {
 	const { loaded, guided } = await setup();
 	const tool = { name: "command_execution", input: "cat context-lab-canary.md", status: "completed" as const, paths: [], addresses: [] };
 	const r = await probeArm(loaded, guided, member, scripted(() => outcome("The heron counts eleven stones.", { tools: [tool] })), opts());
@@ -87,9 +87,14 @@ test("an answer reached by a tool call on both tries does not count; a single to
 	assert.match(r.reasons.join(), /tool call during a probe/);
 
 	let tries = 0;
-	const r2 = await probeArm(loaded, guided, member, scripted(() => (++tries === 1 ? outcome("used tool", { tools: [tool] }) : outcome("The heron counts eleven stones."))), opts());
+	const r2 = await probeArm(loaded, guided, member, scripted(() => (++tries < 3 ? outcome("used tool", { tools: [tool] }) : outcome("The heron counts eleven stones."))), opts());
 	assert.equal(r2.pass, true);
-	assert.equal(tries, 2);
+	assert.equal(tries, 3);
+
+	let errTries = 0;
+	const r3 = await probeArm(loaded, guided, member, scripted(() => (++errTries === 1 ? outcome("", { error: { cause: "provider", name: "APIError", message: "429 rate limit" } }) : outcome("The heron counts eleven stones."))), opts());
+	assert.equal(r3.pass, true);
+	assert.equal(errTries, 2);
 });
 
 test("leak patterns are matched without regard to case", async () => {

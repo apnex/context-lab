@@ -571,8 +571,12 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 	const record = JSON.parse(fs.readFileSync(recordFile, "utf8")) as RunRecord;
 	if (record.end === "completed") throw new Error(`run ${record.run} is already completed`);
 	const stateList = record.states.map((s) => s.state);
-	if (stateList.join(",") !== "validated,recorded,built,probed") {
-		throw new Error(`run ${record.run} is at state ${stateList[stateList.length - 1] ?? "none"}; only a run stopped during execution (after probed, before executed) can be resumed`);
+	const afterExecuted = stateList.join(",") === "validated,recorded,built,probed,executed" ||
+		stateList.join(",") === "validated,recorded,built,probed,executed,measured" ||
+		stateList.join(",") === "validated,recorded,built,probed,executed,measured,blinded" ||
+		stateList.join(",") === "validated,recorded,built,probed,executed,measured,blinded,judged";
+	if (stateList.join(",") !== "validated,recorded,built,probed" && !afterExecuted) {
+		throw new Error(`run ${record.run} is at state ${stateList[stateList.length - 1] ?? "none"}; only a run stopped after probed and before tallied can be resumed`);
 	}
 	const checked = await checkPack(packDir, {
 		continueRuntimes: Object.fromEntries(Object.entries(opts.adapters).map(([k, a]) => [k, a.continue])),
@@ -616,6 +620,7 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 	const built = new Map<string, BuiltVariant>();
 	const save = (): void => write(recordFile, record);
 	const enter = (s: (typeof STATES)[number]): void => {
+		if (record.states.some((x) => x.state === s)) return;
 		const last = record.states[record.states.length - 1];
 		if (STATES.indexOf(s) !== (last ? STATES.indexOf(last.state as (typeof STATES)[number]) + 1 : 0)) throw new Error(`state ${s} out of order`);
 		record.states.push({ state: s, at: now().toISOString() });
@@ -678,8 +683,11 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 		};
 		const timeLimitSeconds = opts.timeLimitSeconds ?? record.timeLimitSeconds;
 		const remaining = allCells.filter((c) => !doneSet.has(`${c.scenario.id}.${c.arm.arm}.${c.member.id}.${c.run}`));
+		if (afterExecuted && remaining.length > 0) {
+			throw new Error(`run ${record.run} is past executed, but ${remaining.length} expected cell(s) are missing from cells/`);
+		}
 		// Refuse to resume a single-attempt run if an unrecorded cell was already dispatched (in run.json.dispatchedCells, ledgers, snapshots, workspaces or invocations).
-		if (maxAttemptsPerCell === 1) {
+		if (maxAttemptsPerCell === 1 && remaining.length > 0) {
 			const dispatchedSet = new Set(record.dispatchedCells ?? []);
 			const checkDirs = [path.join(work, "ledgers"), path.join(work, "snapshots"), path.join(work, "workspaces"), path.join(work, "invocations")];
 			for (const c of remaining) {
