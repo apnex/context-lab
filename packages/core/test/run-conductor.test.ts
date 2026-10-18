@@ -514,7 +514,7 @@ test("maxResponseBytes truncates oversized responses before answer splitting and
 	});
 	const longReply = "### orchard.Q1\nThe rootstock is quince.\n### orchard.Q2\nThe scion is pear.\n";
 	const oc = scripted("opencode", () => outcome(longReply));
-	const cx = scripted("codex", () => outcome("### orchard.Q1\nquince\n### orchard.Q2\npear"));
+	const cx = scripted("codex", () => outcome("### orchard.Q1\nq\n### orchard.Q2\np"));
 	const { dir: rd, record } = await conductRun(dir, { experiment: "orchard", adapters: { opencode: oc, codex: cx }, work, records });
 	assert.equal(record.maxAttemptsPerCell, 1);
 	assert.equal(record.snapshot.experiment?.full?.maxAttemptsPerCell, 1);
@@ -527,7 +527,7 @@ test("maxResponseBytes truncates oversized responses before answer splitting and
 	assert.equal(ocCell.answers["Q1"], "The rootstock is quince.");
 	assert.equal(ocCell.answers["Q2"], null, "Q2 beyond maxResponseBytes must be truncated before splitAnswers");
 	assert.equal(cxCell.responseBound?.truncated, false);
-	assert.equal(cxCell.answers["Q2"], "pear");
+	assert.equal(cxCell.answers["Q2"], "p");
 
 	// Test resumeRun refusing when an unrecorded cell has a partial workspace on disk under maxAttemptsPerCell: 1.
 	editJson(path.join(rd, "run.json"), (j) => {
