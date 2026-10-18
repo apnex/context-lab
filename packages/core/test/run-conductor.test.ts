@@ -499,7 +499,7 @@ test("maxResponseBytes truncates oversized responses before answer splitting and
 		editJson(path.join(d, "pack.json"), (j) => { j.suites = [j.suites[0]]; });
 		editJson(path.join(d, "experiments", "orchard.json"), (j) => {
 			j.maxAttemptsPerCell = 1;
-			j.maxResponseBytes = 42;
+			j.maxResponseBytes = 40;
 			j.scenarios = ["scenarios/graft.json"];
 			j.factors.arms = ["bare"];
 		});
@@ -518,12 +518,12 @@ test("maxResponseBytes truncates oversized responses before answer splitting and
 	const { dir: rd, record } = await conductRun(dir, { experiment: "orchard", adapters: { opencode: oc, codex: cx }, work, records });
 	assert.equal(record.maxAttemptsPerCell, 1);
 	assert.equal(record.snapshot.experiment?.full?.maxAttemptsPerCell, 1);
-	assert.equal(record.snapshot.experiment?.full?.maxResponseBytes, 42);
+	assert.equal(record.snapshot.experiment?.full?.maxResponseBytes, 40);
 	const cells = cellsOf(records);
 	const ocCell = cells.find((c) => c.member === "p1")!;
 	const cxCell = cells.find((c) => c.member === "p2")!;
 	assert.equal(ocCell.responseBound?.truncated, true);
-	assert.equal(ocCell.responseBound?.limitBytes, 42);
+	assert.equal(ocCell.responseBound?.limitBytes, 40);
 	assert.equal(ocCell.answers["Q1"], "The rootstock is quince.");
 	assert.equal(ocCell.answers["Q2"], null, "Q2 beyond maxResponseBytes must be truncated before splitAnswers");
 	assert.equal(cxCell.responseBound?.truncated, false);
