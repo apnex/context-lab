@@ -38,7 +38,7 @@ Every command takes `<pack>` (the path to the directory containing `pack.json`) 
 | `compare` | `context-lab compare <pack> <comparison> <base-run-dir> [--head DIR] [--runs K] [--nine DIR] [--nine-head DIR] [--out FILE]` | Compares `<comparison>`'s `base` and `head` arms using the rule declared on `<comparison>` (`"aa"`, `"tolerance"`, or `"improve"`). Reads the latest recorded threshold set from `<pack>/register/thresholds/<comparison>.jsonl` when present. If `--head` is omitted, reads both `base` and `head` arms from `<base-run-dir>`. `--runs K` limits the comparison to the first `K` cell runs (`run <= K`) of each arm. When `--nine` (and optional `--nine-head`) is given under `rule: "aa"`, runs stage-2 size-9 confirmation on properties flagged at stage 1. Prints the comparison JSON and writes it to `--out` if given. |
 | `pick` | `context-lab pick <pack> <run-dir> [--mode calibration\|preference] [--count N] [--with ARM] [--without ARM]` | Runs the interactive human panel in the terminal on blinded outcome pairs from `<run-dir>`. Defaults to `--mode calibration` and `--count 12` when omitted (`calibration` checks judge-person agreement; `preference` compares `--with` against `--without`). Writes `<run-dir>/picks.json` and re-tallies `<run-dir>/RESULT.json` and `<run-dir>/RESULT.md`. |
 | `candidates` | `context-lab candidates <pack> <run-dir>` | Extracts recurring findings from `<run-dir>` (wrong firings, comprehension-without-adherence gaps, and classify-then-verify chain findings meeting threshold) and writes `<run-dir>/CANDIDATES.json` and `<run-dir>/CANDIDATES.md`. |
-| `review` | `context-lab review <pack> --prompt <file> [--files <path,...>] --out <dir> [--members <id,...>] [--verify] [--parallel N] [--work <dir>]` | Orchestrates an on-demand multi-model review across model families. Selects one member per family from `<pack>`'s population by default (or the comma-separated `--members`), runs `<prompt>` (with optional comma-separated `--files` attached) in parallel, extracts structured findings, and when `--verify` is passed, sends each finding to every other family's reviewer for a boolean `supports: true\|false` verdict (recording `verdicts`, `supportingFamilies`, and `familyCount` on each finding). Writes `REVIEW.json` and `REVIEW.md` into `--out`. |
+| `review` | `context-lab review <pack> --prompt <file> [--files <path,...>] --out <dir> [--members <id,...>] [--verify] [--parallel N] [--work <dir>] [--tools on\|off] [--mount-sources] [--ro <path,...>] [--timeout <seconds>]` | Orchestrates an on-demand multi-model review across model families. Selects one member per family from `<pack>`'s population by default (or the comma-separated `--members`), runs `<prompt>` (with optional comma-separated `--files` attached; when `--tools on` is passed, gives each reviewer a writable `{WORKSPACE}`, optionally mounts `<pack>`'s `sources` read-only via `--mount-sources` with `{SOURCES}` substituted in the prompt and extra read-only paths via `--ro`, and retains `<out>/workspaces/<member>/` and `<out>/events/<member>.jsonl`), extracts structured findings (mapping `"high"\|"critical"` to `"blocking"` and `"medium"\|"major"\|"material"` to `"should-fix"`), and when `--verify` is passed, sends each finding to every other family's reviewer for a boolean `supports: true\|false` verdict (recording `verdicts`, `supportingFamilies`, and `familyCount` on each finding). Writes `REVIEW.json` and `REVIEW.md` into `--out`. |
 
 ---
 
@@ -492,13 +492,15 @@ context-lab review evals/context-lab \
   --files docs/design.md,src/index.ts \
   --out docs/reviews/out-dir \
   --verify \
-  --parallel 4
+  --parallel 4 \
+  [--tools on|off] [--mount-sources] [--ro <path,...>] [--timeout <seconds>]
 ```
 
 How `review` works and what it writes:
 
-- By default it selects one member per model family from `<pack>`'s population (or the comma-separated `--members <id,...>`).
-- Each reviewer runs in an isolated sandbox and returns structured findings (`id`, `category`, `severity`, `title`, `detail`, `file`, `line`).
+- By default it selects one member per model family from `<pack>`'s population (or the comma-separated `--members <id,...>`) and runs with `--tools off` (`--timeout 900` seconds by default).
+- When `--tools on` is passed (for example for independent stage-certification verifiers or multi-repo audits), each reviewer runs with tools enabled in its own writable `{WORKSPACE}`, `--mount-sources` mounts the pack's `sources` read-only in `bwrap` (substituting `{SOURCES}` and `{WORKSPACE}` in the prompt instead of inlining whole repositories), `--ro <path,...>` mounts additional read-only host paths (such as `~/.npm`), and each reviewer's workspace and scrubbed event log are retained at `<out>/workspaces/<member>/` and `<out>/events/<member>.jsonl`.
+- Each reviewer returns structured findings (`id`, `severity`, `title`, `evidence`, `fix`; severity aliases `"high"|"critical"` map to `"blocking"` and `"medium"|"major"|"material"` map to `"should-fix"`).
 - When `--verify` is passed, each extracted finding is sent to every reviewer of **another** model family (`verifier.family !== author.family`), which replies with a boolean `supports: true | false` and a one-sentence `reason`. The core aggregates those into `verdicts`, `supportingFamilies`, and `familyCount` on each finding.
 - Writes `REVIEW.json` and `REVIEW.md` into `--out`.
 

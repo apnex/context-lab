@@ -57,6 +57,7 @@ export interface ReviewPacket {
 	createdAt: string;
 	promptFile: string;
 	files: string[];
+	tools?: "on" | "off";
 	members: { id: string; family: string; runtime: string; model: string }[];
 	verified: boolean;
 	replies: ReviewerReply[];
@@ -68,6 +69,9 @@ export interface ReviewOptions {
 	files?: string[];
 	members?: string[];
 	verify?: boolean;
+	tools?: "on" | "off";
+	mountSources?: boolean;
+	ro?: string[];
 	outDir: string;
 	work?: string;
 	adapters: Record<string, Adapter>;
@@ -106,7 +110,13 @@ export function parseReviewFindings(raw: string): ExtractedFinding[] {
 					if (!item || typeof item !== "object") continue;
 					const o = item as Record<string, unknown>;
 					if (typeof o["id"] !== "string" || typeof o["title"] !== "string") continue;
-					const sev: ReviewSeverity = o["severity"] === "blocking" || o["severity"] === "should-fix" || o["severity"] === "minor" ? o["severity"] : "minor";
+					const rawSev = typeof o["severity"] === "string" ? o["severity"].trim().toLowerCase() : "";
+					const sev: ReviewSeverity =
+						rawSev === "blocking" || rawSev === "high" || rawSev === "critical"
+							? "blocking"
+							: rawSev === "should-fix" || rawSev === "medium" || rawSev === "major" || rawSev === "material"
+								? "should-fix"
+								: "minor";
 					out.push({
 						id: o["id"],
 						severity: sev,
@@ -242,62 +252,102 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 	for (const f of inputFiles) {
 		if (!fs.existsSync(f)) throw new Error(`review file ${f} does not exist`);
 	}
+	const extraRo = (opts.ro ?? []).map((p) => path.resolve(p));
+	for (const p of extraRo) {
+		if (!fs.existsSync(p)) throw new Error(`read-only mount ${p} does not exist`);
+	}
+	const toolsMode: "on" | "off" = opts.tools ?? "off";
+	const sourcePaths = opts.mountSources
+		? loaded.pack.sources.map((s) => path.resolve(loaded.dir, s.path)).filter((p) => fs.existsSync(p))
+		: [];
 
 	const workRoot = path.resolve(opts.work ?? path.join(os.homedir(), "context-lab-work"));
 	fs.mkdirSync(workRoot, { recursive: true });
 	const workDir = fs.mkdtempSync(path.join(workRoot, "review-"));
+	const outDir = path.resolve(opts.outDir);
+	fs.mkdirSync(outDir, { recursive: true });
 
-	// Copy any input files into a read-only folder mounted as onRequest, and inline their contents
-	// in the prompt so tools="off" invocations can read them directly with writes and network denied.
+	// Copy any input files into a read-only folder mounted as onRequest when tools="on", and inline
+	// their contents in the prompt when tools="off" (or when mountSources is not set) so tools="off"
+	// invocations can read them directly without leaving a 0o555 directory behind if interrupted.
 	const roFilesDir = path.join(workDir, "files");
-	fs.mkdirSync(roFilesDir, { recursive: true });
 	const fileBlobs: { name: string; content: string }[] = [];
 	for (const [idx, f] of inputFiles.entries()) {
 		const base = `${idx + 1}-${path.basename(f)}`;
-		const content = fs.readFileSync(f, "utf8");
-		fs.writeFileSync(path.join(roFilesDir, base), content);
-		fileBlobs.push({ name: f, content });
+		if (fs.statSync(f).isFile()) {
+			const content = fs.readFileSync(f, "utf8");
+			if (toolsMode === "on") {
+				fs.mkdirSync(roFilesDir, { recursive: true });
+				fs.writeFileSync(path.join(roFilesDir, base), content);
+			}
+			fileBlobs.push({ name: f, content });
+		}
 	}
-	makeReadOnly(roFilesDir);
+	if (toolsMode === "on" && fs.existsSync(roFilesDir)) makeReadOnly(roFilesDir);
+
+	const onRequest: { variant: string; path: string }[] = [
+		...(toolsMode === "on" && fileBlobs.length ? [{ variant: "review-files", path: roFilesDir }] : []),
+		...sourcePaths.map((p, i) => ({ variant: `source-${i + 1}`, path: p })),
+		...extraRo.map((p, i) => ({ variant: `ro-${i + 1}`, path: p })),
+	];
 
 	const arm: ComposedArm = {
 		arm: "review",
 		instructions: [],
 		folderFiles: [],
-		onRequest: inputFiles.length ? [{ variant: "review-files", path: roFilesDir }] : [],
+		onRequest,
 		canaries: [],
 		negativeCanaries: [],
 		revisions: {},
 	};
 
-	const filesBlock = fileBlobs.length
+	const inlineFiles = toolsMode === "off" || !opts.mountSources;
+	const filesBlock = inlineFiles && fileBlobs.length
 		? ["", "=== FILES UNDER REVIEW ===", ...fileBlobs.map((b) => `--- FILE: ${b.name} ---\n${b.content}`)].join("\n")
 		: "";
 
-	const reviewerPrompt = [
-		promptText.trim(),
-		filesBlock,
-		"",
-		"Emit your findings as a JSON array in a ```json fenced block of this exact shape (or [] if none):",
-		'```json\n[{"id": "F1", "severity": "blocking", "title": "one-line summary", "evidence": "file/line or quote", "fix": "concrete fix"}]\n```',
-		"Do not use any tools.",
-	].join("\n");
+	const buildReviewerPrompt = (wsDir: string): string => {
+		const substituted = promptText.trim()
+			.split("{WORKSPACE}").join(wsDir)
+			.split("{SOURCES}").join(sourcePaths.join(", "));
+		return [
+			substituted,
+			filesBlock,
+			"",
+			"Emit your findings as a JSON array in a ```json fenced block of this exact shape (or [] if none):",
+			'```json\n[{"id": "F1", "severity": "blocking", "title": "one-line summary", "evidence": "file/line or quote", "fix": "concrete fix"}]\n```',
+			...(toolsMode === "off" ? ["Do not use any tools."] : []),
+		].join("\n");
+	};
 
 	const replies: ReviewerReply[] = [];
 	try {
 		await pool(members, opts.parallel ?? 4, async (member) => {
 			const adapter = opts.adapters[member.runtime];
 			if (!adapter) throw new Error(`no adapter for runtime ${member.runtime}`);
-			const mode: DeliveryMode = adapter.modes.includes("stdin") ? "stdin" : adapter.modes.includes("attachment") ? "attachment" : adapter.modes[0]!;
+			const mode: DeliveryMode = toolsMode === "on"
+				? (adapter.modes.includes("inline") ? "inline" : adapter.modes[0]!)
+				: (adapter.modes.includes("stdin") ? "stdin" : adapter.modes.includes("attachment") ? "attachment" : adapter.modes[0]!);
 			const ws = createWorkspace(loaded, { id: "review", tags: [], fixture: null, task: "", properties: [] }, arm, { base: path.join(workDir, "workspaces"), rulesFiles: adapter.rulesFiles });
 			fs.mkdirSync(path.join(workDir, "invocations"), { recursive: true });
 			const invDir = fs.mkdtempSync(path.join(workDir, "invocations", "r-"));
 			fs.rmdirSync(invDir);
 			const inv: Invocation = {
-				arm, workspace: ws.dir, prompt: reviewerPrompt, mode, member,
-				tools: "off", timeLimitSeconds: opts.timeLimitSeconds ?? 900, work: invDir,
+				arm, workspace: ws.dir, prompt: buildReviewerPrompt(ws.dir), mode, member,
+				tools: toolsMode, timeLimitSeconds: opts.timeLimitSeconds ?? 900, work: invDir,
 			};
 			const out = await adapter.invoke(inv);
+			if (toolsMode === "on") {
+				const retainedWs = path.join(outDir, "workspaces", member.id);
+				fs.rmSync(retainedWs, { recursive: true, force: true });
+				fs.mkdirSync(path.dirname(retainedWs), { recursive: true });
+				fs.cpSync(ws.dir, retainedWs, { recursive: true });
+				if (out.events && fs.existsSync(out.events)) {
+					const eventsDir = path.join(outDir, "events");
+					fs.mkdirSync(eventsDir, { recursive: true });
+					fs.copyFileSync(out.events, path.join(eventsDir, `${member.id}.jsonl`));
+				}
+			}
 			replies.push({
 				member: member.id, family: member.family, runtime: member.runtime, model: member.model,
 				raw: out.final, findings: parseReviewFindings(out.final),
@@ -381,13 +431,12 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 			});
 		}
 
-		const outDir = path.resolve(opts.outDir);
-		fs.mkdirSync(outDir, { recursive: true });
 		const packet: ReviewPacket = {
 			pack: loaded.pack.id,
 			createdAt: now().toISOString(),
 			promptFile: path.resolve(opts.promptFile),
 			files: inputFiles,
+			...(toolsMode === "on" ? { tools: "on" } : {}),
 			members: members.map((m) => ({ id: m.id, family: m.family, runtime: m.runtime, model: m.model })),
 			verified: Boolean(opts.verify),
 			replies,

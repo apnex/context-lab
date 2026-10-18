@@ -18,7 +18,7 @@
 //   context-lab pick   <pack> <run-dir> [--mode calibration|preference] [--count N] [--with ARM] [--without ARM]
 //                                                  run the human panel on a judged run and re-tally
 //   context-lab candidates <pack> <run-dir>        write CANDIDATES.json and CANDIDATES.md for a run
-//   context-lab review <pack> --prompt <file> [--files <path,...>] --out <dir> [--members <id,...>] [--verify] [--parallel N]
+//   context-lab review <pack> --prompt <file> [--files <path,...>] --out <dir> [--members <id,...>] [--verify] [--parallel N] [--tools on|off] [--mount-sources] [--ro <path,...>] [--timeout N]
 //                                                  run a review prompt across model families and optionally cross-verify
 
 import fs from "node:fs";
@@ -111,13 +111,19 @@ switch (cmd) {
 	case "review": {
 		const promptFile = need(flag("--prompt")), outDir = need(flag("--out"));
 		const filesArg = flag("--files"), membersArg = flag("--members"), parallelArg = flag("--parallel"), workArg = flag("--work");
+		const toolsArg = flag("--tools") as "on" | "off" | undefined;
+		const roArg = flag("--ro"), timeoutArg = flag("--timeout");
 		const verify = process.argv.includes("--verify");
+		const mountSources = process.argv.includes("--mount-sources");
 		const packet = await runReview(packDir ?? "", {
-			promptFile, outDir, verify,
+			promptFile, outDir, verify, mountSources,
 			...(filesArg !== undefined ? { files: filesArg.split(",").filter(Boolean) } : {}),
 			...(membersArg !== undefined ? { members: membersArg.split(",").filter(Boolean) } : {}),
 			...(parallelArg !== undefined ? { parallel: Number(parallelArg) } : {}),
 			...(workArg !== undefined ? { work: workArg } : {}),
+			...(toolsArg === "on" || toolsArg === "off" ? { tools: toolsArg } : {}),
+			...(roArg !== undefined ? { ro: roArg.split(",").filter(Boolean) } : {}),
+			...(timeoutArg !== undefined ? { timeLimitSeconds: Number(timeoutArg) } : {}),
 			adapters: { opencode: opencodeAdapter(), codex: codexAdapter() },
 		});
 		console.log(`review ${packet.pack}: ${packet.members.length} model(s), ${packet.findings.length} finding(s), written to ${outDir}`);

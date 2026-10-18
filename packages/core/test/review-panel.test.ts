@@ -55,10 +55,7 @@ test("G7: ARCHITECTURE-TARGET.md absorbs 0025/0026/B18, and runReview refuses < 
 		async invoke(inv: Invocation) {
 			invocations.push(inv);
 			assert.equal(inv.tools, "off", "review invocations must run with tools off");
-			// Check that the mounted review-files directory is read-only (0o555).
-			for (const o of inv.arm.onRequest) {
-				assert.equal(fs.statSync(o.path).mode & 0o222, 0, "mounted review files dir must not be writable");
-			}
+			assert.equal(inv.arm.onRequest.length, 0, "tools='off' review invocations inline files and mount no 0o555 onRequest directory");
 			if (inv.prompt.includes("=== FINDINGS TO VERIFY ===")) {
 				// Verifier pass: support p1:F1 and p1b:F1b, reject p2:F2.
 				const items = [...inv.prompt.matchAll(/^- ([a-z0-9]+:F[0-9a-z]+) /gm)].map((m) => m[1]!);
@@ -110,4 +107,54 @@ test("G7: ARCHITECTURE-TARGET.md absorbs 0025/0026/B18, and runReview refuses < 
 
 	assert.equal(fs.existsSync(path.join(outDir, "REVIEW.json")), true);
 	assert.equal(fs.existsSync(path.join(outDir, "REVIEW.md")), true);
+
+	// 5. Severity aliases (high/critical -> blocking; medium/major/material -> should-fix) and --tools on with --mount-sources, --ro, --timeout, and retained workspaces/events.
+	const aliasParsed = parseReviewFindings('```json\n[{"id":"A1","severity":"high","title":"H"},{"id":"A2","severity":"critical","title":"C"},{"id":"A3","severity":"medium","title":"M"},{"id":"A4","severity":"major","title":"J"},{"id":"A5","severity":"material","title":"T"}]\n```');
+	assert.deepEqual(aliasParsed.map((x) => x.severity), ["blocking", "blocking", "should-fix", "should-fix", "should-fix"]);
+
+	const roExtra = path.join(sDir, "ro-extra");
+	fs.mkdirSync(roExtra, { recursive: true });
+	const toolsPrompt = path.join(sDir, "tools-prompt.md");
+	fs.writeFileSync(toolsPrompt, "Inspect {SOURCES} and write {WORKSPACE}/cert.md.\n");
+	const eventsSample = path.join(sDir, "sample-events.jsonl");
+	fs.writeFileSync(eventsSample, '{"type":"turn"}\n');
+
+	const toolsInvocations: Invocation[] = [];
+	const toolsAdapter = (runtime: string): Adapter => ({
+		runtime, rulesFiles: ["AGENTS.md"], modes: ["inline"], network: "detected", filesystem: "open", continue: false,
+		compaction: { onDemand: false, instructionsAfterCompaction: "unknown" }, refuse: () => null,
+		async invoke(inv: Invocation) {
+			toolsInvocations.push(inv);
+			if (inv.tools === "on") {
+				fs.writeFileSync(path.join(inv.workspace, "cert.md"), `certified by ${inv.member.id}\n`);
+				return { ...outcome('```json\n[{"id": "T1", "severity": "high", "title": "Tool finding", "evidence": "cert.md", "fix": "none"}]\n```'), events: eventsSample };
+			}
+			return outcome("```json\n[]\n```");
+		},
+	});
+	const outTools = path.join(sDir, "out-tools");
+	const toolsPacket = await runReview(dir, {
+		promptFile: toolsPrompt,
+		members: ["p1", "p2"],
+		tools: "on",
+		mountSources: true,
+		ro: [roExtra],
+		timeLimitSeconds: 450,
+		outDir: outTools,
+		work: path.join(sDir, "work-tools"),
+		adapters: { opencode: toolsAdapter("opencode"), codex: toolsAdapter("codex") },
+	});
+	assert.equal(toolsPacket.tools, "on");
+	assert.equal(toolsInvocations.length, 2);
+	for (const inv of toolsInvocations) {
+		assert.equal(inv.tools, "on");
+		assert.equal(inv.timeLimitSeconds, 450);
+		assert.equal(inv.prompt.includes("Do not use any tools."), false);
+		assert.ok(inv.prompt.includes(inv.workspace), "{WORKSPACE} must be substituted");
+		assert.ok(inv.arm.onRequest.some((o) => o.path === roExtra), "--ro path must be mounted in arm.onRequest");
+		assert.ok(inv.arm.onRequest.some((o) => o.variant.startsWith("source-")), "--mount-sources must mount pack sources in arm.onRequest");
+	}
+	assert.equal(fs.readFileSync(path.join(outTools, "workspaces", "p1", "cert.md"), "utf8").trim(), "certified by p1");
+	assert.equal(fs.readFileSync(path.join(outTools, "events", "p1.jsonl"), "utf8").trim(), '{"type":"turn"}');
+	assert.equal(toolsPacket.findings[0]?.severity, "blocking");
 });
