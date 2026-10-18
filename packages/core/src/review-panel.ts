@@ -58,6 +58,7 @@ export interface ReviewPacket {
 	promptFile: string;
 	files: string[];
 	tools?: "on" | "off";
+	sockets?: boolean;
 	members: { id: string; family: string; runtime: string; model: string }[];
 	verified: boolean;
 	replies: ReviewerReply[];
@@ -70,6 +71,7 @@ export interface ReviewOptions {
 	members?: string[];
 	verify?: boolean;
 	tools?: "on" | "off";
+	sockets?: boolean;
 	mountSources?: boolean;
 	ro?: string[];
 	outDir: string;
@@ -257,6 +259,9 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 		if (!fs.existsSync(p)) throw new Error(`read-only mount ${p} does not exist`);
 	}
 	const toolsMode: "on" | "off" = opts.tools ?? "off";
+	if (opts.sockets && toolsMode !== "on") {
+		throw new Error("--sockets requires --tools on");
+	}
 	const sourcePaths = opts.mountSources
 		? loaded.pack.sources.map((s) => path.resolve(loaded.dir, s.path)).filter((p) => fs.existsSync(p))
 		: [];
@@ -334,7 +339,8 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 			fs.rmdirSync(invDir);
 			const inv: Invocation = {
 				arm, workspace: ws.dir, prompt: buildReviewerPrompt(ws.dir), mode, member,
-				tools: toolsMode, timeLimitSeconds: opts.timeLimitSeconds ?? 900, work: invDir,
+				tools: toolsMode, ...(opts.sockets ? { sockets: true } : {}),
+				timeLimitSeconds: opts.timeLimitSeconds ?? 900, work: invDir,
 			};
 			const out = await adapter.invoke(inv);
 			if (toolsMode === "on") {
@@ -437,6 +443,7 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 			promptFile: path.resolve(opts.promptFile),
 			files: inputFiles,
 			...(toolsMode === "on" ? { tools: "on" } : {}),
+			...(opts.sockets ? { sockets: true } : {}),
 			members: members.map((m) => ({ id: m.id, family: m.family, runtime: m.runtime, model: m.model })),
 			verified: Boolean(opts.verify),
 			replies,

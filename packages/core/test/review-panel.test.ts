@@ -133,10 +133,23 @@ test("G7: ARCHITECTURE-TARGET.md absorbs 0025/0026/B18, and runReview refuses < 
 		},
 	});
 	const outTools = path.join(sDir, "out-tools");
+	await assert.rejects(
+		() => runReview(dir, {
+			promptFile: toolsPrompt,
+			members: ["p1", "p2"],
+			tools: "off",
+			sockets: true,
+			outDir: outTools,
+			work: path.join(sDir, "work-tools-bad"),
+			adapters: { opencode: toolsAdapter("opencode"), codex: toolsAdapter("codex") },
+		}),
+		/--sockets requires --tools on/,
+	);
 	const toolsPacket = await runReview(dir, {
 		promptFile: toolsPrompt,
 		members: ["p1", "p2"],
 		tools: "on",
+		sockets: true,
 		mountSources: true,
 		ro: [roExtra],
 		timeLimitSeconds: 450,
@@ -145,9 +158,11 @@ test("G7: ARCHITECTURE-TARGET.md absorbs 0025/0026/B18, and runReview refuses < 
 		adapters: { opencode: toolsAdapter("opencode"), codex: toolsAdapter("codex") },
 	});
 	assert.equal(toolsPacket.tools, "on");
+	assert.equal(toolsPacket.sockets, true);
 	assert.equal(toolsInvocations.length, 2);
 	for (const inv of toolsInvocations) {
 		assert.equal(inv.tools, "on");
+		assert.equal(inv.sockets, true);
 		assert.equal(inv.timeLimitSeconds, 450);
 		assert.equal(inv.prompt.includes("Do not use any tools."), false);
 		assert.ok(inv.prompt.includes(inv.workspace), "{WORKSPACE} must be substituted");

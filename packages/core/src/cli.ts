@@ -18,7 +18,7 @@
 //   context-lab pick   <pack> <run-dir> [--mode calibration|preference] [--count N] [--with ARM] [--without ARM]
 //                                                  run the human panel on a judged run and re-tally
 //   context-lab candidates <pack> <run-dir>        write CANDIDATES.json and CANDIDATES.md for a run
-//   context-lab review <pack> --prompt <file> [--files <path,...>] --out <dir> [--members <id,...>] [--verify] [--parallel N] [--tools on|off] [--mount-sources] [--ro <path,...>] [--timeout N]
+//   context-lab review <pack> --prompt <file> [--files <path,...>] --out <dir> [--members <id,...>] [--verify] [--parallel N] [--tools on|off] [--sockets] [--mount-sources] [--ro <path,...>] [--timeout N]
 //                                                  run a review prompt across model families and optionally cross-verify
 
 import fs from "node:fs";
@@ -115,8 +115,9 @@ switch (cmd) {
 		const roArg = flag("--ro"), timeoutArg = flag("--timeout");
 		const verify = process.argv.includes("--verify");
 		const mountSources = process.argv.includes("--mount-sources");
+		const sockets = process.argv.includes("--sockets");
 		const packet = await runReview(packDir ?? "", {
-			promptFile, outDir, verify, mountSources,
+			promptFile, outDir, verify, mountSources, sockets,
 			...(filesArg !== undefined ? { files: filesArg.split(",").filter(Boolean) } : {}),
 			...(membersArg !== undefined ? { members: membersArg.split(",").filter(Boolean) } : {}),
 			...(parallelArg !== undefined ? { parallel: Number(parallelArg) } : {}),

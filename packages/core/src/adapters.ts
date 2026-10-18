@@ -26,6 +26,8 @@ export interface Invocation {
 	mode: DeliveryMode;
 	member: Member;
 	tools: "on" | "off";
+	/** When true (requires tools: "on"), permits local socket creation in runtimes whose workspace sandbox blocks it (Codex). */
+	sockets?: boolean;
 	timeLimitSeconds: number;
 	/** An empty folder for this invocation alone: configuration, home, events. */
 	work: string;
@@ -119,6 +121,7 @@ function scrubOutcome(o: Outcome, secrets: string[]): Outcome {
 
 function commonRefusals(inv: Invocation, adapter: Adapter, resumeModes: DeliveryMode[] = []): string | null {
 	if (!adapter.modes.includes(inv.mode)) return `delivery mode ${inv.mode} is not one ${adapter.runtime} supports (${adapter.modes.join(", ")})`;
+	if (inv.sockets && inv.tools === "off") return "sockets cannot be enabled when tools are off";
 	const c = inv.continueFrom;
 	if (c === undefined) return null;
 	if (!adapter.continue) return `${adapter.runtime} does not continue sessions`;
@@ -349,6 +352,9 @@ export function codexAdapter(opts: CodexOptions = {}): Adapter {
 			// Hosted tools reach the web outside the sandbox: a live check found Codex opening a page
 			// through its apps connector with web search disabled. Each is switched off by name.
 			lines.push("", "[features]", ...CODEX_FEATURES_OFF.map((f) => `${f} = false`));
+			if (inv.sockets && inv.tools === "on") {
+				lines.push("", "[sandbox_workspace_write]", "network_access = true");
+			}
 			fs.writeFileSync(path.join(codexHome, "config.toml"), lines.join("\n") + "\n");
 			const vendor = opts.vendor ?? codexVendor(env);
 			const binary = opts.binary ?? path.join(vendor, "bin", "codex");
