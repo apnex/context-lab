@@ -266,3 +266,66 @@ export function faultProfile(
 	}
 	return out;
 }
+
+// ---------------------------------------------------------------- on-request hydration profile
+
+export interface HydrationRow {
+	scenario: string;
+	arm: string;
+	guidance: string;
+	cells: number;
+	hydrated: number;
+	rate: number;
+	membersHydrated: string[];
+	membersMissed: string[];
+}
+
+/**
+ * Per `(scenario, arm, guidance)`: how many valid cells whose arm delivered `on-request` folders
+ * opened or read a file matching the guidance entry id (e.g. `A3-sovereign-composition.md` or
+ * `S15-message-to-a-human.md`) during their episode.
+ */
+export function hydrationProfile(
+	cells: Pick<CellRecord, "cell" | "scenario" | "arm" | "member" | "valid" | "attempts">[],
+	scenarios: Map<string, Scenario>,
+	propertiesOf: (s: Scenario) => Property[],
+	onRequestArms?: Set<string>,
+): HydrationRow[] {
+	const map = new Map<string, { scenario: string; arm: string; guidance: string; hydrated: Set<string>; missed: Set<string>; cells: number }>();
+	for (const c of cells) {
+		if (!c.valid) continue;
+		if (onRequestArms !== undefined && !onRequestArms.has(c.arm)) continue;
+		const s = scenarios.get(c.scenario);
+		if (!s) continue;
+		const ids = [...new Set(propertiesOf(s).flatMap((p) => p.guidance ?? []))].sort();
+		if (ids.length === 0) continue;
+		const last = c.attempts[c.attempts.length - 1];
+		const tools = [
+			...(last?.outcome?.tools ?? []),
+			...(last?.phases?.flatMap((p) => p.outcome?.tools ?? []) ?? []),
+		];
+		const touchedText = tools.map((t) => `${(t.paths ?? []).join(" ")} ${JSON.stringify(t.input ?? {})}`).join(" ");
+		for (const id of ids) {
+			const re = new RegExp(`(?:^|[\\\\/"'\\s])${id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-`, "i");
+			const didHydrate = re.test(touchedText);
+			const key = JSON.stringify([c.scenario, c.arm, id]);
+			const row = map.get(key) ?? { scenario: c.scenario, arm: c.arm, guidance: id, hydrated: new Set<string>(), missed: new Set<string>(), cells: 0 };
+			row.cells++;
+			if (didHydrate) row.hydrated.add(c.member);
+			else row.missed.add(c.member);
+			map.set(key, row);
+		}
+	}
+	return [...map.values()]
+		.sort((a, b) => a.scenario.localeCompare(b.scenario) || a.arm.localeCompare(b.arm) || a.guidance.localeCompare(b.guidance))
+		.map((r) => ({
+			scenario: r.scenario,
+			arm: r.arm,
+			guidance: r.guidance,
+			cells: r.cells,
+			hydrated: r.hydrated.size,
+			rate: r.cells > 0 ? r.hydrated.size / r.cells : 0,
+			membersHydrated: [...r.hydrated].sort(),
+			membersMissed: [...r.missed].filter((m) => !r.hydrated.has(m)).sort(),
+		}));
+}

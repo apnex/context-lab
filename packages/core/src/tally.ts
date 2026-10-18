@@ -17,7 +17,7 @@ import type { Unit, Absent } from "./blinder.js";
 import type { Vote } from "./judge-panel.js";
 import type { CellRecord } from "./run-conductor.js";
 import { propertiesOf, type Experiment, type Scenario } from "./pack-schema.js";
-import { FAULT_KINDS, detectable, faultProfile, linkRates, type Detectable, type FaultRow, type LinkRow, type RestatedFlag } from "./measures.js";
+import { FAULT_KINDS, detectable, faultProfile, hydrationProfile, linkRates, type Detectable, type FaultRow, type HydrationRow, type LinkRow, type RestatedFlag } from "./measures.js";
 import type { Exposure } from "./experiment-register.js";
 import { tallyHumanPicks, type HumanPicksTally, type PicksRecord } from "./human-panel.js";
 import { countChain, type ChainCountResult, type ChainRecord } from "./judging-chain.js";
@@ -79,6 +79,8 @@ export interface Result {
 	exposed: Exposure[];
 	/** The comprehension-behaviour link, per member, arm and guidance id. */
 	link: LinkRow[];
+	/** Per scenario, arm and guidance id: how often valid cells opened or read the target guidance entry from on-request context. */
+	hydration?: HydrationRow[];
 	/** Notes and final messages sharing a run of words with a delivered instruction or folder file. */
 	restated: RestatedFlag[];
 	/** The stated variation and default, beside the difference detectable per scope. */
@@ -241,6 +243,7 @@ export function tally(t: TallyInput): Result {
 	const unreachable = t.cells.filter((c) => c.attempts.some((a) => (a.unreachable ?? []).length > 0)).map((c) => c.cell);
 	const mainCells = t.cells.filter((c) => !isHeldOut(c.scenario));
 	const link = linkRates(mainCells, cellValues, t.scenarios, propertiesOf);
+	const hydration = hydrationProfile(mainCells, t.scenarios, propertiesOf);
 	const valuesOf = (sid: string, pid: string): Record<string, number[]> => Object.fromEntries(t.arms.map((a) => [a, mainCells
 		.filter((c) => c.scenario === sid && c.arm === a && cellValues[c.cell] !== undefined).map((c) => cellValues[c.cell]![pid]).filter((x): x is number => typeof x === "number")]));
 	const mainProps = [...t.scenarios.values()].filter((s) => !s.heldOut).flatMap((s) => propertiesOf(s).map((p) => ({ scenario: s.id, property: p, byArm: valuesOf(s.id, p.id) })));
@@ -262,7 +265,7 @@ export function tally(t: TallyInput): Result {
 			heldOutScenarios: heldOutSet,
 		})
 		: null;
-	return { run: t.run, status: t.status, arms: t.arms, members: t.members, properties, totals, excluded, absent: t.absent.filter((a) => !heldCell(a.cell)), guesses, faults, unreachable, cellValues, heldOut, heldOutCellValues, heldOutAbsent: t.absent.filter((a) => heldCell(a.cell)), heldOutGuesses, exposed, link, restated, variation, ...(humanPicks ? { humanPicks } : {}), ...(chain ? { chain } : {}) };
+	return { run: t.run, status: t.status, arms: t.arms, members: t.members, properties, totals, excluded, absent: t.absent.filter((a) => !heldCell(a.cell)), guesses, faults, unreachable, cellValues, heldOut, heldOutCellValues, heldOutAbsent: t.absent.filter((a) => heldCell(a.cell)), heldOutGuesses, exposed, link, ...(hydration.length ? { hydration } : {}), restated, variation, ...(humanPicks ? { humanPicks } : {}), ...(chain ? { chain } : {}) };
 }
 
 /** A warning where a difference of the stated size would usually go undetected, in the stated scope. */
@@ -318,6 +321,13 @@ export function resultMarkdown(r: Result, limits: string[]): string {
 		"## Comprehension and behaviour", "",
 		...(r.link.length ? ["| Member | Arm | Guidance | pairs | met, met | met, not | not, met | neither |", "|---|---|---|---|---|---|---|---|", ...r.link.map((l) => `| ${l.member} | ${l.arm} | ${l.guidance} | ${l.pairs} | ${l.metMet.toFixed(2)} | ${l.metNot.toFixed(2)} | ${l.notMet.toFixed(2)} | ${l.neither.toFixed(2)} |`), "", "A correlation, not a cause."] : ["No episode scored a comprehension and an adherence property naming the same guidance."]),
 		"",
+		...(r.hydration?.length ? [
+			"## On-request guidance hydration", "",
+			"| Scenario | Arm | Guidance | Hydrated / cells | Rate | Members hydrated | Members missed |",
+			"|---|---|---|---|---|---|---|",
+			...r.hydration.map((h) => `| ${h.scenario} | ${h.arm} | ${h.guidance} | ${h.hydrated}/${h.cells} | ${Math.round(h.rate * 100)}% | ${h.membersHydrated.join(", ") || "-"} | ${h.membersMissed.join(", ") || "-"} |`),
+			"",
+		] : []),
 		"## Restated guidance", "",
 		...(r.restated.length ? [`Diagnostic only; flags change no score. ${r.restated.length} flag(s):`, "", ...r.restated.map((f) => `- ${f.cell}, ${f.phase}, ${f.source} ${f.path}, shares ${f.words.split(" ").length} words with ${f.delivered.file} (${f.delivered.path}): "${f.words}"`)] : ["No note or final message shares a run of twelve words with a delivered file."]),
 		"",

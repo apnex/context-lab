@@ -22,7 +22,7 @@ export { blind, mask, shuffle, type Absent, type Blinded, type Unit } from "./bl
 export { EMPTY_ARM, assignJudges, judgeAll, judgeEligible, validate, type JudgeReplyRecord, type PanelOptions, type Vote } from "./judge-panel.js";
 export { resultMarkdown, tally, type GuessBucket, type PropertyGuessBucket, type PropertyResult, type Rate, type Result, type TallyInput } from "./tally.js";
 export { NO_NOTE, assignTraps, phasePrompt, propertyPhase, runEpisode, Ledger, type EpisodeResult, type EpisodeRun, type PhaseRecord, type TrapAssignment } from "./episode.js";
-export { FAULT_KINDS, RESTATED_RUN, classifyFaultKind, detectable, detectableDifference, faultProfile, linkRates, met, sharedRun, words, type Detectable, type FaultKind, type FaultRow, type LinkRow, type RestatedFlag } from "./measures.js";
+export { FAULT_KINDS, RESTATED_RUN, classifyFaultKind, detectable, detectableDifference, faultProfile, hydrationProfile, linkRates, met, sharedRun, words, type Detectable, type FaultKind, type FaultRow, type HydrationRow, type LinkRow, type RestatedFlag } from "./measures.js";
 export { MIN_POOL, SIZES, SPLITS, assertIdenticalArms, compare, deriveThresholds, readTable, readThresholds, recordThresholds, standardisedDrop, thresholdFile, type CompareInput, type ComparisonResult, type Flag, type Side, type Table, type ThresholdSet } from "./comparison.js";
 export { runFlags, type RunFlags } from "./cli-flags.js";
 export { chooseCalibrationPairs, choosePreferencePairs, flipFor, type CalibrationOptions, type CalibrationPair, type PreferenceItem, type PreferencePair } from "./pair-chooser.js";

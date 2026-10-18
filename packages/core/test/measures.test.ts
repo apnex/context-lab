@@ -8,7 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import {
-	CANARY_QUESTION, checkPack, conductRun, detectable, detectableDifference, exposureFile, linkRates, propertiesOf, readExposures, recordExperiment, recordExposure,
+	CANARY_QUESTION, checkPack, conductRun, detectable, detectableDifference, exposureFile, hydrationProfile, linkRates, propertiesOf, readExposures, recordExperiment, recordExposure,
 	sharedRun, tallyRun, words, type Adapter, type Invocation, type Outcome, type Property, type Scenario,
 } from "../src/index.js";
 import { commitAll, copyPack, editJson, isJudgePrompt, judgeReply, scratch } from "./helpers.js";
@@ -329,4 +329,45 @@ test("F10: the expose command appends an entry and refuses a scenario that is no
 	const lines = fs.readFileSync(path.join(dir, "register", "exposure.jsonl"), "utf8").trim().split("\n");
 	assert.equal(lines.length, 1);
 	assert.deepEqual(Object.keys(JSON.parse(lines[0]!)), ["scenario", "change", "recordedAt"]);
+});
+
+test("hydrationProfile counts valid cells whose tool trace opened or read the target guidance entry", () => {
+	const s: Scenario = {
+		id: "adherence-a3",
+		tags: [],
+		fixture: null,
+		task: "t",
+		properties: [prop("a3-1", "adherence", ["A3"])],
+	};
+	const cells = [
+		{
+			cell: "adherence-a3.on-trigger.a.1",
+			scenario: "adherence-a3",
+			arm: "on-trigger",
+			member: "a",
+			valid: true,
+			attempts: [{ attempt: 1, validity: { valid: true as const }, outcome: outcome("ok", { tools: [{ name: "read", input: {}, status: "completed", paths: ["/work/variants/corpus/axioms/A3-sovereign-composition.md"], addresses: [] }] }), diff: null }],
+		},
+		{
+			cell: "adherence-a3.on-trigger.c.1",
+			scenario: "adherence-a3",
+			arm: "on-trigger",
+			member: "c",
+			valid: true,
+			attempts: [{ attempt: 1, validity: { valid: true as const }, outcome: outcome("ok", { tools: [] }), diff: null }],
+		},
+	];
+	const rows = hydrationProfile(cells, new Map([["adherence-a3", s]]), propertiesOf);
+	assert.deepEqual(rows, [
+		{
+			scenario: "adherence-a3",
+			arm: "on-trigger",
+			guidance: "A3",
+			cells: 2,
+			hydrated: 1,
+			rate: 0.5,
+			membersHydrated: ["a"],
+			membersMissed: ["c"],
+		},
+	]);
 });
