@@ -14,6 +14,27 @@ test("an answer file is split under its headings, absent answers are null, and m
 	assert.deepEqual(Object.fromEntries(m), { X1: "First.", X2: null, X3: "Third." });
 });
 
+test("splitAnswers accepts heading levels # through ######, trailing titles after the id, reordered headings, and keeps the first non-empty duplicate while ignoring Observations", () => {
+	const text = [
+		"# Q02 - Second question",
+		"Answer two.",
+		"## Q01: First question",
+		"",
+		"#### Q01 - Duplicate with content",
+		"Answer one.",
+		"###### Q01 - Later duplicate ignored",
+		"Should not overwrite.",
+		"## Observations",
+		"Trailing observations ignored.",
+	].join("\n");
+	const m = splitAnswers(text, ["Q01", "Q02", "Q03"]);
+	assert.deepEqual(Object.fromEntries(m), {
+		Q01: "Answer one.",
+		Q02: "Answer two.",
+		Q03: null,
+	});
+});
+
 test("a prompt is the instructions, preamble and task, with placeholders filled", () => {
 	const exp = { id: "e", declaredStatus: "result", scenarios: [], factors: { arms: [], population: [] }, runsPerCell: 1, phases: [{ id: "p", session: "new" }], instructions: "Read only files under {ON_REQUEST}.", preamble: "The human is busy." } as Experiment;
 	const sc = { id: "s", tags: [], fixture: null, task: "Write the message.", properties: [] } as Scenario;

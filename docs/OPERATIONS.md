@@ -86,7 +86,7 @@ Top-level fields of `pack.json` (no unknown fields are permitted):
   - `settings` *(optional, object)*: for `"opencode"`, supports `"outputTokenMax"` (positive integer, e.g. `1048576`) and `"reasoningEffort"`; for `"codex"`, supports `"reasoningEffort"` (e.g. `"high"`).
 - `hooks` *(required, array)*: `[]` if none, or objects with:
   - `id` *(required, lowercase slug)*
-  - `kind` *(required)*: `"declaration-check"` | `"variant-transform"` | `"outcome-measure"` | `"note-generator"` (`outcome-measure` hooks receive `{ scenario, properties, outcome: { final, diff, scored, snapshot } }` on stdin, with `outcome.snapshot` mounted read-only inside the `bwrap` sandbox so the hook can inspect the agent's workspace tree directly).
+  - `kind` *(required)*: `"declaration-check"` | `"variant-transform"` | `"outcome-measure"` | `"note-generator"` (`outcome-measure` hooks receive `{ scenario, properties, outcome: { final, rawFinal, diff, scored, rawScored, snapshot } }` on stdin, where `final` and `scored` are the effective bounded strings when `maxResponseBytes` is set, `rawFinal` and `rawScored` hold the untruncated text, and `outcome.snapshot` is mounted read-only inside the `bwrap` sandbox).
   - `file` *(required, relative path)*: script path inside the pack.
   - `timeLimitSeconds` *(required, positive integer)*.
 - `masks` *(required, object)*:
@@ -146,10 +146,10 @@ Fields of a scenario file (no unknown fields are permitted):
   - `scale` *(required, `[number, number]`)*: `[low, high]` with `low < high` (e.g. `[0, 1]` or `[0, 2]`).
   - `measure` *(optional, string)*: required when `decidedBy` is `"code"` (id of an `"outcome-measure"` hook); must be omitted when `decidedBy` is `"judge"`.
   - `rubric` *(optional, string)*: scoring rubric for judges.
-  - `answerHeading` *(optional, string)*: heading under `scoredFile` (`### <answerHeading>`) split into an individual comprehension answer unit; requires `scoredFile` on the scenario.
+  - `answerHeading` *(optional, string)*: heading (`#` through `######`, matching exact heading, `<prefix>.<id>`, or `<id>` followed by title text such as `## Q01 - Title`) split into an individual comprehension answer unit; requires `scoredFile` or `answerSource: "final"` on the scenario. If a heading appears more than once, the first non-empty occurrence is kept; unrequested headings (such as `Observations`) are ignored.
   - `question` *(optional, string)*: question text shown to comprehension judges.
   - `phase` *(optional, string)*: id of the phase in `phases` whose outcome this property scores (defaults to the last phase).
-  - `judgedWith` *(optional, array of `"note"` | `"start"`)*: includes the phase's incoming `{NOTE}` and/or `startDiff` in the blinded judge unit.
+  - `judgedWith` *(optional, array of `"note"` | `"start"` | `"delivered"`)*: includes the phase's incoming `{NOTE}`, `startDiff`, and/or the arm's delivered reading (`--- ASSIGNED READING ---`) in the blinded judge unit.
   - `guidance` *(optional, string[])*: corpus entry IDs tested by this property (used to compute comprehension-behaviour links).
   - `notes` *(optional, string)*.
 - `scoredFile` *(optional, relative path)*: file inside `{WORKSPACE}` read as the scored artifact (required if any property declares `answerHeading`, unless `answerSource` is `"final"`).
@@ -454,7 +454,7 @@ Before executing any remaining cells, `resume` verifies four preconditions again
 1. **Lifecycle state:** the run reached state `probed`, has not yet entered `executed`, and its `end` field is not `"completed"`.
 2. **Register and routes:** the experiment's current content hash in `register/<experiment>.json` and every member's adapter `route` match what `run.json` recorded when the run started.
 3. **Variant manifests:** every built variant directory under the working folder still matches its recorded `VariantManifest` in `run.json`.
-4. **Recorded cells:** every cell listed in `run.json` has a present, well-formed `cells/<cell>.json` file on disk.
+4. **Recorded cells and single-attempt dispatch guard:** every cell listed in `run.json` has a present, well-formed `cells/<cell>.json` file on disk; and under `maxAttemptsPerCell: 1`, `resume` also verifies that `--work` matches `run.json.work` and exists on disk, and that no unfinished cell appears in `run.json.dispatchedCells` or has a ledger/snapshot/workspace/invocation directory on disk.
 
 Once verified, `resume` executes only the unfinished cells, records `resumedAt` in `run.json`, and runs `measured -> blinded -> judged -> tallied` to completion.\
 (`resume` is specifically for runs that stopped before `executed`; a run that already reached `executed` has all cell outcomes on disk.)

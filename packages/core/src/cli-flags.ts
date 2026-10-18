@@ -4,7 +4,13 @@
 export interface RunFlags { runsPerCell?: number; maxAttemptsPerCell?: 1 | 2; parallel?: number; work?: string; revision?: string }
 
 export function runFlags(argv: string[]): RunFlags {
-	const flag = (n: string): string | undefined => { const i = argv.indexOf(n); return i > 0 ? argv[i + 1] : undefined; };
+	const flag = (n: string): string | undefined => {
+		const i = argv.indexOf(n);
+		if (i <= 0) return undefined;
+		const next = argv[i + 1];
+		if (next === undefined || next.startsWith("--")) throw new Error(`${n} requires a value`);
+		return next;
+	};
 	const runs = flag("--runs"), maxAttempts = flag("--max-attempts"), parallel = flag("--parallel"), work = flag("--work"), revision = flag("--revision");
 	let m: 1 | 2 | undefined;
 	if (maxAttempts !== undefined) {

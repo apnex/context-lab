@@ -142,7 +142,7 @@ function experimentShape(raw: unknown, where: string, out: Defect[]): raw is Exp
 function scenarioShape(raw: unknown, where: string, out: Defect[]): raw is Scenario {
 	const before = out.length;
 	if (!shape(raw, where, { id: "string", tags: "string[]", fixture: fixtureShape, task: "string", properties: "array" }, { heldOut: "boolean", start: "string", scoring: "string", scoredFile: "string", answerSource: oneOf(["scored-file", "final"]), maxResponseBytes: positiveInt, notes: "string", phases: "array", trapPairs: "array" }, out)) return false;
-	const propOptional: Record<string, Shape> = { guidance: "string[]", measure: "string", rubric: "string", notes: "string", answerHeading: "string", question: "string", phase: "string", judgedWith: (v: unknown) => Array.isArray(v) && v.every((x) => x === "note" || x === "start") };
+	const propOptional: Record<string, Shape> = { guidance: "string[]", measure: "string", rubric: "string", notes: "string", answerHeading: "string", question: "string", phase: "string", judgedWith: (v: unknown) => Array.isArray(v) && v.every((x) => x === "note" || x === "start" || x === "delivered") };
 	eachShape(raw["properties"], `${where}.properties`, { id: "string", type: oneOf(PROPERTY_TYPES), decidedBy: oneOf(DECIDERS), key: "string", scale: pair }, propOptional, out);
 	const noteShape = (v: unknown): boolean => isObj(v) && Object.keys(v).length === 1 && (typeof v["file"] === "string" || typeof v["generator"] === "string");
 	eachShape(raw["phases"], `${where}.phases`, { id: "string", session: oneOf(["new", "continue"]) }, { task: "string", after: "string", note: noteShape, withhold: "string[]" }, out);

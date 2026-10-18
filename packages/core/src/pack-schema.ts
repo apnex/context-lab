@@ -153,8 +153,8 @@ export interface Property {
 	question?: string;
 	/** The phase whose outcome the property is judged on; the scenario's last phase if not given. */
 	phase?: string;
-	/** What a judge is shown beside the phase's outcome: the note the phase was given, or the changes it started from. */
-	judgedWith?: ("note" | "start")[];
+	/** What a judge is shown beside the phase's outcome: the note the phase was given, the changes it started from, or the arm's delivered reading ("delivered"). */
+	judgedWith?: ("note" | "start" | "delivered")[];
 }
 
 export interface InlineFixture {

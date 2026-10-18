@@ -42,12 +42,13 @@ export interface JudgeReplyRecord {
 	attempt: number;
 	prompt: string;
 	local: Record<string, string>;
+	work?: string;
 	eligible: boolean;
 	ineligibleReason: string | null;
 	final: string;
 	tools: number;
 	error: string | null;
-	outcome: Outcome;
+	outcome: Outcome | null;
 }
 
 /** Whether a judge invocation is eligible to cast votes: zero tools, clean exit (0), completed stop, not filtered, no error, and non-empty reply. */
@@ -232,21 +233,32 @@ export async function judgeAll(o: PanelOptions): Promise<Vote[]> {
 				const inv = fs.mkdtempSync(path.join(o.work, "judging", "invocations", "j-"));
 				fs.rmdirSync(inv);
 				const invocation: Invocation = { arm: EMPTY_ARM, workspace: ws.dir, prompt: text, mode, member: job.judge, tools: "off", timeLimitSeconds: o.timeLimitSeconds, work: inv };
+				const localMap = Object.fromEntries([...local.entries()].map(([k, u]) => [k, u.id]));
+				const entry: JudgeReplyRecord = {
+					attempt, prompt: text, local: localMap, work: inv,
+					eligible: false, ineligibleReason: "invocation did not complete",
+					final: "", tools: 0, error: null, outcome: null,
+				};
+				record.replies.push(entry);
 				const out = await adapter.invoke(invocation);
 				const elig = judgeEligible(out);
-				const localMap = Object.fromEntries([...local.entries()].map(([k, u]) => [k, u.id]));
-				record.replies.push({
-					attempt, prompt: text, local: localMap,
-					eligible: elig.eligible, ineligibleReason: elig.reason,
-					final: out.final, tools: out.tools.length, error: out.error?.message ?? null,
-					outcome: out,
-				});
+				entry.eligible = elig.eligible;
+				entry.ineligibleReason = elig.reason;
+				entry.final = out.final;
+				entry.tools = out.tools.length;
+				entry.error = out.error?.message ?? null;
+				entry.outcome = out;
 				if (!elig.eligible) continue;
 				const reply = job.answers ? parseAnswerReply(out.final) : parseOutcomeReply(out.final);
 				got = [...got, ...validate(reply, local, job.scenario, job.judge, job.name, job.answers ? [] : o.guessOptions, attempt)];
 			}
 		} catch (e) {
 			record.failure = String(e).slice(0, 1000);
+			const lastReply = record.replies[record.replies.length - 1];
+			if (lastReply && lastReply.outcome === null) {
+				lastReply.ineligibleReason = `invocation threw: ${record.failure}`;
+				lastReply.error = record.failure;
+			}
 		}
 		fs.writeFileSync(path.join(o.recordsDir, "judging", `${job.name}.json`), JSON.stringify(record, null, 2) + "\n");
 		votes.push(...got);

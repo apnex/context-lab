@@ -12,8 +12,12 @@ import type { LoadedPack, Scenario } from "./pack-schema.js";
 
 export interface MeasuredOutcome {
 	final: string;
+	/** The raw untruncated final message, when `final` was bounded by `maxResponseBytes`. */
+	rawFinal?: string;
 	diff: string;
 	scored: string | null;
+	/** The raw untruncated scored file content, when `scored` was bounded by `maxResponseBytes`. */
+	rawScored?: string | null;
 	/** Read-only path to the phase's ending workspace snapshot on disk, if present. */
 	snapshot?: string | null;
 }

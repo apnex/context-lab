@@ -121,12 +121,20 @@ export function blind(loaded: LoadedPack, scenarios: Map<string, Scenario>, cell
 				if (po.traps.length) parts.push(`--- PASSAGES THIS AGENT WAS GIVEN ---\n${po.traps.join("\n")}`);
 				if (withs.includes("note")) parts.push(`--- NOTE THIS SESSION WAS GIVEN ---\n${mask(po.note ?? "(none)", loaded, ctx, ws)}`);
 				if (withs.includes("start")) parts.push(`--- CHANGES THIS SESSION STARTED FROM ---\n${mask(cutDiff(po.startDiff, marker), loaded, ctx, ws).trim() || "(none)"}`);
+				if (withs.includes("delivered") && c.deliveredFiles?.length) {
+					parts.push(`--- ASSIGNED READING ---\n${c.deliveredFiles.map((d) => mask(d.text, loaded, ctx, ws).trim()).join("\n\n")}`);
+				}
 				units.push({ id: "", ...base, properties: ps.map((p) => p.id), phase, text: parts.join("\n") + "\n", blindedAt: "" });
 			}
 			for (const p of props.filter((x) => x.answerHeading !== undefined)) {
 				const answer = c.answers[p.id];
 				if (answer === null || answer === undefined || answer.trim() === "") absent.push({ cell: c.cell, property: p.id });
-				else units.push({ id: "", ...base, properties: [p.id], phase: c.propertyPhases[p.id]!.phase, text: `--- ANSWER ---\n${mask(answer, loaded, ctx, ws)}\n`, blindedAt: "" });
+				else {
+					const withDelivered = (p.judgedWith ?? []).includes("delivered") && c.deliveredFiles?.length
+						? `--- ASSIGNED READING ---\n${c.deliveredFiles.map((d) => mask(d.text, loaded, ctx, ws).trim()).join("\n\n")}\n`
+						: "";
+					units.push({ id: "", ...base, properties: [p.id], phase: c.propertyPhases[p.id]!.phase, text: `--- ANSWER ---\n${withDelivered}${mask(answer, loaded, ctx, ws)}\n`, blindedAt: "" });
+				}
 			}
 			continue;
 		}
@@ -142,7 +150,12 @@ export function blind(loaded: LoadedPack, scenarios: Map<string, Scenario>, cell
 		for (const p of judged(s).filter((x) => x.answerHeading !== undefined)) {
 			const answer = c.answers[p.id];
 			if (answer === null || answer === undefined || answer.trim() === "") absent.push({ cell: c.cell, property: p.id });
-			else units.push({ id: "", ...base, properties: [p.id], text: `--- ANSWER ---\n${mask(answer, loaded, ctx, ws)}\n`, blindedAt: "" });
+			else {
+				const withDelivered = (p.judgedWith ?? []).includes("delivered") && c.deliveredFiles?.length
+					? `--- ASSIGNED READING ---\n${c.deliveredFiles.map((d) => mask(d.text, loaded, ctx, ws).trim()).join("\n\n")}\n`
+					: "";
+				units.push({ id: "", ...base, properties: [p.id], text: `--- ANSWER ---\n${withDelivered}${mask(answer, loaded, ctx, ws)}\n`, blindedAt: "" });
+			}
 		}
 	}
 	const ordered = shuffle(units, seed);

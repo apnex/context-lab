@@ -488,14 +488,24 @@ test("maxAttemptsPerCell: 1 disables automatic cell retries on infrastructure fa
 	assert.equal(cxCell.answers["Q1"], "The rootstock is quince.");
 });
 
-test("maxResponseBytes truncates oversized responses before answer splitting and records responseBound; runFlags rejects invalid --max-attempts; resumeRun preserves maxAttemptsPerCell and refuses partial unrecorded attempts under maxAttemptsPerCell: 1", async () => {
+test("maxResponseBytes truncates oversized responses before answer splitting and measurement and records responseBound; runFlags rejects invalid or valueless --max-attempts; resumeRun preserves maxAttemptsPerCell and refuses dispatched/relocated/missing work under maxAttemptsPerCell: 1", async () => {
 	const { runFlags } = await import("../src/index.js");
 	assert.throws(() => runFlags(["node", "cli.js", "run", "pack", "suite", "--max-attempts", "3"]), /--max-attempts must be 1 or 2/);
 	assert.throws(() => runFlags(["node", "cli.js", "run", "pack", "suite", "--max-attempts", "abc"]), /--max-attempts must be 1 or 2/);
+	assert.throws(() => runFlags(["node", "cli.js", "run", "pack", "suite", "--max-attempts"]), /--max-attempts requires a value/);
+	assert.throws(() => runFlags(["node", "cli.js", "run", "pack", "suite", "--max-attempts", "--parallel", "2"]), /--max-attempts requires a value/);
 	assert.deepEqual(runFlags(["node", "cli.js", "run", "pack", "suite", "--max-attempts", "1"]), { maxAttemptsPerCell: 1 });
 
-	// Test maxResponseBytes pre-extraction bound: Q1 fits inside 45 bytes, Q2 is beyond 45 bytes and gets cut before splitAnswers.
+	// Test maxResponseBytes pre-extraction AND pre-measurement bound:
+	// hook checks that inp.outcome.final is bounded (<= 40 bytes) while inp.outcome.rawFinal has the full untruncated string.
 	const { dir, work, records } = await setup((d) => {
+		fs.writeFileSync(
+			path.join(d, "hooks", "count.mjs"),
+			'import fs from "node:fs";\n' +
+			'const inp = JSON.parse(fs.readFileSync(0, "utf8"));\n' +
+			'const boundedOk = Buffer.byteLength(inp.outcome.final, "utf8") <= 40 && typeof inp.outcome.rawFinal === "string" && inp.outcome.rawFinal.length >= inp.outcome.final.length;\n' +
+			'console.log(JSON.stringify({ scores: Object.fromEntries(inp.properties.map((p) => [p, boundedOk ? 1 : 0])) }));\n',
+		);
 		editJson(path.join(d, "pack.json"), (j) => { j.suites = [j.suites[0]]; });
 		editJson(path.join(d, "experiments", "orchard.json"), (j) => {
 			j.maxAttemptsPerCell = 1;
@@ -509,6 +519,7 @@ test("maxResponseBytes truncates oversized responses before answer splitting and
 			j.properties = [
 				{ id: "Q1", type: "comprehension", decidedBy: "judge", key: "quince", rubric: "2 if quince", scale: [0, 2], answerHeading: "orchard.Q1", question: "Rootstock?" },
 				{ id: "Q2", type: "comprehension", decidedBy: "judge", key: "pear", rubric: "2 if pear", scale: [0, 2], answerHeading: "orchard.Q2", question: "Scion?" },
+				{ id: "M1", type: "adherence", decidedBy: "code", measure: "count-words", key: "bounded", scale: [0, 1] },
 			];
 		});
 	});
@@ -517,6 +528,7 @@ test("maxResponseBytes truncates oversized responses before answer splitting and
 	const cx = scripted("codex", () => outcome("### orchard.Q1\nq\n### orchard.Q2\np"));
 	const { dir: rd, record } = await conductRun(dir, { experiment: "orchard", adapters: { opencode: oc, codex: cx }, work, records });
 	assert.equal(record.maxAttemptsPerCell, 1);
+	assert.deepEqual(record.dispatchedCells, ["graft.bare.p1.1", "graft.bare.p2.1"]);
 	assert.equal(record.snapshot.experiment?.full?.maxAttemptsPerCell, 1);
 	assert.equal(record.snapshot.experiment?.full?.maxResponseBytes, 40);
 	const cells = cellsOf(records);
@@ -526,21 +538,33 @@ test("maxResponseBytes truncates oversized responses before answer splitting and
 	assert.equal(ocCell.responseBound?.limitBytes, 40);
 	assert.equal(ocCell.answers["Q1"], "The rootstock is quince.");
 	assert.equal(ocCell.answers["Q2"], null, "Q2 beyond maxResponseBytes must be truncated before splitAnswers");
+	assert.deepEqual(ocCell.codeScores.map((s) => [s.property, "value" in s ? s.value : -1]), [["M1", 1]], "measure hook must receive bounded final and rawFinal");
 	assert.equal(cxCell.responseBound?.truncated, false);
 	assert.equal(cxCell.answers["Q2"], "p");
 
-	// Test resumeRun refusing when an unrecorded cell has a partial workspace on disk under maxAttemptsPerCell: 1.
+	// Test resumeRun refusing when a cell is in dispatchedCells (or has a ledger in work/ledgers/<cell>.1) but its completion cell file was not written.
 	editJson(path.join(rd, "run.json"), (j) => {
 		j.end = null;
 		j.cells = ["graft.bare.p1.1"];
 		j.states = j.states.slice(0, 4); // probed
 	});
 	fs.rmSync(path.join(rd, "cells", "graft.bare.p2.1.json"));
-	const partialWs = path.join(work, record.run, "workspaces", "graft.bare.p2.1.1-partial");
-	fs.mkdirSync(partialWs, { recursive: true });
 	await assert.rejects(
 		() => resumeRun(dir, rd, { adapters: { opencode: oc, codex: cx }, work }),
 		/unrecorded partial attempt on disk/,
+	);
+	// Also test when dispatchedCells does not list p2, but episode.ts created work/ledgers/graft.bare.p2.1.1!
+	editJson(path.join(rd, "run.json"), (j) => {
+		j.dispatchedCells = ["graft.bare.p1.1"];
+	});
+	await assert.rejects(
+		() => resumeRun(dir, rd, { adapters: { opencode: oc, codex: cx }, work }),
+		/unrecorded partial attempt on disk/,
+	);
+	// Also test when work is relocated to a different path than record.work!
+	await assert.rejects(
+		() => resumeRun(dir, rd, { adapters: { opencode: oc, codex: cx }, work: path.join(scratch(), "other-work") }),
+		/recorded working folder/,
 	);
 });
 

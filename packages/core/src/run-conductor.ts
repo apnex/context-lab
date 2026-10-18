@@ -103,6 +103,8 @@ export interface CellRecord {
 	propertyPhases?: Record<string, { phase: string; state: PhaseState }>;
 	/** Notes and final messages sharing a run of words with a delivered instruction or folder file; diagnostic only. */
 	restated?: RestatedFlag[];
+	/** Non-canary instruction and folder files delivered to this cell's arm, so judgedWith: ["delivered"] can attach the assigned reading to blinded units. */
+	deliveredFiles?: { file: string; text: string }[];
 	/** Per phase of the last attempt that ran: what judges may be shown. */
 	phaseOutcomes?: Record<string, { final: string; diff: string; note: string | null; startDiff: string; scored: string | null; traps: string[]; responseBound?: ResponseBoundRecord }>;
 	/** If maxResponseBytes was configured, the UTF-8 byte bound accounting for the last phase's scored response text. */
@@ -128,6 +130,10 @@ export interface RunRecord {
 	arms: Record<string, { composed: boolean; reason?: string }>;
 	probes: ProbeResult[];
 	cells: string[];
+	/** Cells for which at least one attempt was dispatched (recorded before runEpisode starts). */
+	dispatchedCells?: string[];
+	/** Working folder path where variants, ledgers, workspaces and invocations for this run live. */
+	work?: string;
 	runsPerCell: number;
 	maxAttemptsPerCell?: 1 | 2;
 	timeLimitSeconds: number;
@@ -263,7 +269,7 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 	const record: RunRecord = {
 		run: runId, pack: loaded.pack.id, experiment: experimentId, suite: suiteId, scenarios: scenarioIds,
 		status: statusValue, statusReason, register: status.record, method: methodVersion(), states,
-		variants: {}, arms: {}, probes: [], cells: [], runsPerCell, maxAttemptsPerCell, timeLimitSeconds,
+		variants: {}, arms: {}, probes: [], cells: [], dispatchedCells: [], work, runsPerCell, maxAttemptsPerCell, timeLimitSeconds,
 		population: exp.experiment.factors.population, runtimes: {}, judges: [], judgeProbes: [],
 		snapshot: {
 			scenarios, arms: armIds0, population: loaded.pack.population,
@@ -361,6 +367,8 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 		for (let attempt = 1; ; attempt++) {
 			let a: Attempt;
 			const unreachable: string[] = [];
+			record.dispatchedCells = [...new Set([...(record.dispatchedCells ?? []), cell])].sort();
+			save();
 			try {
 				const ep = await runEpisode({
 					loaded, experiment: exp.experiment, scenario: c.scenario, arm: c.arm, member: c.member, memberIndex: members.indexOf(c.member), run: c.run,
@@ -445,6 +453,7 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 		// against every file delivered to the arm as an instruction or a folder file.
 		const restated: RestatedFlag[] = [];
 		const delivered = [...c.arm.instructions, ...c.arm.folderFiles].map((f) => ({ file: f.file, path: f.path, text: fs.readFileSync(f.path, "utf8") }));
+		const deliveredFiles = delivered.filter((d) => path.basename(d.file) !== "context-lab-canary.md").map((d) => ({ file: d.file, text: d.text }));
 		for (const p of lastPhases.filter((x) => x.status === "run")) {
 			const decl = phases.find((x) => x.id === p.phase);
 			const texts: { source: "final" | "note"; path: string; text: string }[] = [];
@@ -460,6 +469,7 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 			final: last.validity.valid ? (lastRan ? (phaseOutcomes[lastRan.phase]?.final ?? stripSelfExplanation(last.outcome.final, marker)) : stripSelfExplanation(last.outcome.final, marker)) : null,
 			scoredFile: scored, answers, diff: last.diff, codeScores: [],
 			traps, propertyPhases, phaseOutcomes, restated,
+			...(deliveredFiles.length ? { deliveredFiles } : {}),
 			...(lastBound !== undefined ? { responseBound: lastBound } : {}),
 		};
 		cellRecords.push(cr);
@@ -478,7 +488,9 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 			const props = propertiesOf(scenario).filter((x) => x.decidedBy === "code" && cr.propertyPhases?.[x.id]?.phase === p.phase && cr.propertyPhases[x.id]!.state === "valid");
 			if (!props.length || p.outcome === null) continue;
 			const sub: Scenario = { ...scenario, properties: props, trapPairs: [] };
-			cr.codeScores.push(...await measure(loaded, sub, { final: p.outcome.final, diff: p.diff ?? "", scored: cr.phaseOutcomes?.[p.phase]?.scored ?? null, snapshot: p.snapshot }, now));
+			const po = cr.phaseOutcomes?.[p.phase];
+			const rawScored = scenario.scoredFile !== undefined && p.snapshot !== null ? readInside(p.snapshot, scenario.scoredFile) : null;
+			cr.codeScores.push(...await measure(loaded, sub, { final: po?.final ?? p.outcome.final, rawFinal: p.outcome.final, diff: p.diff ?? "", scored: po?.scored ?? null, rawScored, snapshot: p.snapshot }, now));
 		}
 		write(path.join(recordsDir, "cells", `${cr.cell}.json`), cr);
 	}
@@ -590,6 +602,13 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 
 	const workRoot = path.resolve(opts.work ?? path.join(os.homedir(), "context-lab-work"));
 	const work = path.join(workRoot, record.run);
+	const maxAttemptsPerCell: 1 | 2 = record.maxAttemptsPerCell ?? exp.experiment.maxAttemptsPerCell ?? 2;
+	if (maxAttemptsPerCell === 1 && record.work !== undefined && path.resolve(record.work) !== path.resolve(work)) {
+		throw new Error(`run ${record.run} recorded working folder ${record.work}, not ${work}, under maxAttemptsPerCell: 1`);
+	}
+	if (maxAttemptsPerCell === 1 && !fs.existsSync(work)) {
+		throw new Error(`working folder ${work} is missing under maxAttemptsPerCell: 1, so prior dispatch cannot be excluded`);
+	}
 	fs.mkdirSync(work, { recursive: true });
 	const built = new Map<string, BuiltVariant>();
 	const save = (): void => write(recordFile, record);
@@ -655,16 +674,15 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 			addresses: [...new Set([...loaded.pack.isolation.forbidden.addresses, ...loaded.pack.sources.flatMap((s) => s.addresses)])],
 		};
 		const timeLimitSeconds = opts.timeLimitSeconds ?? record.timeLimitSeconds;
-		const maxAttemptsPerCell: 1 | 2 = record.maxAttemptsPerCell ?? exp.experiment.maxAttemptsPerCell ?? 2;
 		const remaining = allCells.filter((c) => !doneSet.has(`${c.scenario.id}.${c.arm.arm}.${c.member.id}.${c.run}`));
-		// Refuse to resume a single-attempt run if an unrecorded cell already left a partial workspace or invocation on disk.
+		// Refuse to resume a single-attempt run if an unrecorded cell was already dispatched (in run.json.dispatchedCells, ledgers, snapshots, workspaces or invocations).
 		if (maxAttemptsPerCell === 1) {
-			const wsRoot = path.join(work, "workspaces");
-			const invRoot = path.join(work, "invocations");
+			const dispatchedSet = new Set(record.dispatchedCells ?? []);
+			const checkDirs = [path.join(work, "ledgers"), path.join(work, "snapshots"), path.join(work, "workspaces"), path.join(work, "invocations")];
 			for (const c of remaining) {
 				const cell = `${c.scenario.id}.${c.arm.arm}.${c.member.id}.${c.run}`;
 				const prefix = `${cell}.`;
-				const hasPartial = [wsRoot, invRoot].some((dir) => fs.existsSync(dir) && fs.readdirSync(dir).some((e) => e.startsWith(prefix)));
+				const hasPartial = dispatchedSet.has(cell) || checkDirs.some((dir) => fs.existsSync(dir) && fs.readdirSync(dir).some((e) => e.startsWith(prefix)));
 				if (hasPartial) {
 					throw new Error(`cell ${cell} has an unrecorded partial attempt on disk in ${work} under maxAttemptsPerCell: 1, so the run cannot be resumed without risking a second attempt`);
 				}
@@ -683,6 +701,8 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 			for (let attempt = 1; ; attempt++) {
 				let a: Attempt;
 				const unreachable: string[] = [];
+				record.dispatchedCells = [...new Set([...(record.dispatchedCells ?? []), cell])].sort();
+				save();
 				try {
 					const ep = await runEpisode({
 						loaded, experiment: exp.experiment, scenario: c.scenario, arm: c.arm, member: c.member, memberIndex: members.indexOf(c.member), run: c.run,
@@ -763,6 +783,7 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 			}
 			const restated: RestatedFlag[] = [];
 			const delivered = [...c.arm.instructions, ...c.arm.folderFiles].map((f) => ({ file: f.file, path: f.path, text: fs.readFileSync(f.path, "utf8") }));
+			const deliveredFiles = delivered.filter((d) => path.basename(d.file) !== "context-lab-canary.md").map((d) => ({ file: d.file, text: d.text }));
 			for (const p of lastPhases.filter((x) => x.status === "run")) {
 				const decl = phases.find((x) => x.id === p.phase);
 				const texts: { source: "final" | "note"; path: string; text: string }[] = [];
@@ -778,6 +799,7 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 				final: last.validity.valid ? (lastRan ? (phaseOutcomes[lastRan.phase]?.final ?? stripSelfExplanation(last.outcome.final, marker)) : stripSelfExplanation(last.outcome.final, marker)) : null,
 				scoredFile: scored, answers, diff: last.diff, codeScores: [],
 				traps, propertyPhases, phaseOutcomes, restated,
+				...(deliveredFiles.length ? { deliveredFiles } : {}),
 				...(lastBound !== undefined ? { responseBound: lastBound } : {}),
 			};
 			cellRecords.push(cr);
@@ -795,7 +817,9 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 				const props = propertiesOf(scenario).filter((x) => x.decidedBy === "code" && cr.propertyPhases?.[x.id]?.phase === p.phase && cr.propertyPhases[x.id]!.state === "valid");
 				if (!props.length || p.outcome === null) continue;
 				const sub: Scenario = { ...scenario, properties: props, trapPairs: [] };
-				cr.codeScores.push(...await measure(loaded, sub, { final: p.outcome.final, diff: p.diff ?? "", scored: cr.phaseOutcomes?.[p.phase]?.scored ?? null, snapshot: p.snapshot }, now));
+				const po = cr.phaseOutcomes?.[p.phase];
+				const rawScored = scenario.scoredFile !== undefined && p.snapshot !== null ? readInside(p.snapshot, scenario.scoredFile) : null;
+				cr.codeScores.push(...await measure(loaded, sub, { final: po?.final ?? p.outcome.final, rawFinal: p.outcome.final, diff: p.diff ?? "", scored: po?.scored ?? null, rawScored, snapshot: p.snapshot }, now));
 			}
 			write(path.join(resolvedRecords, "cells", `${cr.cell}.json`), cr);
 		}

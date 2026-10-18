@@ -59,19 +59,31 @@ export function boundUtf8(text: string, limitBytes: number): { text: string; bou
 }
 
 /**
- * Answers under "### <id>" headings, for each id expected; an id with no heading is absent, and a
- * heading not expected is ignored. A heading may carry a prefix before the id, as "### suite.X1".
+ * Answers under Markdown headings (`#` to `######`), for each id expected; an id with no heading is
+ * absent, and a heading not expected (such as `Observations`) is ignored. A heading may carry a
+ * prefix before the id, as `### suite.X1`, or trailing title text after the id, as `## Q01 - Routing`.
+ * If a heading appears more than once, the first non-empty occurrence is kept.
  */
 export function splitAnswers(text: string, ids: string[], marker?: string): Map<string, string | null> {
 	const out = new Map<string, string | null>(ids.map((id) => [id, null]));
-	const parts = text.split(/^###\s+/m).slice(1);
+	const parts = text.split(/^#{1,6}\s+/m).slice(1);
 	for (const p of parts) {
 		const nl = p.indexOf("\n");
 		const heading = (nl < 0 ? p : p.slice(0, nl)).trim();
 		const body = nl < 0 ? "" : p.slice(nl + 1);
-		// The exact heading first, so "explain.X1" is not taken for another id ending the same way.
-		const id = ids.find((x) => heading === x) ?? ids.find((x) => heading.endsWith(`.${x}`));
-		if (id !== undefined && out.get(id) === null) out.set(id, stripSelfExplanation(body, marker));
+		// Exact heading first, then prefix.id, then token at start of heading (`Q01: ...` or `suite.Q01 - ...`).
+		const firstToken = heading.split(/[\s:—–-]+/)[0] ?? "";
+		const id =
+			ids.find((x) => heading === x) ??
+			ids.find((x) => heading.endsWith(`.${x}`)) ??
+			ids.find((x) => firstToken === x || firstToken.endsWith(`.${x}`));
+		if (id !== undefined) {
+			const cleaned = stripSelfExplanation(body, marker);
+			const prev = out.get(id);
+			if (prev === null || (prev === "" && cleaned !== "")) {
+				out.set(id, cleaned);
+			}
+		}
 	}
 	return out;
 }

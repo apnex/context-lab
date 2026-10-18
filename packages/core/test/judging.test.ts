@@ -169,41 +169,74 @@ test("a judge reply reached with a tool is discarded", async () => {
 });
 
 test("judge eligibility gates vote acceptance on exit, stop, filter and error, and retains per-attempt prompt, local mapping and outcome in judging/<job>.json", async () => {
+	const { judgeEligible } = await import("../src/index.js");
+	assert.deepEqual(judgeEligible(outcome("ok")), { eligible: true, reason: null });
+	assert.equal(judgeEligible(outcome("ok", { exit: 1 })).eligible, false);
+	assert.equal(judgeEligible(outcome("ok", { stop: { reason: "timeout", inFlight: "model" } })).eligible, false);
+	assert.equal(judgeEligible(outcome("ok", { filtered: true })).eligible, false);
+	assert.equal(judgeEligible(outcome("ok", { error: { cause: "provider", name: "E", message: "503" } })).eligible, false);
+	assert.equal(judgeEligible(outcome("   ")).eligible, false);
+
 	let call = 0;
 	const { rd } = await run(
 		(d) => {
-			editJson(path.join(d, "experiments", "orchard.json"), (j) => { j.scenarios = ["scenarios/graft.json"]; j.factors.arms = ["bare"]; });
+			editJson(path.join(d, "experiments", "orchard.json"), (j) => { j.scenarios = ["scenarios/graft.json"]; j.factors.arms = ["bare", "almanac"]; });
 			editJson(path.join(d, "pack.json"), (j) => { j.suites = j.suites.filter((x: { id: string }) => x.id !== "pruning"); });
+			editJson(path.join(d, "scenarios", "graft.json"), (j) => {
+				j.properties[0].judgedWith = ["delivered"];
+			});
 		},
 		{ runtime: "opencode" },
 		{
 			runtime: "codex",
 			judgeOutcome: (p) => {
 				call++;
-				// Attempt 1: well-formed JSON reply, but non-zero exit -> ineligible, must be rejected!
-				if (call === 1) return outcome(judgeReply(p), { exit: 2 });
-				// Attempt 2: well-formed JSON reply, but filtered -> ineligible, must be rejected!
-				if (call === 2) return outcome(judgeReply(p), { filtered: true });
+				// Attempt 1: well-formed JSON reply for first outcome only, so second outcome shrinks onto attempt 2!
+				if (call === 1) {
+					const parsed = JSON.parse(judgeReply(p)) as { outcomes: unknown[] };
+					return outcome(JSON.stringify({ outcomes: [parsed.outcomes[0]] }));
+				}
+				// Attempt 2: stop.reason = "timeout" -> ineligible, must be rejected!
+				if (call === 2) return outcome(judgeReply(p), { stop: { reason: "timeout", inFlight: "model" } });
 				// Attempt 3: eligible reply -> accepted!
 				return outcome(judgeReply(p));
 			},
 		},
 	);
 	const votes = read<Vote[]>(rd, "judging/votes.json").filter((v) => v.judge === "p2");
-	assert.equal(votes.length, 1);
-	assert.equal(votes[0]!.value, 1);
-	assert.equal(votes[0]!.attempt, 3);
+	assert.equal(votes.length, 2);
+	assert.ok(votes.some((v) => v.attempt === 1));
+	assert.ok(votes.some((v) => v.attempt === 3));
 	const jobFile = fs.readdirSync(path.join(rd, "judging")).find((f) => f.includes(".p2.") && f.endsWith(".json"))!;
-	const job = read<{ prompt: string; replies: { attempt: number; prompt: string; local: Record<string, string>; eligible: boolean; ineligibleReason: string | null; outcome: Outcome }[] }>(rd, `judging/${jobFile}`);
+	const job = read<{ prompt: string; replies: { attempt: number; prompt: string; local: Record<string, string>; work?: string; eligible: boolean; ineligibleReason: string | null; outcome: Outcome | null }[] }>(rd, `judging/${jobFile}`);
 	assert.equal(job.replies.length, 3);
-	assert.equal(job.replies[0]!.eligible, false);
-	assert.match(job.replies[0]!.ineligibleReason ?? "", /exit 2/);
+	assert.equal(Object.keys(job.replies[0]!.local).length, 2, "attempt 1 maps 2 outcomes");
+	assert.equal(Object.keys(job.replies[1]!.local).length, 1, "attempt 2 shrinks to 1 pending outcome with its own local map");
 	assert.equal(job.replies[1]!.eligible, false);
-	assert.match(job.replies[1]!.ineligibleReason ?? "", /filter/);
+	assert.match(job.replies[1]!.ineligibleReason ?? "", /stop reason timeout/);
 	assert.equal(job.replies[2]!.eligible, true);
-	assert.equal(job.replies[2]!.ineligibleReason, null);
-	assert.ok(Object.keys(job.replies[0]!.local).includes("o1"));
-	assert.equal(job.replies[0]!.outcome.exit, 2);
+	assert.deepEqual(job.replies[2]!.local, job.replies[1]!.local);
+	// Check that judgedWith: ["delivered"] attached --- ASSIGNED READING --- to the guided arm's unit.
+	const units = read<{ units: { arm: string; text: string }[] }>(rd, "sealed/units.json").units;
+	const guidedUnit = units.find((u) => u.arm === "almanac")!;
+	assert.match(guidedUnit.text, /--- ASSIGNED READING ---/);
+
+	// Also verify that if adapter.invoke throws mid-attempt, the pre-created JudgeReplyRecord entry is retained in replies[] with outcome: null and work locator.
+	const { rd: rdThrow } = await run(
+		(d) => {
+			editJson(path.join(d, "experiments", "orchard.json"), (j) => { j.scenarios = ["scenarios/graft.json"]; j.factors.arms = ["bare"]; });
+			editJson(path.join(d, "pack.json"), (j) => { j.suites = j.suites.filter((x: { id: string }) => x.id !== "pruning"); });
+		},
+		{ runtime: "opencode" },
+		{ runtime: "codex", judgeOutcome: () => { throw new Error("adapter explosion"); } },
+	);
+	const throwJobFile = fs.readdirSync(path.join(rdThrow, "judging")).find((f) => f.includes(".p2.") && f.endsWith(".json"))!;
+	const throwJob = read<{ failure?: string; replies: { attempt: number; prompt: string; local: Record<string, string>; work?: string; eligible: boolean; ineligibleReason: string | null; outcome: Outcome | null }[] }>(rdThrow, `judging/${throwJobFile}`);
+	assert.equal(throwJob.replies.length, 1);
+	assert.equal(throwJob.replies[0]!.eligible, false);
+	assert.equal(throwJob.replies[0]!.outcome, null);
+	assert.ok(typeof throwJob.replies[0]!.work === "string" && throwJob.replies[0]!.work.length > 0);
+	assert.match(throwJob.replies[0]!.ineligibleReason ?? "", /adapter explosion/);
 });
 
 test("agreement counts only outcomes with two or more votes, and a total needs every property's mean", async () => {
