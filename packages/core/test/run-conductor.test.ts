@@ -384,18 +384,19 @@ test("resumeRun completes a run stopped during execution, skips recorded cells, 
 	}
 
 	// 2. Refuse if state is past executed with missing cells, or before probed.
+	const savedStates = JSON.parse(fs.readFileSync(path.join(partialDir, "run.json"), "utf8")).states;
 	editJson(path.join(partialDir, "run.json"), (j) => {
 		j.end = "failed";
 		j.endReason = "stopped by host shutdown";
 		j.cells = kept;
-		j.states = j.states.slice(0, 5); // includes "executed", but 5 of 8 cells are missing
+		j.states = savedStates.slice(0, 5); // includes "executed", but 5 of 8 cells are missing
 	});
 	await assert.rejects(() => resumeRun(dir, partialDir, { adapters: { opencode: { ...scripted("opencode"), route: () => ({ r: "oc" }) }, codex: { ...scripted("codex"), route: () => ({ r: "cx" }) } }, work }), /is past executed, but 5 expected cell\(s\) are missing/);
-	editJson(path.join(partialDir, "run.json"), (j) => { j.states = j.states.slice(0, 2); }); // only recorded
+	editJson(path.join(partialDir, "run.json"), (j) => { j.states = savedStates.slice(0, 2); }); // only recorded
 	await assert.rejects(() => resumeRun(dir, partialDir, { adapters: { opencode: scripted("opencode"), codex: scripted("codex") }, work }), /only a run stopped after probed/);
 
 	// Set state to probed (index 0..3).
-	editJson(path.join(partialDir, "run.json"), (j) => { j.states = j.states.slice(0, 4); });
+	editJson(path.join(partialDir, "run.json"), (j) => { j.states = savedStates.slice(0, 4); });
 
 	// 3. Refuse if routes changed.
 	await assert.rejects(() => resumeRun(dir, partialDir, { adapters: { opencode: { ...scripted("opencode"), route: () => ({ r: "changed" }) }, codex: { ...scripted("codex"), route: () => ({ r: "cx" }) } }, work }), /routes to the models have changed/);
