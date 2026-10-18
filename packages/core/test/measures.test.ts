@@ -469,7 +469,7 @@ test("a run records its arms' deliveries, and its tally writes hydration rows fo
 	// The judge dissent profile is written beside the scores.
 	assert.match(md, /## Judge dissent/);
 	assert.ok((read<{ judgeDissent?: unknown[] }>(rd, "RESULT.json").judgeDissent ?? []).length > 0);
-	assert.match(md, /\| shelf \| 2 \| 300 \| 50 \| 20 \| 0\.5 \| 5 \|/);
+	assert.match(md, /\| shelf \| 2 \| 300 \| 300 \| 50 \| 20 \| 0\.5 \| 5 \| prune\.shelf\.p[12]\.1 \(300\) \|/);
 });
 
 test("costProfile gives the mean cost of a counted cell's scored attempt per arm and per arm and member, phases summed", () => {
@@ -501,6 +501,12 @@ test("costProfile gives the mean cost of a counted cell's scored attempt per arm
 		["on", "a", 1, 20, 3000, 400, 50, 1, 1],
 		["on", "c", 2, 8.5, 1000, 400, 30, 2, 1],
 	]);
+	// A runaway cell carries the mean, not the median; the costliest cell is named.
+	const on = rows.find((r) => r.arm === "on" && r.member === null)!;
+	assert.equal(on.inputTokensMedian, 2000);
+	assert.deepEqual(on.costliest, { cell: "x.on.a.1", inputTokens: 3000 });
+	const runaway = costProfile([...[1, 2, 3].map((i) => hCell(`r.on.a.${i}`, "on", "a", [], true, { inputTokens: 100 })), hCell("r.on.a.4", "on", "a", [], true, { inputTokens: 10000 })], ["a"], ["on"]);
+	assert.deepEqual([runaway[0]!.inputTokens, runaway[0]!.inputTokensMedian, runaway[0]!.costliest], [2575, 100, { cell: "r.on.a.4", inputTokens: 10000 }]);
 });
 
 test("judgeDissent counts, per judge, the splits of three or more values it was in and those where it alone differed", () => {

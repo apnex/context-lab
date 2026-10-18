@@ -344,9 +344,9 @@ export function resultMarkdown(r: Result, limits: string[]): string {
 		...(r.costs?.length ? [
 			"## Cost per arm", "",
 			"Means per counted cell - valid, or ended on agent behaviour - over its scored attempt, phases summed; a token mean is over the cells whose runtime reported that count in every phase, in brackets where fewer than all.", "",
-			"| Arm | Cells | Input tokens | Cached input | Output tokens | Tool calls | Seconds |",
-			"|---|---|---|---|---|---|---|",
-			...r.costs.filter((c) => c.member === null).map((c) => `| ${c.arm} | ${c.cells} | ${num(c.inputTokens)}${c.tokenCells < c.cells ? ` (${c.tokenCells})` : ""} | ${num(c.cachedInputTokens)} | ${num(c.outputTokens)} | ${c.toolCalls === null ? "-" : c.toolCalls.toFixed(1)} | ${c.seconds === null ? "-" : c.seconds.toFixed(0)} |`),
+			"| Arm | Cells | Input tokens | Median input | Cached input | Output tokens | Tool calls | Seconds | Costliest cell |",
+			"|---|---|---|---|---|---|---|---|---|",
+			...r.costs.filter((c) => c.member === null).map((c) => `| ${c.arm} | ${c.cells} | ${num(c.inputTokens)}${c.tokenCells < c.cells ? ` (${c.tokenCells})` : ""} | ${num(c.inputTokensMedian ?? null)} | ${num(c.cachedInputTokens)} | ${num(c.outputTokens)} | ${c.toolCalls === null ? "-" : c.toolCalls.toFixed(1)} | ${c.seconds === null ? "-" : c.seconds.toFixed(0)} | ${c.costliest ? `${c.costliest.cell} (${num(c.costliest.inputTokens)})` : "-"} |`),
 			"",
 		] : []),
 		...(r.judgeDissent?.length ? [

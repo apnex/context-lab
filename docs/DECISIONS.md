@@ -52,6 +52,7 @@ They are not copied here; this register starts at the vision.
 | 0030 | 2026-10-17 | `README.md` (in `S4`/`S9` four-journey layout) and `docs/OPERATIONS.md` document all 13 CLI commands, the complete `context-lab.pack/1` schema, a copy-pasteable minimal pack, and step-by-step operator workflows, verified by dogfooding `context-lab` on itself across all 5 models with `packages/` excluded (`2.80/10 -> 10.00/10`, `P0` `0/5 -> 5/5` passing `checkPack`). | director | ratified | - |
 | 0031 | 2026-10-18 | The result reports each arm's mean cost (`costs`) and, per hydration row, the adherence of cells that hydrated the entry and of those that did not; hydration rows count cells and are written only for arms with an on-request folder and no instruction or folder file named for the entry, from arm deliveries now kept in the run record; `candidates` gains `routing-miss` and `hydrated-not-acted`; and a probe retry after a tool call says no entry is mounted. | director | ratified | amends 0004 |
 | 0032 | 2026-10-18 | The result reports each judge's dissent (`judgeDissent`); `candidates` gains rule 7, `judge-outlier`; rules 5 and 6 read only guidance a scenario declares it exercises, and rule 6 is written once per scenario, property and arm. | director | ratified | amends 0031 |
+| 0033 | 2026-10-18 | Each cost row also gives the median input tokens and the costliest cell. | director | ratified | amends 0031 |
 
 ---
 
@@ -500,3 +501,14 @@ Re-tallied with these rules, the same record gives 8: the 7 true findings and on
 
 **Source.**\
 `[V, director's standing directive 2026-10-18 to fix tooling found wanting by each run's diagnostic; mission-kit docs/evals/runs/context-lab/2026-10-18-093310-adherence-pass2]`
+
+### 0033
+
+**Ruling.**\
+`Result.costs` rows carry `inputTokensMedian` and `costliest` (the cell with the most input tokens, and its count), and `RESULT.md` shows both beside the mean.
+
+**Evidence.**\
+On mission-kit's run `2026-10-18-111520-adherence-rule-repeat`, one cell of 150 in one arm - a Grok agent in an edit loop of 235 edits until its time limit - used 18,763,865 input tokens, so the arm's mean read 388,832 against 239,269 for the other arm while the medians were 241,979 and 216,801; the mean alone reported a difference of about 150,000 tokens per cell that was one cell.
+
+**Source.**\
+`[V, director's standing directive 2026-10-18 to fix tooling found wanting by each run's diagnostic; mission-kit docs/evals/runs/context-lab/2026-10-18-111520-adherence-rule-repeat cells]`

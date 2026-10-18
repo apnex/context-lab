@@ -419,6 +419,10 @@ export interface CostRow {
 	toolCalls: number | null;
 	/** Cells whose runtime reported input tokens. */
 	tokenCells: number;
+	/** The median of those cells' input tokens: a mean alone is carried by one runaway cell. */
+	inputTokensMedian: number | null;
+	/** The cell with the most input tokens, and its count. */
+	costliest: { cell: string; inputTokens: number } | null;
 }
 
 /** What one cell's scored attempt cost: its phases summed where it had phases, else its outcome. */
@@ -443,12 +447,18 @@ export function cellCost(c: Pick<CellRecord, "attempts">): { seconds: number; in
 export function costProfile(cells: Pick<CellRecord, "cell" | "arm" | "member" | "valid" | "attempts">[], members: string[], arms: string[]): CostRow[] {
 	const row = (arm: string, member: string | null, group: typeof cells): CostRow => {
 		const cs = group.map(cellCost);
+		const tok = group.map((c, i) => ({ cell: c.cell, n: cs[i]!.inputTokens })).filter((x): x is { cell: string; n: number } => x.n !== null);
+		const sorted = tok.map((x) => x.n).sort((a, b) => a - b);
+		const median = sorted.length ? (sorted.length % 2 ? sorted[(sorted.length - 1) / 2]! : (sorted[sorted.length / 2 - 1]! + sorted[sorted.length / 2]!) / 2) : null;
+		const top = tok.reduce<{ cell: string; n: number } | null>((m, x) => (m === null || x.n > m.n ? x : m), null);
 		const avg = (xs: (number | null)[]): number | null => { const ok = xs.filter((x): x is number => x !== null); return ok.length ? ok.reduce((a, b) => a + b, 0) / ok.length : null; };
 		return {
 			arm, member, cells: cs.length,
 			seconds: avg(cs.map((x) => x.seconds)), inputTokens: avg(cs.map((x) => x.inputTokens)), cachedInputTokens: avg(cs.map((x) => x.cachedInputTokens)),
 			outputTokens: avg(cs.map((x) => x.outputTokens)), toolCalls: avg(cs.map((x) => x.toolCalls)),
 			tokenCells: cs.filter((x) => x.inputTokens !== null).length,
+			inputTokensMedian: median,
+			costliest: top === null ? null : { cell: top.cell, inputTokens: top.n },
 		};
 	};
 	const valid = cells.filter((c) => {
