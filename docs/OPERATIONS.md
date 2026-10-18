@@ -100,8 +100,9 @@ Top-level fields of `pack.json` (no unknown fields are permitted):
 - `records` *(required, object)*: `{ "path": "<relative-or-absolute-dir>" }` where run directories are written (e.g. `{"path": "../runs"}`).
 - `comparisons` *(optional, array)*: `{ "id": "<string>", "experiment": "<experiment-id>", "rule": "aa" | "tolerance" | "improve", "base": "<arm-id>", "head": "<arm-id>", "m"?: <positive-int>, "tolerance"?: <number> }`:
   - `rule: "aa"`: two-stage A/A noise-threshold rule (`m` is the number of properties in the experiment used for family-wise threshold calibration; compares stage-1 size-3 differences against `register/thresholds/<comparison>.jsonl` and confirms flagged properties at size-9 when `--nine` is supplied).
-  - `rule: "tolerance"`: flags any property whose `head` mean falls below `base - (tolerance ?? 0)`, or the pooled total if it drops.
-  - `rule: "improve"`: requires every property's `head` mean to be `>= base` and the pooled `head` total to be strictly `> base`.
+  - `rule: "tolerance"`: flags any property whose `head` mean falls below its `base` mean by more than `tolerance` (`0` by default); there is no pooled check.
+  - `rule: "improve"`: flags any property whose `head` mean is below its `base` mean within any model family, or that has no `head` value in a family where `base` has one; there is no pooled check.
+  - Every rule compares arms of the one experiment the comparison names, across run directories only when they share that experiment, its scenarios, population, `runsPerCell` and model routes.
 - `findingRules` *(optional, object)*: `{ "wrongFiringThreshold"?: <number>, "knowsNotActsThreshold"?: <number>, "routingMissThreshold"?: <number>, "hydratedNotActedThreshold"?: <number> }`, each `0.25`, `0.5`, `0.5` and `0.5` by default.
 
 ### 3.2 `experiments/<id>.json` schema
@@ -146,7 +147,7 @@ Fields of a scenario file (no unknown fields are permitted):
   - `scale` *(required, `[number, number]`)*: `[low, high]` with `low < high` (e.g. `[0, 1]` or `[0, 2]`).
   - `measure` *(optional, string)*: required when `decidedBy` is `"code"` (id of an `"outcome-measure"` hook); must be omitted when `decidedBy` is `"judge"`.
   - `rubric` *(optional, string)*: scoring rubric for judges.
-  - `answerHeading` *(optional, string)*: heading (`#` through `######`, matching exact heading, `<prefix>.<id>`, or `<id>` followed by title text such as `## Q01 - Title`) split into an individual comprehension answer unit; requires `scoredFile` or `answerSource: "final"` on the scenario. If a heading appears more than once, the first non-empty occurrence is kept; unrequested headings (such as `Observations`) are ignored.
+  - `answerHeading` *(optional, string)*: heading (`#` through `######`, matching exact heading, `<prefix>.<id>`, or `<id>` followed by title text such as `## Q01 - Title`) split into an individual comprehension answer unit; requires `scoredFile` or `answerSource: "final"` on the scenario. If a heading appears more than once, the first non-empty occurrence is kept; unrequested headings (such as `Observations`) are not extracted, but an answer ends at the next heading of any level, so a subsection heading inside an answer cuts it there.
   - `question` *(optional, string)*: question text shown to comprehension judges.
   - `phase` *(optional, string)*: id of the phase in `phases` whose outcome this property scores (defaults to the last phase).
   - `judgedWith` *(optional, array of `"note"` | `"start"` | `"delivered"`)*: includes the phase's incoming `{NOTE}`, `startDiff`, and/or the arm's delivered reading (`--- ASSIGNED READING ---`) in the blinded judge unit.
