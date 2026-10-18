@@ -37,7 +37,7 @@ Every command takes `<pack>` (the path to the directory containing `pack.json`) 
 | `thresholds` | `context-lab thresholds <pack> <comparison> <aa-run-dir>` | Checks that the two arms of `<comparison>` delivered identical context in `<aa-run-dir>` (`assertIdenticalArms`), derives the two-stage A/A noise thresholds (size-3 and size-9 per-property and pooled thresholds, two-stage false-positive rate, and drift rate), and appends them to `<pack>/register/thresholds/<comparison>.jsonl`. |
 | `compare` | `context-lab compare <pack> <comparison> <base-run-dir> [--head DIR] [--runs K] [--nine DIR] [--nine-head DIR] [--out FILE]` | Compares `<comparison>`'s `base` and `head` arms using the rule declared on `<comparison>` (`"aa"`, `"tolerance"`, or `"improve"`). Reads the latest recorded threshold set from `<pack>/register/thresholds/<comparison>.jsonl` when present. If `--head` is omitted, reads both `base` and `head` arms from `<base-run-dir>`. `--runs K` limits the comparison to the first `K` cell runs (`run <= K`) of each arm. When `--nine` (and optional `--nine-head`) is given under `rule: "aa"`, runs stage-2 size-9 confirmation on properties flagged at stage 1. Prints the comparison JSON and writes it to `--out` if given. |
 | `pick` | `context-lab pick <pack> <run-dir> [--mode calibration\|preference] [--count N] [--with ARM] [--without ARM]` | Runs the interactive human panel in the terminal on blinded outcome pairs from `<run-dir>`. Defaults to `--mode calibration` and `--count 12` when omitted (`calibration` checks judge-person agreement; `preference` compares `--with` against `--without`). Writes `<run-dir>/picks.json` and re-tallies `<run-dir>/RESULT.json` and `<run-dir>/RESULT.md`. |
-| `candidates` | `context-lab candidates <pack> <run-dir>` | Extracts recurring findings from `<run-dir>` (wrong firings, comprehension-without-adherence gaps, and classify-then-verify chain findings meeting threshold) and writes `<run-dir>/CANDIDATES.json` and `<run-dir>/CANDIDATES.md`. |
+| `candidates` | `context-lab candidates <pack> <run-dir>` | Extracts candidate findings from `<run-dir>` (adherence failing in every guided arm, wrong firings, comprehension-without-adherence gaps, classify-then-verify chain findings meeting threshold, guidance entries agents did not open when only reachable on request, and adherence missed by agents that did open the entry) and writes `<run-dir>/CANDIDATES.json` and `<run-dir>/CANDIDATES.md`. |
 | `review` | `context-lab review <pack> --prompt <file> [--files <path,...>] --out <dir> [--members <id,...>] [--verify] [--parallel N] [--work <dir>] [--tools on\|off] [--sockets] [--mount-sources] [--ro <path,...>] [--timeout <seconds>]` | Orchestrates an on-demand multi-model review across model families. Selects one member per family from `<pack>`'s population by default (or the comma-separated `--members`), runs `<prompt>` (with optional comma-separated `--files` attached; when `--tools on` is passed, gives each reviewer a writable `{WORKSPACE}`, optionally enables socket creation in Codex's workspace-write sandbox via `--sockets`, mounts `<pack>`'s `sources` read-only via `--mount-sources` with `{SOURCES}` substituted in the prompt and extra read-only paths via `--ro`, and retains `<out>/workspaces/<member>/` and `<out>/events/<member>.jsonl`), extracts structured findings (mapping `"high"\|"critical"` to `"blocking"` and `"medium"\|"major"\|"material"` to `"should-fix"`), and when `--verify` is passed, sends each finding to every other family's reviewer for a boolean `supports: true\|false` verdict (recording `verdicts`, `supportingFamilies`, and `familyCount` on each finding). Writes `REVIEW.json` and `REVIEW.md` into `--out`. |
 
 ---
@@ -102,7 +102,7 @@ Top-level fields of `pack.json` (no unknown fields are permitted):
   - `rule: "aa"`: two-stage A/A noise-threshold rule (`m` is the number of properties in the experiment used for family-wise threshold calibration; compares stage-1 size-3 differences against `register/thresholds/<comparison>.jsonl` and confirms flagged properties at size-9 when `--nine` is supplied).
   - `rule: "tolerance"`: flags any property whose `head` mean falls below `base - (tolerance ?? 0)`, or the pooled total if it drops.
   - `rule: "improve"`: requires every property's `head` mean to be `>= base` and the pooled `head` total to be strictly `> base`.
-- `findingRules` *(optional, object)*: `{ "wrongFiringThreshold"?: <number>, "knowsNotActsThreshold"?: <number> }`.
+- `findingRules` *(optional, object)*: `{ "wrongFiringThreshold"?: <number>, "knowsNotActsThreshold"?: <number>, "routingMissThreshold"?: <number>, "hydratedNotActedThreshold"?: <number> }`, each `0.25`, `0.5`, `0.5` and `0.5` by default.
 
 ### 3.2 `experiments/<id>.json` schema
 
@@ -422,6 +422,17 @@ context-lab status evals/context-lab pilot
 context-lab run evals/context-lab pilot --parallel 4
 ```
 
+`RESULT.md` reports these diagnostics beside the scores, and `RESULT.json` carries each one as a field; none changes a score:
+
+- **Properties** and **Totals**: each property's mean per arm, and how often its judges' votes agreed.
+- **Guesses** (`guesses`): how often judges guessed the arm an outcome came from, per scenario and property.
+- **On-request guidance hydration** (`hydration`): per scenario, arm and guidance id, how many valid cells hydrated the guidance entry, which members never did, and how often each adherence property naming the entry was met by the cells that hydrated it and by those that did not. A cell hydrated an entry when a tool call in any phase of its scored attempt named a path, or had an input, holding the entry id and a hyphen after a path separator, quote or space (`axioms/A3-sovereign-composition.md`), case ignored: this sees an entry named by a read or by a search pattern, and misses a bulk read such as `cat axioms/*.md`, and an entry file not named `<id>-...` is never seen. Only arms with an on-request folder and no instruction or folder file named for the entry are listed; the folder's contents are not checked. A run recorded before arms' deliveries were kept lists every arm. Held-out scenarios are left out.
+- **Cost per arm** (`costs`): the mean input, cached-input and output tokens, tool calls and seconds of a counted cell's scored attempt, its phases summed, per arm in `RESULT.md` and also per arm and member in `RESULT.json`. A counted cell is a valid one or one that ended on agent behaviour, as both are scored. Input tokens include cached input. A token mean is over the cells whose runtime reported that count in every phase. Held-out scenarios are left out.
+- **Provider and agent faults** (`faults`): attempts, retries, exclusions and fault kinds per member, family and arm.
+
+Each isolation probe answer in `run.json` (`probes[].answers[]`) records `toolCalls` and `attempts`.\
+A probe answer counts only if its last attempt made no tool call; a retry after a tool call tells the agent that no file is mounted, so a read cannot help.
+
 ---
 
 ## 6. Journey 2 - Two-stage A/A noise-gated comparison and run resumption
@@ -477,12 +488,23 @@ context-lab pick evals/context-lab evals/runs/<run-id> --mode preference --count
 
 ### 7.2 Candidate backlog findings (`candidates`)
 
-Extract recurring findings (wrong firings, comprehension-without-adherence gaps, and classify-then-verify chain findings that meet `chain.threshold`) from a completed run:
+Extract candidate findings from a completed run:
 ```sh
 context-lab candidates evals/context-lab evals/runs/<run-id>
 ```
 
-Writes `<run-dir>/CANDIDATES.json` and `<run-dir>/CANDIDATES.md`.
+Writes `<run-dir>/CANDIDATES.json` and `<run-dir>/CANDIDATES.md`, one candidate per rule that holds, each with a draft backlog row and a revival trigger:
+
+| Rule | Fires when | Threshold (`findingRules`) |
+|---|---|---|
+| `all-guided-fail` | An adherence property scores 0 in every guided arm. | none |
+| `wrong-firing` | A precision property's fail rate in a guided arm exceeds the threshold. | `wrongFiringThreshold`, `0.25` |
+| `knows-not-acts` | Across guided arms, the share of comprehension-met, adherence-not-met pairs for a guidance id exceeds the threshold. | `knowsNotActsThreshold`, `0.5` |
+| `chain-threshold` | A classify-then-verify finding meets `chain.threshold`. | `chain.threshold` |
+| `routing-miss` | A `hydration` row of a guided arm, listed as on-request only, has at least 2 cells and a hydration rate below the threshold. | `routingMissThreshold`, `0.5` |
+| `hydrated-not-acted` | In a `hydration` row of a guided arm, listed as on-request only, at least 2 hydrating cells have a value for an adherence property naming the entry, and the share of them not meeting it exceeds the threshold. | `hydratedNotActedThreshold`, `0.5` |
+
+`routing-miss` and `hydrated-not-acted` read the `hydration` rows of `RESULT.json`, and only those whose arm deliveries were recorded, so a run made before deliveries were recorded emits neither.
 
 ### 7.3 On-demand multi-family review (`review --verify`)
 

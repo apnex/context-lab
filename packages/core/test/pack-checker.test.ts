@@ -26,6 +26,7 @@ const defects: Record<CheckId, ((dir: string) => void)[]> = {
 		(d) => editJson(packJson(d), (j) => { j.colour = "green"; }),
 		(d) => editJson(graft(d), (j) => { j.properties[0].type = "taste"; }),
 		(d) => editJson(expJson(d), (j) => { j.runsPerCell = 0; }),
+		(d) => editJson(packJson(d), (j) => { j.findingRules = { routingMissThreshold: "half" }; }),
 	],
 	"slug-ids": [
 		(d) => editJson(packJson(d), (j) => { j.suites[0].id = "All-Orchard"; }),
@@ -115,6 +116,13 @@ test("the synthetic pack is accepted", async () => {
 	const r = await checkPack(syntheticPack);
 	assert.deepEqual(r.defects, []);
 	assert.equal(r.ok, true);
+});
+
+test("findingRules accepts each of its four thresholds as a number", async () => {
+	const dir = copyPack();
+	editJson(packJson(dir), (j) => { j.findingRules = { wrongFiringThreshold: 0.2, knowsNotActsThreshold: 0.4, routingMissThreshold: 0.6, hydratedNotActedThreshold: 0.7 }; });
+	const r = await checkPack(dir);
+	assert.equal(r.ok, true, JSON.stringify(r.ok ? [] : r.defects));
 });
 
 test("every listed check has a defect fixture", () => {

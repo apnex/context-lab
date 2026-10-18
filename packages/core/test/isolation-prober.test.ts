@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import { test } from "node:test";
-import { CANARY_QUESTION, checkPack, probeArm, type Adapter, type ComposedArm, type Invocation, type LoadedPack, type Outcome } from "../src/index.js";
+import { CANARY_QUESTION, checkPack, probeArm, probeRetryPrompt, type Adapter, type ComposedArm, type Invocation, type LoadedPack, type Outcome } from "../src/index.js";
 import { copyPack, scratch } from "./helpers.js";
 
 function outcome(final: string, over: Partial<Outcome> = {}): Outcome {
@@ -86,15 +86,36 @@ test("an answer reached by a tool call on all three tries does not count; a tool
 	assert.equal(r.answers[0]!.answered, false);
 	assert.match(r.reasons.join(), /tool call during a probe/);
 
+	assert.equal(r.answers[0]!.attempts, 3);
+
 	let tries = 0;
-	const r2 = await probeArm(loaded, guided, member, scripted(() => (++tries < 3 ? outcome("used tool", { tools: [tool] }) : outcome("The heron counts eleven stones."))), opts());
+	const a2 = scripted(() => (++tries < 3 ? outcome("used tool", { tools: [tool] }) : outcome("The heron counts eleven stones.")));
+	const r2 = await probeArm(loaded, guided, member, a2, opts());
 	assert.equal(r2.pass, true);
 	assert.equal(tries, 3);
+	assert.equal(r2.answers[0]!.attempts, 3);
+	// A retry after a tool call says why no read can help, then repeats the question unchanged.
+	assert.deepEqual(a2.prompts, [CANARY_QUESTION, probeRetryPrompt(CANARY_QUESTION), probeRetryPrompt(CANARY_QUESTION)]);
+	assert.match(a2.prompts[1]!, /^No guidance entry or on-request folder is mounted for this question/);
+	assert.ok(a2.prompts[1]!.endsWith(`\n\n${CANARY_QUESTION}`));
 
 	let errTries = 0;
 	const r3 = await probeArm(loaded, guided, member, scripted(() => (++errTries === 1 ? outcome("", { error: { cause: "provider", name: "APIError", message: "429 rate limit" } }) : outcome("The heron counts eleven stones."))), opts());
 	assert.equal(r3.pass, true);
 	assert.equal(errTries, 2);
+	assert.equal(r3.answers[0]!.attempts, 2);
+
+	// A provider failure after a tool call does not drop the retry prompt for the attempt after it.
+	let mixed = 0;
+	const a4 = scripted(() => {
+		mixed++;
+		if (mixed === 1) return outcome("used tool", { tools: [tool] });
+		if (mixed === 2) return outcome("", { error: { cause: "provider", name: "APIError", message: "503 overloaded" } });
+		return outcome("The heron counts eleven stones.");
+	});
+	const r4 = await probeArm(loaded, guided, member, a4, opts());
+	assert.equal(r4.pass, true);
+	assert.deepEqual(a4.prompts, [CANARY_QUESTION, probeRetryPrompt(CANARY_QUESTION), probeRetryPrompt(CANARY_QUESTION)]);
 });
 
 test("leak patterns are matched without regard to case", async () => {

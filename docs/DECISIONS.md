@@ -50,6 +50,7 @@ They are not copied here; this register starts at the vision.
 | 0028 | 2026-10-17 | Delta-4 is ratified, revision 2: end-to-end failure injection across all 9 fault modes (`H1`), provider fault characterisation in `Result.faults` and `docs/probes/2026-10-17-provider-faults.json` (`H2`), per-scenario and per-property arm-guess blinding (`notBlind` when `all >= 6 && rate >= 0.75 && rate > baseRate + 0.25`, `H3`), and closing `B4`, `B5`, `B7` and milestone M4 (`H4`). | director | ratified | - |
 | 0029 | 2026-10-17 | Delta-4 is complete: every exit criterion (H1 to H4) was evaluated green by an agent that built none of the code, closing `B4`, `B5` and `B7` and completing milestone M4 (all four planned milestones M1-M4 on context-lab's board are done). | director | ratified | - |
 | 0030 | 2026-10-17 | `README.md` (in `S4`/`S9` four-journey layout) and `docs/OPERATIONS.md` document all 13 CLI commands, the complete `context-lab.pack/1` schema, a copy-pasteable minimal pack, and step-by-step operator workflows, verified by dogfooding `context-lab` on itself across all 5 models with `packages/` excluded (`2.80/10 -> 10.00/10`, `P0` `0/5 -> 5/5` passing `checkPack`). | director | ratified | - |
+| 0031 | 2026-10-18 | The result reports each arm's mean cost (`costs`) and, per hydration row, the adherence of cells that hydrated the entry and of those that did not; hydration rows count cells and are written only for arms with an on-request folder and no instruction or folder file named for the entry, from arm deliveries now kept in the run record; `candidates` gains `routing-miss` and `hydrated-not-acted`; and a probe retry after a tool call says no entry is mounted. | director | ratified | amends 0004 |
 
 ---
 
@@ -458,3 +459,27 @@ Keeping the 33-line Delta-1 `README.md` without a pack schema or operations guid
 
 **Source.**\
 `[V, director ruling 2026-10-17; mission-kit docs/DECISIONS.md 0097; mission-kit docs/evals/runs/context-lab/2026-10-17-100515-c2/RESULT.md]`
+
+### 0031
+
+**Ruling.**\
+Before mission-kit's second adherence pass across all 14 axioms, four additions land in the core:
+
+- `Result.costs`: per arm, and per arm and member, the mean input, cached-input and output tokens, tool calls and seconds of a counted cell's scored attempt, its phases summed; a counted cell is a valid one or one that ended on agent behaviour, as `0004` costs every scored cell.
+- `Result.hydration` rows count hydrating cells rather than members, list their cells, carry the adherence of the cells that hydrated the entry and of those that did not, and are written only for arms with an on-request folder and no instruction or folder file named for the entry, read from `snapshot.deliveries`, which the run record now keeps.
+- `candidates` gains rule 5, `routing-miss` (a guided arm's row with at least 2 cells and a hydration rate under `routingMissThreshold`), and rule 6, `hydrated-not-acted` (at least 2 hydrating cells with a value for an adherence property naming the entry, and more than `hydratedNotActedThreshold` of them not meeting it); both read only rows with recorded deliveries.
+- An isolation probe retry after a tool call says no guidance entry or on-request folder is mounted, so reading or searching cannot find one, and keeps saying it on every later retry; each probe answer records its `attempts`; the pass criterion is unchanged.
+
+**Limits.**\
+Hydration means a tool call named the entry - a path or input holding its id and a hyphen after a separator - not that the entry was read: a search pattern counts, a bulk read such as `cat axioms/*.md` does not, and an entry not named `<id>-...` is never seen.\
+An arm is listed as on-request only from its deliveries alone; whether its on-request folder holds the entry is not checked.\
+A multi-phase cell counts as hydrated if any phase of its scored attempt named the entry, whichever phase the property is judged on.
+
+**Disclosed.**\
+Two defects in the hydration profile of `ce9d513` are corrected here, and both change what an existing field means: `hydrated` and `rate` counted hydrating members against a count of cells, which is the same number only at one run per cell, and every arm was listed, so arms given the entry as an instruction read as 0% hydration.\
+A re-tally of a run recorded before this change still lists every arm, with `onRequestOnly` null.\
+The retry wording is unmeasured as a remedy: the `o` on-trigger probe failure it targets, seen in runs `2026-10-18-032859-adherence` and `2026-10-18-045019-adherence` with three consecutive tool calls each, did not recur in five standalone probes of that arm and member made before this change, so no run has yet tested the new wording against it.\
+Reviewed before landing by an agent that wrote none of it, reading only; its blocking finding (behaviour-ended cells left out of costs) and its test gaps were fixed, and its scoping and matching findings are stated above as limits.
+
+**Source.**\
+`[V, director ruling 2026-10-18 (mission-kit second adherence pass, option 1); mission-kit docs/evals/runs/context-lab/2026-10-18-045019-adherence/run.json probes]`

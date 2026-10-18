@@ -241,6 +241,27 @@ test("G6: evaluateCandidates and writeRunCandidates emit candidates for all four
 		],
 	);
 
+	// Rules 5 and 6 read hydration rows of guided arms that could reach the entry only on request.
+	const row = (arm: string, guidance: string, cells: number, hydrated: number, onRequestOnly: boolean | null, adherence: NonNullable<Result["hydration"]>[number]["adherence"]) => ({
+		scenario: "sc", arm, guidance, cells, hydrated, rate: hydrated / cells, membersHydrated: [], membersMissed: ["p2"], hydratedCells: [], missedCells: [], onRequestOnly, adherence,
+	});
+	const hydration: NonNullable<Result["hydration"]> = [
+		// R-low: 1 of 4 hydrated (0.25 < 0.5) -> routing-miss. Its 1 hydrating cell is below the 2 rule 6 needs.
+		row("almanac", "R-low", 4, 1, true, [{ property: "adh-r", hydrated: { of: 1, met: 0 }, missed: { of: 3, met: 0 } }]),
+		// R-half: 2 of 4 (0.5, not below) -> no routing-miss; 2 of 2 hydrating cells not met (1.0 > 0.5) -> hydrated-not-acted.
+		row("almanac", "R-half", 4, 2, true, [{ property: "adh-h", hydrated: { of: 2, met: 0 }, missed: { of: 2, met: 1 } }, { property: "adh-ok", hydrated: { of: 2, met: 1 }, missed: { of: 2, met: 0 } }]),
+		// One cell only: below the 2 cells routing-miss needs.
+		row("almanac", "R-one", 1, 0, true, []),
+		// Deliveries unknown, or an unguided arm: neither rule reads the row.
+		row("almanac", "R-unknown", 4, 0, null, [{ property: "adh-u", hydrated: { of: 2, met: 0 }, missed: { of: 2, met: 0 } }]),
+		row("bare", "R-bare", 4, 0, true, [{ property: "adh-b", hydrated: { of: 2, met: 0 }, missed: { of: 2, met: 0 } }]),
+	];
+	const p2 = evaluateCandidates({ result: { ...result, properties: [], link: [], chain: null, hydration }, scenarios, guidedArms: ["almanac", "always"] });
+	assert.deepEqual(p2.candidates.map((c) => [c.rule, c.target]), [["routing-miss", "sc/R-low@almanac"], ["hydrated-not-acted", "sc/adh-h@almanac"]]);
+	assert.deepEqual(p2.rules, { wrongFiringThreshold: 0.25, knowsNotActsThreshold: 0.5, routingMissThreshold: 0.5, hydratedNotActedThreshold: 0.5 });
+	const p3 = evaluateCandidates({ result: { ...result, properties: [], link: [], chain: null, hydration }, scenarios, guidedArms: ["almanac"], rules: { routingMissThreshold: 0.6, hydratedNotActedThreshold: 0.99 } });
+	assert.deepEqual(p3.candidates.map((c) => [c.rule, c.target]), [["routing-miss", "sc/R-low@almanac"], ["routing-miss", "sc/R-half@almanac"], ["hydrated-not-acted", "sc/adh-h@almanac"]]);
+
 	// End-to-end writeRunCandidates on a run folder: writes CANDIDATES.json/md, appends "candidates-written", touches nothing outside.
 	const dir = copyPack();
 	editJson(path.join(dir, "experiments", "orchard.json"), (j) => { j.runsPerCell = 1; });

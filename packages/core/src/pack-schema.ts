@@ -132,6 +132,10 @@ export interface FindingRules {
 	wrongFiringThreshold?: number;
 	/** Pairs-weighted metNot rate across guided arms above which a guidance entry emits a candidate; 0.5 by default. */
 	knowsNotActsThreshold?: number;
+	/** Hydration rate below which a guided arm that could reach an entry only on request emits a routing-miss candidate; 0.5 by default. */
+	routingMissThreshold?: number;
+	/** Share of hydrating cells not meeting an adherence property above which it emits a hydrated-not-acted candidate; 0.5 by default. */
+	hydratedNotActedThreshold?: number;
 }
 
 export interface Property {

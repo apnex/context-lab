@@ -33,8 +33,21 @@ export interface ProbeAnswer {
 	answered: boolean;
 	final: string;
 	finding: "ok" | "missing-canary" | "foreign-canary" | "leak" | "unanswered";
+	/** Tool calls in the attempt the finding is read from: the last one asked. */
 	toolCalls: number;
+	/** Invocations asked for this question, the first included: 1 to 3. */
+	attempts: number;
 }
+
+/**
+ * The prompt for a retry after a tool call. An agent whose instructions tell it to open an entry
+ * before quoting it keeps trying to read it when only told not to: two live runs saw Codex retry the
+ * read after "do not execute any shell command", giving that instruction as its reason. So the
+ * retry says why a read cannot help - nothing is mounted - rather than only forbidding it.
+ */
+export const probeRetryPrompt = (question: string): string =>
+	`No guidance entry or on-request folder is mounted for this question, so reading or searching for one cannot find it. ` +
+	`Do not run any command or tool. Answer only from the instructions already in your context; if what is asked is not there, give the reply the question names for that case.\n\n${question}`;
 
 export interface ProbeResult {
 	arm: string;
@@ -70,14 +83,20 @@ export async function probeArm(loaded: LoadedPack, arm: ComposedArm, member: Mem
 		fs.rmdirSync(work);
 		const inv: Invocation = { arm, workspace: ws.dir, prompt: q.text, mode: adapter.modes[0]!, member, tools: "off", timeLimitSeconds: opts.timeLimitSeconds ?? 300, work };
 		let o = await adapter.invoke(inv);
+		let attempts = 1;
+		// Once an attempt has made a tool call, every later retry carries the retry prompt, even after a provider failure between.
+		let sawTool = o.tools.length > 0;
 		// A tools-off probe has no on-request folders mounted; if the first attempt had a tool call or
 		// an infrastructure/provider failure (such as a 429 rate limit), retry up to two more times in a
-		// fresh invocation before failing the probe (B19).
+		// fresh invocation before failing the probe (B19). The criterion is unchanged: the answer read
+		// is the last attempt's, and it counts only if that attempt made no tool call.
 		for (let retry = 1; retry <= 2 && (o.tools.length > 0 || (!answeredOf(o) && !o.filtered)); retry++) {
 			const wsRetry = createWorkspace(loaded, scenario, arm, { base: path.join(opts.base, "workspaces"), rulesFiles: adapter.rulesFiles });
 			const workRetry = fs.mkdtempSync(path.join(opts.base, "work", "p-"));
 			fs.rmdirSync(workRetry);
-			o = await adapter.invoke({ ...inv, workspace: wsRetry.dir, work: workRetry, ...(o.tools.length > 0 ? { prompt: `CRITICAL: Do NOT execute any shell command or tool. Reply directly from memory only.\n\n${q.text}` } : {}) });
+			o = await adapter.invoke({ ...inv, workspace: wsRetry.dir, work: workRetry, ...(sawTool ? { prompt: probeRetryPrompt(q.text) } : {}) });
+			attempts++;
+			sawTool ||= o.tools.length > 0;
 		}
 		const answered = answeredOf(o);
 		let finding: ProbeAnswer["finding"] = answered ? "ok" : "unanswered";
@@ -86,7 +105,7 @@ export async function probeArm(loaded: LoadedPack, arm: ComposedArm, member: Mem
 			else if (arm.negativeCanaries.some((c) => o.final.includes(c))) finding = "foreign-canary";
 		}
 		if (answered && q.kind === "leak" && q.leak?.test(o.final)) finding = "leak";
-		answers.push({ question: q.text, kind: q.kind, probe: q.probe, answered, final: o.final, finding, toolCalls: o.tools.length });
+		answers.push({ question: q.text, kind: q.kind, probe: q.probe, answered, final: o.final, finding, toolCalls: o.tools.length, attempts });
 	}
 	const reasons: string[] = [];
 	// A tool call during a probe fails it outright: the probe runs with tools off, and an answer a

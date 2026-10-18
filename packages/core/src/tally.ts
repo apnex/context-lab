@@ -17,7 +17,7 @@ import type { Unit, Absent } from "./blinder.js";
 import type { Vote } from "./judge-panel.js";
 import type { CellRecord } from "./run-conductor.js";
 import { propertiesOf, type Experiment, type Scenario } from "./pack-schema.js";
-import { FAULT_KINDS, detectable, faultProfile, hydrationProfile, linkRates, type Detectable, type FaultRow, type HydrationRow, type LinkRow, type RestatedFlag } from "./measures.js";
+import { FAULT_KINDS, costProfile, detectable, faultProfile, hydrationAdherence, hydrationProfile, linkRates, type ArmDelivery, type CostRow, type Detectable, type FaultRow, type HydrationRow, type LinkRow, type RestatedFlag } from "./measures.js";
 import type { Exposure } from "./experiment-register.js";
 import { tallyHumanPicks, type HumanPicksTally, type PicksRecord } from "./human-panel.js";
 import { countChain, type ChainCountResult, type ChainRecord } from "./judging-chain.js";
@@ -79,8 +79,10 @@ export interface Result {
 	exposed: Exposure[];
 	/** The comprehension-behaviour link, per member, arm and guidance id. */
 	link: LinkRow[];
-	/** Per scenario, arm and guidance id: how often valid cells opened or read the target guidance entry from on-request context. */
+	/** Per scenario, arm and guidance id: how often valid cells opened or read the target guidance entry from on-request context, and the adherence of those that did and did not. */
 	hydration?: HydrationRow[];
+	/** Per arm, then per arm and member: the mean tokens, seconds and tool calls of a valid cell's scored attempt. */
+	costs?: CostRow[];
 	/** Notes and final messages sharing a run of words with a delivered instruction or folder file. */
 	restated: RestatedFlag[];
 	/** The stated variation and default, beside the difference detectable per scope. */
@@ -113,6 +115,8 @@ export interface TallyInput {
 	picks?: PicksRecord | null;
 	chain?: ChainRecord | null;
 	memberFamilies?: Map<string, string>;
+	/** Per arm, the files it delivered and how, as recorded when the run began; absent from older records. */
+	deliveries?: Record<string, ArmDelivery[]>;
 }
 
 const mean = (xs: number[]): number | null => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
@@ -243,7 +247,8 @@ export function tally(t: TallyInput): Result {
 	const unreachable = t.cells.filter((c) => c.attempts.some((a) => (a.unreachable ?? []).length > 0)).map((c) => c.cell);
 	const mainCells = t.cells.filter((c) => !isHeldOut(c.scenario));
 	const link = linkRates(mainCells, cellValues, t.scenarios, propertiesOf);
-	const hydration = hydrationProfile(mainCells, t.scenarios, propertiesOf);
+	const hydration = hydrationAdherence(hydrationProfile(mainCells, t.scenarios, propertiesOf, t.deliveries), cellValues, t.scenarios, propertiesOf);
+	const costs = costProfile(mainCells, t.members, t.arms);
 	const valuesOf = (sid: string, pid: string): Record<string, number[]> => Object.fromEntries(t.arms.map((a) => [a, mainCells
 		.filter((c) => c.scenario === sid && c.arm === a && cellValues[c.cell] !== undefined).map((c) => cellValues[c.cell]![pid]).filter((x): x is number => typeof x === "number")]));
 	const mainProps = [...t.scenarios.values()].filter((s) => !s.heldOut).flatMap((s) => propertiesOf(s).map((p) => ({ scenario: s.id, property: p, byArm: valuesOf(s.id, p.id) })));
@@ -265,7 +270,7 @@ export function tally(t: TallyInput): Result {
 			heldOutScenarios: heldOutSet,
 		})
 		: null;
-	return { run: t.run, status: t.status, arms: t.arms, members: t.members, properties, totals, excluded, absent: t.absent.filter((a) => !heldCell(a.cell)), guesses, faults, unreachable, cellValues, heldOut, heldOutCellValues, heldOutAbsent: t.absent.filter((a) => heldCell(a.cell)), heldOutGuesses, exposed, link, ...(hydration.length ? { hydration } : {}), restated, variation, ...(humanPicks ? { humanPicks } : {}), ...(chain ? { chain } : {}) };
+	return { run: t.run, status: t.status, arms: t.arms, members: t.members, properties, totals, excluded, absent: t.absent.filter((a) => !heldCell(a.cell)), guesses, faults, unreachable, cellValues, heldOut, heldOutCellValues, heldOutAbsent: t.absent.filter((a) => heldCell(a.cell)), heldOutGuesses, exposed, link, ...(hydration.length ? { hydration } : {}), ...(costs.length ? { costs } : {}), restated, variation, ...(humanPicks ? { humanPicks } : {}), ...(chain ? { chain } : {}) };
 }
 
 /** A warning where a difference of the stated size would usually go undetected, in the stated scope. */
@@ -278,6 +283,8 @@ function undetectable(r: Result): string[] {
 }
 
 const dd = (d: Detectable | null): string => (d === null ? "- (an arm has no outcome)" : `${d.difference.toFixed(2)} (p ${d.p.toFixed(2)}, n ${d.n})`);
+
+const num = (x: number | null): string => (x === null ? "-" : Math.round(x).toLocaleString("en-US"));
 
 const fmt = (r: Rate): string => (r.mean === null ? "-" : `${r.mean.toFixed(2)} (${r.of})`) + (r.incomplete ? ` +${r.incomplete} inc` : "");
 
@@ -323,9 +330,20 @@ export function resultMarkdown(r: Result, limits: string[]): string {
 		"",
 		...(r.hydration?.length ? [
 			"## On-request guidance hydration", "",
-			"| Scenario | Arm | Guidance | Hydrated / cells | Rate | Members hydrated | Members missed |",
+			...(r.hydration.some((h) => h.onRequestOnly === null)
+				? ["The run record kept no arm deliveries, so every arm is listed: a low rate may only mean the entry was already delivered.", ""]
+				: ["Only arms that could reach the entry on request alone are listed: not given it as an instruction or folder file, and given an on-request folder.", ""]),
+			"| Scenario | Arm | Guidance | Hydrated / cells | Rate | Members hydrated | Members missed | Adherence met: hydrated, not |",
+			"|---|---|---|---|---|---|---|---|",
+			...r.hydration.map((h) => `| ${h.scenario} | ${h.arm} | ${h.guidance} | ${h.hydrated}/${h.cells} | ${Math.round(h.rate * 100)}% | ${h.membersHydrated.join(", ") || "-"} | ${h.membersMissed.join(", ") || "-"} | ${(h.adherence ?? []).map((a) => `${a.property} ${a.hydrated.met}/${a.hydrated.of}, ${a.missed.met}/${a.missed.of}`).join("; ") || "-"} |`),
+			"", "A property is met at or above its scale's midpoint. A correlation, not a cause.", "",
+		] : []),
+		...(r.costs?.length ? [
+			"## Cost per arm", "",
+			"Means per valid cell over its scored attempt, phases summed; tokens over the cells whose runtime reported them.", "",
+			"| Arm | Cells | Input tokens | Cached input | Output tokens | Tool calls | Seconds |",
 			"|---|---|---|---|---|---|---|",
-			...r.hydration.map((h) => `| ${h.scenario} | ${h.arm} | ${h.guidance} | ${h.hydrated}/${h.cells} | ${Math.round(h.rate * 100)}% | ${h.membersHydrated.join(", ") || "-"} | ${h.membersMissed.join(", ") || "-"} |`),
+			...r.costs.filter((c) => c.member === null).map((c) => `| ${c.arm} | ${c.cells} | ${num(c.inputTokens)}${c.tokenCells < c.cells ? ` (${c.tokenCells})` : ""} | ${num(c.cachedInputTokens)} | ${num(c.outputTokens)} | ${c.toolCalls === null ? "-" : c.toolCalls.toFixed(1)} | ${c.seconds === null ? "-" : c.seconds.toFixed(0)} |`),
 			"",
 		] : []),
 		"## Restated guidance", "",

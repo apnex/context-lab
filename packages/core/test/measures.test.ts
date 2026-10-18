@@ -8,8 +8,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import {
-	CANARY_QUESTION, checkPack, conductRun, detectable, detectableDifference, exposureFile, hydrationProfile, linkRates, propertiesOf, readExposures, recordExperiment, recordExposure,
-	sharedRun, tallyRun, words, type Adapter, type Invocation, type Outcome, type Property, type Scenario,
+	CANARY_QUESTION, cellCost, checkPack, conductRun, costProfile, detectable, detectableDifference, exposureFile, hydrationAdherence, hydrationProfile, linkRates, propertiesOf, readExposures, recordExperiment, recordExposure,
+	sharedRun, tallyRun, words, type Adapter, type HydrationRow, type Invocation, type Outcome, type Property, type Scenario,
 } from "../src/index.js";
 import { commitAll, copyPack, editJson, isJudgePrompt, judgeReply, scratch } from "./helpers.js";
 
@@ -368,6 +368,133 @@ test("hydrationProfile counts valid cells whose tool trace opened or read the ta
 			rate: 0.5,
 			membersHydrated: ["a"],
 			membersMissed: ["c"],
+			hydratedCells: ["adherence-a3.on-trigger.a.1"],
+			missedCells: ["adherence-a3.on-trigger.c.1"],
+			onRequestOnly: null,
+			adherence: [],
 		},
+	]);
+});
+
+const readTool = (file: string) => ({ name: "read", input: {}, status: "completed" as const, paths: [`/work/variants/corpus/axioms/${file}`], addresses: [] });
+type V = { valid: true } | { valid: false; cause: "behaviour" | "infrastructure"; detail: string };
+const hCell = (cell: string, arm: string, member: string, tools: ReturnType<typeof readTool>[], valid = true, cost: Partial<Outcome["cost"]> = {}, validity: V = valid ? { valid: true } : { valid: false, cause: "infrastructure", detail: "d" }) => ({
+	cell, scenario: "adherence-a3", arm, member, valid,
+	attempts: [{ attempt: 1, validity, outcome: outcome("ok", { tools, cost: { seconds: 10, inputTokens: 1000, cachedInputTokens: 400, outputTokens: 50, toolCalls: tools.length, ...cost } }), diff: null }],
+});
+
+test("hydrationProfile counts hydrating cells, not members, and with deliveries lists only arms that could reach the entry on request alone", () => {
+	const s: Scenario = { id: "adherence-a3", tags: [], fixture: null, task: "t", properties: [prop("a3-1", "adherence", ["A3"]), prop("a3-2", "adherence", ["A3"])] };
+	const scenarios = new Map([["adherence-a3", s]]);
+	const cells = [
+		// Member a: two runs, both hydrating. Counting members would give 1, not 2.
+		hCell("x.on.a.1", "on", "a", [readTool("A3-sovereign-composition.md")]),
+		hCell("x.on.a.2", "on", "a", [readTool("A3-sovereign-composition.md")]),
+		hCell("x.on.c.1", "on", "c", []),
+		// An invalid cell is not counted.
+		hCell("x.on.c.2", "on", "c", [readTool("A3-sovereign-composition.md")], false),
+		// A30 is another entry: its name does not start with "A3-"; nor does SCA3-, and the id needs a separator before it.
+		hCell("x.on.c.3", "on", "c", [readTool("A30-other.md"), readTool("SCA3-other.md")]),
+		hCell("x.always.a.1", "always", "a", []),
+		hCell("x.bare.a.1", "bare", "a", []),
+	];
+	const deliveries = {
+		on: [{ file: "INDEX.md", as: "instruction" as const }, { file: ".", as: "on-request" as const }],
+		always: [{ file: "axioms/A3-sovereign-composition.md", as: "instruction" as const }, { file: ".", as: "on-request" as const }],
+		bare: [],
+	};
+	const rows = hydrationProfile(cells, scenarios, propertiesOf, deliveries);
+	assert.deepEqual(rows.map((r) => [r.arm, r.cells, r.hydrated, r.rate, r.membersHydrated, r.membersMissed, r.onRequestOnly]), [["on", 4, 2, 0.5, ["a"], ["c"], true]]);
+	assert.deepEqual(rows[0]!.hydratedCells, ["x.on.a.1", "x.on.a.2"]);
+	assert.deepEqual(rows[0]!.missedCells, ["x.on.c.1", "x.on.c.3"]);
+	// A codex shell command names the entry in its input, not its paths; case is ignored.
+	const shell = { name: "command_execution", input: "cat axioms/a3-sovereign-composition.md", status: "completed" as const, paths: [], addresses: [] };
+	const viaInput = hydrationProfile([{ ...hCell("y.on.o.1", "on", "o", []), attempts: [{ attempt: 1, validity: { valid: true as const }, outcome: outcome("ok", { tools: [shell] }), diff: null }] }], scenarios, propertiesOf, deliveries);
+	assert.deepEqual(viaInput.map((r) => [r.hydrated, r.cells]), [[1, 1]]);
+	// A folder file named for the entry delivers it as surely as an instruction does: no row.
+	assert.deepEqual(hydrationProfile(cells, scenarios, propertiesOf, { on: [{ file: "A3-sovereign-composition.md", as: "folder-file" }, { file: ".", as: "on-request" }] }), []);
+	// Without deliveries every arm with a valid cell is listed, onRequestOnly unknown.
+	assert.deepEqual(hydrationProfile(cells, scenarios, propertiesOf).map((r) => [r.arm, r.onRequestOnly]), [["always", null], ["bare", null], ["on", null]]);
+
+	// The adherence split: of the hydrating cells and the rest, how many had a value and met each property.
+	const values = { "x.on.a.1": { "a3-1": 1, "a3-2": 0 }, "x.on.a.2": { "a3-1": 0, "a3-2": 1 }, "x.on.c.1": { "a3-1": 0.5, "a3-2": "incomplete" as const }, "x.on.c.3": { "a3-1": 0, "a3-2": 0 } };
+	const [withSplit] = hydrationAdherence(rows, values, scenarios, propertiesOf);
+	assert.deepEqual(withSplit!.adherence, [
+		// a3-1: hydrated a.1 1 met, a.2 0 not; missed: c.1 0.5 met (the midpoint), c.3 0 not.
+		{ property: "a3-1", hydrated: { of: 2, met: 1 }, missed: { of: 2, met: 1 } },
+		// a3-2: hydrated a.1 0 not, a.2 1 met; missed: c.1 incomplete has no value, c.3 0 not.
+		{ property: "a3-2", hydrated: { of: 2, met: 1 }, missed: { of: 1, met: 0 } },
+	]);
+});
+
+test("a run records its arms' deliveries, and its tally writes hydration rows for on-request-only arms with their adherence split, and costs per arm", async () => {
+	const dir = copyPack();
+	fs.writeFileSync(path.join(dir, "source", "G1-rule.md"), "Prune crossing branches in winter.\n");
+	editJson(path.join(dir, "pack.json"), (j) => {
+		j.arms.push({ id: "shelf", deliver: [{ variant: "almanac-full", file: ".", as: "on-request" }] });
+		for (const l of j.isolation.leakProbes ?? []) if (!l.arms.includes("shelf")) l.arms.push("shelf");
+	});
+	editJson(path.join(dir, "scenarios", "prune.json"), (j) => {
+		j.properties = [{ id: "prune-a", type: "adherence", decidedBy: "judge", key: "Names crossing branches.", scale: [0, 1], guidance: ["G1"] }];
+	});
+	editJson(path.join(dir, "experiments", "orchard.json"), (j) => { j.factors.arms = ["bare", "almanac", "shelf"]; j.factors.population = ["p1", "p2"]; j.runsPerCell = 1; j.scenarios = ["scenarios/prune.json"]; });
+	commitAll(dir);
+	const read1 = { name: "read", input: { filePath: "G1-rule.md" }, status: "completed" as const, paths: [], addresses: [] };
+	const a = (runtime: string): Adapter => ({
+		...agent(runtime, () => "done"),
+		async invoke(inv) {
+			if (inv.prompt === CANARY_QUESTION) return outcome(inv.arm.canaries.join("\n") || "NONE");
+			if (inv.tools === "off" && isJudgePrompt(inv.prompt)) return outcome(judgeReply(inv.prompt));
+			if (inv.tools === "off") return outcome("I do not know.");
+			// In the on-request arm p1 opens the entry; nobody else does.
+			const opens = inv.arm.arm === "shelf" && inv.member.id === "p1";
+			return outcome("Prune the crossing branches.", { session: "s", tools: opens ? [read1] : [], cost: { seconds: 5, inputTokens: inv.arm.arm === "bare" ? 100 : 300, cachedInputTokens: 50, outputTokens: 20, toolCalls: opens ? 1 : 0 } });
+		},
+	});
+	const { dir: rd, record } = await conductRun(dir, { experiment: "orchard", adapters: { opencode: a("opencode"), codex: a("codex") }, work: path.join(scratch(), "w"), records: path.join(scratch(), "r") });
+	assert.deepEqual(record.snapshot.deliveries, {
+		bare: [], almanac: [{ file: "GUIDE.md", as: "instruction" }], shelf: [{ file: ".", as: "on-request" }],
+	});
+	const r = read<{ hydration?: HydrationRow[]; costs?: { arm: string; member: string | null; cells: number; inputTokens: number | null }[] }>(rd, "RESULT.json");
+	// Only shelf could reach G1 on request alone: neither bare nor almanac has an on-request folder.
+	assert.deepEqual(r.hydration?.map((h) => [h.arm, h.guidance, h.hydrated, h.cells, h.onRequestOnly, h.hydratedCells]), [["shelf", "G1", 1, 2, true, ["prune.shelf.p1.1"]]]);
+	// Stub judges score every outcome 1: met by the one hydrating cell and the one that did not hydrate.
+	assert.deepEqual(r.hydration?.[0]?.adherence, [{ property: "prune-a", hydrated: { of: 1, met: 1 }, missed: { of: 1, met: 1 } }]);
+	assert.deepEqual(r.costs?.filter((c) => c.member === null).map((c) => [c.arm, c.cells, c.inputTokens]), [["bare", 2, 100], ["almanac", 2, 300], ["shelf", 2, 300]]);
+	const md = fs.readFileSync(path.join(rd, "RESULT.md"), "utf8");
+	assert.match(md, /## On-request guidance hydration/);
+	assert.match(md, /\| prune \| shelf \| G1 \| 1\/2 \| 50% \| p1 \| p2 \| prune-a 1\/1, 1\/1 \|/);
+	assert.match(md, /## Cost per arm/);
+	assert.match(md, /\| shelf \| 2 \| 300 \| 50 \| 20 \| 0\.5 \| 5 \|/);
+});
+
+test("costProfile gives the mean cost of a counted cell's scored attempt per arm and per arm and member, phases summed", () => {
+	const phased = hCell("x.on.c.1", "on", "c", []);
+	const phaseOutcome = (seconds: number, inputTokens: number | null) => outcome("ok", { cost: { seconds, inputTokens, cachedInputTokens: null, outputTokens: 5, toolCalls: 2 } });
+	(phased.attempts[0] as Record<string, unknown>).phases = [
+		{ status: "run", outcome: phaseOutcome(3, 200) },
+		{ status: "run", outcome: phaseOutcome(4, null) },
+		{ status: "not-run", outcome: null },
+	];
+	// A count one phase did not report makes the cell's count unknown, not a sum that reads low.
+	assert.deepEqual(cellCost(phased), { seconds: 7, inputTokens: null, cachedInputTokens: null, outputTokens: 10, toolCalls: 4 });
+	const cells = [
+		hCell("x.on.a.1", "on", "a", [readTool("A3-x.md")], true, { seconds: 20, inputTokens: 3000 }),
+		phased,
+		// Excluded from scoring, so not costed.
+		hCell("x.on.a.2", "on", "a", [], false),
+		// Ended on agent behaviour: scored, so costed (0004).
+		hCell("x.on.c.2", "on", "c", [], false, {}, { valid: false, cause: "behaviour", detail: "d" }),
+		hCell("x.bare.a.1", "bare", "a", [], true, { inputTokens: null, cachedInputTokens: null, outputTokens: null }),
+	];
+	const rows = costProfile(cells, ["a", "c"], ["bare", "on"]);
+	const r4 = (x: number | null) => (x === null ? null : Math.round(x * 1e4) / 1e4);
+	assert.deepEqual(rows.map((r) => [r.arm, r.member, r.cells, r4(r.seconds), r4(r.inputTokens), r4(r.cachedInputTokens), r4(r.outputTokens), r4(r.toolCalls), r.tokenCells]), [
+		["bare", null, 1, 10, null, null, null, 0, 0],
+		["bare", "a", 1, 10, null, null, null, 0, 0],
+		// on: a.1 (20 s, 3000 in, 400 cached, 50 out, 1 tool), c.1 (7 s, tokens unknown but 10 out, 4 tools), c.2 (10 s, 1000, 400, 50, 0).
+		["on", null, 3, 12.3333, 2000, 400, 36.6667, 1.6667, 2],
+		["on", "a", 1, 20, 3000, 400, 50, 1, 1],
+		["on", "c", 2, 8.5, 1000, 400, 30, 2, 1],
 	]);
 });

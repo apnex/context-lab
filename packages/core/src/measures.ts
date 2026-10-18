@@ -2,7 +2,8 @@
 // link, restated-guidance flags, and the detectable difference beside an experiment's stated one.
 // None of them is a score: they are computed from scores and outcomes, and feed nothing back.
 
-import type { Property, Scenario } from "./pack-schema.js";
+import path from "node:path";
+import type { DeliveryKind, Property, Scenario } from "./pack-schema.js";
 import type { Outcome } from "./outcome.js";
 import type { Attempt, CellRecord } from "./run-conductor.js";
 
@@ -269,32 +270,75 @@ export function faultProfile(
 
 // ---------------------------------------------------------------- on-request hydration profile
 
+/** One file an arm delivered, and how: what the hydration profile needs to know which arms could only reach an entry on request. */
+export interface ArmDelivery { file: string; as: DeliveryKind }
+
+/** Of an adherence property naming the row's guidance: how often it was met in the cells that hydrated it, and in those that did not. */
+export interface HydrationAdherence {
+	property: string;
+	/** Cells with a value that hydrated the entry, and how many of them met the property (at or above its scale's midpoint). */
+	hydrated: { of: number; met: number };
+	missed: { of: number; met: number };
+}
+
 export interface HydrationRow {
 	scenario: string;
 	arm: string;
 	guidance: string;
+	/** Valid cells counted. */
 	cells: number;
+	/** Of those, the cells that opened or read the entry. */
 	hydrated: number;
+	/** hydrated / cells. */
 	rate: number;
+	/** Members with at least one hydrating cell, and members with none. */
 	membersHydrated: string[];
 	membersMissed: string[];
+	hydratedCells: string[];
+	missedCells: string[];
+	/**
+	 * True where the arm's deliveries are known and the entry reached it only on request: no
+	 * instruction or folder file of the arm is the entry, and the arm has an on-request folder. Null
+	 * where the run record did not keep the arm's deliveries, so a low rate may only mean the entry was
+	 * already delivered. False rows are not written.
+	 */
+	onRequestOnly: boolean | null;
+	/** Filled by the tally from the cells' values; empty from hydrationProfile alone. */
+	adherence: HydrationAdherence[];
 }
 
+const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Whether `file`, a path within a variant, is the entry with id `id`: its name starts with the id and a hyphen. */
+export const isEntryFile = (file: string, id: string): boolean => new RegExp(`^${escapeRe(id)}-`, "i").test(path.basename(file));
+
 /**
- * Per `(scenario, arm, guidance)`: how many valid cells whose arm delivered `on-request` folders
- * opened or read a file matching the guidance entry id (e.g. `A3-sovereign-composition.md` or
- * `S15-message-to-a-human.md`) during their episode.
+ * Per `(scenario, arm, guidance)`: how many valid cells hydrated the guidance entry - a tool call of
+ * any phase of the scored attempt named a path, or had an input, holding the entry id followed by a
+ * hyphen after a path separator, quote, space or the start (e.g. `axioms/A3-sovereign-composition.md`),
+ * case ignored. So it measures that a call named the entry, which a read does and a search pattern
+ * can; a bulk read such as `cat axioms/*.md` names no entry and is not counted. Entry files must be
+ * named `<id>-...` to be seen at all.
+ *
+ * Given the arms' deliveries, a row is written only for an arm with an on-request folder and no
+ * instruction or folder file named for the entry: the folder's contents are not checked, so it is an
+ * arm that could have the entry only on request. Without deliveries every arm is written, with
+ * onRequestOnly null.
  */
 export function hydrationProfile(
 	cells: Pick<CellRecord, "cell" | "scenario" | "arm" | "member" | "valid" | "attempts">[],
 	scenarios: Map<string, Scenario>,
 	propertiesOf: (s: Scenario) => Property[],
-	onRequestArms?: Set<string>,
+	deliveries?: Record<string, ArmDelivery[]>,
 ): HydrationRow[] {
-	const map = new Map<string, { scenario: string; arm: string; guidance: string; hydrated: Set<string>; missed: Set<string>; cells: number }>();
+	const map = new Map<string, { scenario: string; arm: string; guidance: string; hydrated: string[]; missed: string[]; byMember: Map<string, boolean> }>();
+	const onRequestOnly = (arm: string, id: string): boolean | null => {
+		if (deliveries === undefined) return null;
+		const d = deliveries[arm] ?? [];
+		return d.some((x) => x.as === "on-request") && !d.some((x) => x.as !== "on-request" && isEntryFile(x.file, id));
+	};
 	for (const c of cells) {
 		if (!c.valid) continue;
-		if (onRequestArms !== undefined && !onRequestArms.has(c.arm)) continue;
 		const s = scenarios.get(c.scenario);
 		if (!s) continue;
 		const ids = [...new Set(propertiesOf(s).flatMap((p) => p.guidance ?? []))].sort();
@@ -306,26 +350,116 @@ export function hydrationProfile(
 		];
 		const touchedText = tools.map((t) => `${(t.paths ?? []).join(" ")} ${JSON.stringify(t.input ?? {})}`).join(" ");
 		for (const id of ids) {
-			const re = new RegExp(`(?:^|[\\\\/"'\\s])${id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-`, "i");
+			if (onRequestOnly(c.arm, id) === false) continue;
+			const re = new RegExp(`(?:^|[\\\\/"'\\s])${escapeRe(id)}-`, "i");
 			const didHydrate = re.test(touchedText);
 			const key = JSON.stringify([c.scenario, c.arm, id]);
-			const row = map.get(key) ?? { scenario: c.scenario, arm: c.arm, guidance: id, hydrated: new Set<string>(), missed: new Set<string>(), cells: 0 };
-			row.cells++;
-			if (didHydrate) row.hydrated.add(c.member);
-			else row.missed.add(c.member);
+			const row = map.get(key) ?? { scenario: c.scenario, arm: c.arm, guidance: id, hydrated: [], missed: [], byMember: new Map<string, boolean>() };
+			(didHydrate ? row.hydrated : row.missed).push(c.cell);
+			row.byMember.set(c.member, (row.byMember.get(c.member) ?? false) || didHydrate);
 			map.set(key, row);
 		}
 	}
 	return [...map.values()]
 		.sort((a, b) => a.scenario.localeCompare(b.scenario) || a.arm.localeCompare(b.arm) || a.guidance.localeCompare(b.guidance))
-		.map((r) => ({
-			scenario: r.scenario,
-			arm: r.arm,
-			guidance: r.guidance,
-			cells: r.cells,
-			hydrated: r.hydrated.size,
-			rate: r.cells > 0 ? r.hydrated.size / r.cells : 0,
-			membersHydrated: [...r.hydrated].sort(),
-			membersMissed: [...r.missed].filter((m) => !r.hydrated.has(m)).sort(),
-		}));
+		.map((r) => {
+			const cellCount = r.hydrated.length + r.missed.length;
+			return {
+				scenario: r.scenario,
+				arm: r.arm,
+				guidance: r.guidance,
+				cells: cellCount,
+				hydrated: r.hydrated.length,
+				rate: cellCount > 0 ? r.hydrated.length / cellCount : 0,
+				membersHydrated: [...r.byMember].filter(([, h]) => h).map(([m]) => m).sort(),
+				membersMissed: [...r.byMember].filter(([, h]) => !h).map(([m]) => m).sort(),
+				hydratedCells: [...r.hydrated].sort(),
+				missedCells: [...r.missed].sort(),
+				onRequestOnly: onRequestOnly(r.arm, r.guidance),
+				adherence: [],
+			};
+		});
+}
+
+/**
+ * Fills each row's adherence split: for every adherence property of the row's scenario naming its
+ * guidance, how many of the hydrating and of the other cells had a value, and how many met it. A
+ * correlation, not a cause: an agent that opens an entry may differ in other ways from one that does not.
+ */
+export function hydrationAdherence(rows: HydrationRow[], values: Record<string, Record<string, number | "incomplete">>, scenarios: Map<string, Scenario>, propertiesOf: (s: Scenario) => Property[]): HydrationRow[] {
+	return rows.map((r) => {
+		const s = scenarios.get(r.scenario);
+		const props = s ? propertiesOf(s).filter((p) => p.type === "adherence" && (p.guidance ?? []).includes(r.guidance)) : [];
+		const split = (cells: string[], p: Property): { of: number; met: number } => {
+			const vs = cells.map((c) => values[c]?.[p.id]).filter((v): v is number => typeof v === "number");
+			return { of: vs.length, met: vs.filter((v) => met(v, p)).length };
+		};
+		return { ...r, adherence: props.map((p) => ({ property: p.id, hydrated: split(r.hydratedCells, p), missed: split(r.missedCells, p) })) };
+	});
+}
+
+// ---------------------------------------------------------------- cost per arm
+
+export interface CostRow {
+	arm: string;
+	/** Null for the arm's row over every member. */
+	member: string | null;
+	/** Cells counted: valid ones and those that ended on agent behaviour, which are scored, so costed (0004); cells excluded from scoring are not. */
+	cells: number;
+	/**
+	 * Means per cell over the scored attempt, its phases summed. A token mean is over the cells whose
+	 * runtime reported that count in every phase, and null where none did; input tokens include cached
+	 * input, as both parsers count them.
+	 */
+	seconds: number | null;
+	inputTokens: number | null;
+	cachedInputTokens: number | null;
+	outputTokens: number | null;
+	toolCalls: number | null;
+	/** Cells whose runtime reported input tokens. */
+	tokenCells: number;
+}
+
+/** What one cell's scored attempt cost: its phases summed where it had phases, else its outcome. */
+export function cellCost(c: Pick<CellRecord, "attempts">): { seconds: number; inputTokens: number | null; cachedInputTokens: number | null; outputTokens: number | null; toolCalls: number } {
+	const last = c.attempts[c.attempts.length - 1];
+	const ran = (last?.phases ?? []).filter((p) => p.status === "run" && p.outcome !== null).map((p) => p.outcome!.cost);
+	const costs = ran.length ? ran : last ? [last.outcome.cost] : [];
+	// A count missing from any phase makes the cell's count unknown, rather than a sum that reads low.
+	const sum = (k: "inputTokens" | "cachedInputTokens" | "outputTokens"): number | null => (costs.length > 0 && costs.every((x) => x[k] != null) ? costs.reduce((a, x) => a + (x[k] as number), 0) : null);
+	return {
+		seconds: costs.reduce((a, x) => a + x.seconds, 0),
+		inputTokens: sum("inputTokens"), cachedInputTokens: sum("cachedInputTokens"), outputTokens: sum("outputTokens"),
+		toolCalls: costs.reduce((a, x) => a + x.toolCalls, 0),
+	};
+}
+
+/**
+ * Per arm, then per arm and member: the mean cost of a counted cell's scored attempt - a valid cell,
+ * or one that ended on agent behaviour, as the tally scores both. Beside the scores, it says what an
+ * arm's added context cost in tokens and time for the adherence it bought.
+ */
+export function costProfile(cells: Pick<CellRecord, "cell" | "arm" | "member" | "valid" | "attempts">[], members: string[], arms: string[]): CostRow[] {
+	const row = (arm: string, member: string | null, group: typeof cells): CostRow => {
+		const cs = group.map(cellCost);
+		const avg = (xs: (number | null)[]): number | null => { const ok = xs.filter((x): x is number => x !== null); return ok.length ? ok.reduce((a, b) => a + b, 0) / ok.length : null; };
+		return {
+			arm, member, cells: cs.length,
+			seconds: avg(cs.map((x) => x.seconds)), inputTokens: avg(cs.map((x) => x.inputTokens)), cachedInputTokens: avg(cs.map((x) => x.cachedInputTokens)),
+			outputTokens: avg(cs.map((x) => x.outputTokens)), toolCalls: avg(cs.map((x) => x.toolCalls)),
+			tokenCells: cs.filter((x) => x.inputTokens !== null).length,
+		};
+	};
+	const valid = cells.filter((c) => {
+		const last = c.attempts[c.attempts.length - 1];
+		return c.valid || (last !== undefined && !last.validity.valid && last.validity.cause === "behaviour");
+	});
+	const out: CostRow[] = [];
+	for (const a of arms) {
+		const inArm = valid.filter((c) => c.arm === a);
+		if (!inArm.length) continue;
+		out.push(row(a, null, inArm));
+		for (const m of members) { const g = inArm.filter((c) => c.member === m); if (g.length) out.push(row(a, m, g)); }
+	}
+	return out;
 }

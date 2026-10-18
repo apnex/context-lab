@@ -22,7 +22,7 @@ import { runStatus, contentHash, type Record as RegisterRecord } from "./experim
 import { probeArm, type ProbeResult } from "./isolation-prober.js";
 import { boundUtf8, splitAnswers, stripSelfExplanation, type ResponseBoundRecord } from "./answer-parser.js";
 import type { Outcome } from "./outcome.js";
-import type { Experiment, LoadedPack, Member, Scenario, Status } from "./pack-schema.js";
+import type { DeliveryKind, Experiment, LoadedPack, Member, Scenario, Status } from "./pack-schema.js";
 import { runPhase } from "./phase-driver.js";
 import { buildVariant, makeReadOnly, makeWritable, VARIANT_MANIFEST, type BuiltVariant, type VariantManifest } from "./variant-builder.js";
 import { classify, forbiddenPathsNamed, RERUN, type Validity } from "./validity-classifier.js";
@@ -150,6 +150,8 @@ export interface RunRecord {
 		experiment?: { variation?: Experiment["variation"]; default?: string; full?: Experiment };
 		/** Exposures of this run's held-out scenarios recorded before it began. */
 		exposed?: Exposure[];
+		/** Per arm, the files it delivered and how, so the hydration profile can tell which arms could reach an entry only on request. */
+		deliveries?: Record<string, { file: string; as: DeliveryKind }[]>;
 	};
 	guessGroups: Record<string, string[]>;
 	seed: string;
@@ -275,6 +277,7 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 			scenarios, arms: armIds0, population: loaded.pack.population,
 			experiment: { ...(exp.experiment.variation !== undefined ? { variation: exp.experiment.variation } : {}), ...(exp.experiment.default !== undefined ? { default: exp.experiment.default } : {}), full: exp.experiment },
 			exposed: readExposures(loaded).filter((e) => scenarios.some((x) => x.id === e.scenario && x.heldOut === true)),
+			deliveries: Object.fromEntries(armIds0.map((a) => [a, (loaded.pack.arms.find((x) => x.id === a)?.deliver ?? []).map((d) => ({ file: d.file, as: d.as }))])),
 		},
 		guessGroups: exp.experiment.judging?.guessGroups ?? Object.fromEntries(armIds0.map((a) => [a, [a]])), seed: runId, end: null,
 	};
@@ -909,6 +912,7 @@ export function tallyRun(recordsDir: string, opts: TallyOptions = {}): Result {
 		...(picks !== null ? { picks } : {}),
 		...(chain !== null ? { chain } : {}),
 		memberFamilies,
+		...(record.snapshot.deliveries !== undefined ? { deliveries: record.snapshot.deliveries } : {}),
 	});
 	if (!(opts.write ?? opts.runs === undefined)) return result;
 	write(path.join(recordsDir, "RESULT.json"), result);

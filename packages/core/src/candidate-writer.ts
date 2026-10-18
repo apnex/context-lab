@@ -1,14 +1,22 @@
 // candidate-writer - writes candidate findings from results (architecture section 5, principle P9;
 // Delta-3 stage 2, criterion G6).
 //
-// Evaluates a run's Result against four rules (0004, customizable via pack.findingRules):
+// Evaluates a run's Result against six rules (0004, customizable via pack.findingRules):
 //   1. all-guided-fail  an adherence property whose normalised pass rate is 0 in every guided arm
 //                       (each guided arm having at least 1 counted outcome);
 //   2. wrong-firing     a precision property whose normalised fail rate 1 - (mean - low)/(high - low)
 //                       exceeds wrongFiringThreshold (0.25 by default) in any guided arm;
 //   3. knows-not-acts   a guidance entry in result.link whose pairs-weighted metNot rate across
 //                       guided arms exceeds knowsNotActsThreshold (0.5 by default);
-//   4. chain-threshold  a classify-then-verify finding in result.chain.rows with meets === true.
+//   4. chain-threshold  a classify-then-verify finding in result.chain.rows with meets === true;
+//   5. routing-miss     a hydration row of a guided arm that could reach the entry only on request,
+//                       with at least 2 cells and a rate below routingMissThreshold (0.5 by default):
+//                       the entry's trigger did not bring agents to open it;
+//   6. hydrated-not-acted an adherence property naming a row's entry, whose hydrating cells (at least
+//                       2) did not meet it at a share above hydratedNotActedThreshold (0.5 by default):
+//                       agents opened the entry and still did not act on it.
+// Rules 5 and 6 read only rows whose onRequestOnly is true, so a record without the arms' deliveries
+// emits neither.
 //
 // Writes CANDIDATES.json and CANDIDATES.md inside the run folder and modifies no file outside it.
 
@@ -19,7 +27,7 @@ import { propertiesOf, type FindingRules, type LoadedPack, type Property, type S
 import type { RunRecord } from "./run-conductor.js";
 import type { Result } from "./tally.js";
 
-export type CandidateRuleId = "all-guided-fail" | "wrong-firing" | "knows-not-acts" | "chain-threshold";
+export type CandidateRuleId = "all-guided-fail" | "wrong-firing" | "knows-not-acts" | "chain-threshold" | "routing-miss" | "hydrated-not-acted";
 
 export interface CandidateFinding {
 	rule: CandidateRuleId;
@@ -51,6 +59,8 @@ export function evaluateCandidates(o: EvaluateCandidatesOptions): CandidatesPack
 	const rules: Required<FindingRules> = {
 		wrongFiringThreshold: o.rules?.wrongFiringThreshold ?? 0.25,
 		knowsNotActsThreshold: o.rules?.knowsNotActsThreshold ?? 0.5,
+		routingMissThreshold: o.rules?.routingMissThreshold ?? 0.5,
+		hydratedNotActedThreshold: o.rules?.hydratedNotActedThreshold ?? 0.5,
 	};
 	const guidedArms = o.guidedArms.filter((a) => o.result.arms.includes(a));
 	const propMap = new Map<string, Property>();
@@ -149,6 +159,39 @@ export function evaluateCandidates(o: EvaluateCandidatesOptions): CandidatesPack
 			revivalTrigger: trigger,
 			draftBacklogRow: `| **B-TBD** | S3 | A3 signal | **Finding \`${row.id}\` met cross-family threshold (${row.scenarios.length} scenarios, held-out: ${row.heldOut.join(", ")}, families: ${row.families.join(", ")}).** | \`[M, run ${o.result.run} RESULT.json chain]\` | open - TRIGGER: ${trigger} |`,
 		});
+	}
+
+	// Rules 5 (routing-miss) and 6 (hydrated-not-acted): hydration rows of guided arms that could
+	// reach the entry only on request.
+	for (const h of o.result.hydration ?? []) {
+		if (h.onRequestOnly !== true || !guidedArms.includes(h.arm)) continue;
+		if (h.cells >= 2 && h.rate < rules.routingMissThreshold) {
+			const target = `${h.scenario}/${h.guidance}@${h.arm}`;
+			const trigger = `hydration trigger of ${h.guidance} is revised`;
+			candidates.push({
+				rule: "routing-miss",
+				target,
+				summary: `In arm ${h.arm}, ${h.hydrated} of ${h.cells} cells opened ${h.guidance} on scenario ${h.scenario} (rate ${h.rate.toFixed(2)}, threshold < ${rules.routingMissThreshold}); members that never did: ${h.membersMissed.join(", ") || "none"}.`,
+				evidence: { arm: h.arm, cells: h.cells, hydrated: h.hydrated, rate: Number(h.rate.toFixed(4)), membersMissed: h.membersMissed, adherence: h.adherence },
+				revivalTrigger: trigger,
+				draftBacklogRow: `| **B-TBD** | S3 | A12 signal | **Agents in \`${h.arm}\` opened \`${h.guidance}\` in ${h.hydrated} of ${h.cells} cells of \`${h.scenario}\`, though it applied.** | \`[M, run ${o.result.run} RESULT.json hydration]\` | open - TRIGGER: ${trigger} |`,
+			});
+		}
+		for (const a of h.adherence ?? []) {
+			if (a.hydrated.of < 2) continue;
+			const notMet = (a.hydrated.of - a.hydrated.met) / a.hydrated.of;
+			if (notMet <= rules.hydratedNotActedThreshold) continue;
+			const target = `${h.scenario}/${a.property}@${h.arm}`;
+			const trigger = `${h.guidance} is revised to state the move it requires`;
+			candidates.push({
+				rule: "hydrated-not-acted",
+				target,
+				summary: `In arm ${h.arm}, ${a.hydrated.of - a.hydrated.met} of ${a.hydrated.of} cells that opened ${h.guidance} did not meet ${h.scenario}/${a.property} (share ${notMet.toFixed(2)}, threshold > ${rules.hydratedNotActedThreshold}); cells that did not open it met it ${a.missed.met} of ${a.missed.of}.`,
+				evidence: { arm: h.arm, guidance: h.guidance, hydrated: a.hydrated, missed: a.missed, notMetShare: Number(notMet.toFixed(4)) },
+				revivalTrigger: trigger,
+				draftBacklogRow: `| **B-TBD** | S3 | A14 signal | **Agents that opened \`${h.guidance}\` in \`${h.arm}\` did not meet \`${h.scenario}/${a.property}\` in ${a.hydrated.of - a.hydrated.met} of ${a.hydrated.of} cells.** | \`[M, run ${o.result.run} RESULT.json hydration]\` | open - TRIGGER: ${trigger} |`,
+			});
+		}
 	}
 
 	return {

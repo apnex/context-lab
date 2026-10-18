@@ -13,7 +13,7 @@ export { parseCodex } from "./parse-codex.js";
 export { runSandboxed, sandboxMounts, type SandboxResult, type SandboxSpec } from "./runtime-sandbox.js";
 export { CODEX_FEATURES_OFF, Refused, codexAdapter, codexVendor, which, externalAdapter, opencodeAdapter, type Adapter, type CodexOptions, type DeliveryMode, type ExternalOptions, type Invocation, type OpencodeOptions } from "./adapters.js";
 export { RERUN, classify, forbiddenPathsNamed, type Cause, type Forbidden, type Validity } from "./validity-classifier.js";
-export { CANARY_QUESTION, probeArm, type ProbeAnswer, type ProbeOptions, type ProbeResult } from "./isolation-prober.js";
+export { CANARY_QUESTION, probeArm, probeRetryPrompt, type ProbeAnswer, type ProbeOptions, type ProbeResult } from "./isolation-prober.js";
 export { boundUtf8, splitAnswers, stripSelfExplanation, type ResponseBoundRecord } from "./answer-parser.js";
 export { promptFor, runPhase, type PhaseRun } from "./phase-driver.js";
 export { measure, type CodeScore, type MeasuredOutcome } from "./code-measurer.js";
@@ -22,7 +22,7 @@ export { blind, mask, shuffle, type Absent, type Blinded, type Unit } from "./bl
 export { EMPTY_ARM, assignJudges, judgeAll, judgeEligible, validate, type JudgeReplyRecord, type PanelOptions, type Vote } from "./judge-panel.js";
 export { resultMarkdown, tally, type GuessBucket, type PropertyGuessBucket, type PropertyResult, type Rate, type Result, type TallyInput } from "./tally.js";
 export { NO_NOTE, assignTraps, phasePrompt, propertyPhase, runEpisode, Ledger, type EpisodeResult, type EpisodeRun, type PhaseRecord, type TrapAssignment } from "./episode.js";
-export { FAULT_KINDS, RESTATED_RUN, classifyFaultKind, detectable, detectableDifference, faultProfile, hydrationProfile, linkRates, met, sharedRun, words, type Detectable, type FaultKind, type FaultRow, type HydrationRow, type LinkRow, type RestatedFlag } from "./measures.js";
+export { FAULT_KINDS, RESTATED_RUN, cellCost, classifyFaultKind, costProfile, detectable, detectableDifference, faultProfile, hydrationAdherence, hydrationProfile, isEntryFile, linkRates, met, sharedRun, words, type ArmDelivery, type CostRow, type Detectable, type FaultKind, type FaultRow, type HydrationAdherence, type HydrationRow, type LinkRow, type RestatedFlag } from "./measures.js";
 export { MIN_POOL, SIZES, SPLITS, assertIdenticalArms, compare, deriveThresholds, readTable, readThresholds, recordThresholds, standardisedDrop, thresholdFile, type CompareInput, type ComparisonResult, type Flag, type Side, type Table, type ThresholdSet } from "./comparison.js";
 export { runFlags, type RunFlags } from "./cli-flags.js";
 export { chooseCalibrationPairs, choosePreferencePairs, flipFor, type CalibrationOptions, type CalibrationPair, type PreferenceItem, type PreferencePair } from "./pair-chooser.js";

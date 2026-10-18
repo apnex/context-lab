@@ -534,6 +534,8 @@ test("maxResponseBytes truncates oversized responses before answer splitting and
 	assert.deepEqual(record.dispatchedCells, ["graft.bare.p1.1", "graft.bare.p2.1"]);
 	assert.equal(record.snapshot.experiment?.full?.maxAttemptsPerCell, 1);
 	assert.equal(record.snapshot.experiment?.full?.maxResponseBytes, 40);
+	// The arms' deliveries are kept for the tally's hydration profile, for the experiment's arms only.
+	assert.deepEqual(record.snapshot.deliveries, { bare: [] });
 	const cells = cellsOf(records);
 	const ocCell = cells.find((c) => c.member === "p1")!;
 	const cxCell = cells.find((c) => c.member === "p2")!;
