@@ -193,7 +193,8 @@ test("judge eligibility gates vote acceptance on exit, stop, filter and error, a
 	assert.equal(votes.length, 1);
 	assert.equal(votes[0]!.value, 1);
 	assert.equal(votes[0]!.attempt, 3);
-	const job = read<{ prompt: string; replies: { attempt: number; prompt: string; local: Record<string, string>; eligible: boolean; ineligibleReason: string | null; outcome: Outcome }[] }>(rd, "judging/graft.task.outcomes.p2.1.json");
+	const jobFile = fs.readdirSync(path.join(rd, "judging")).find((f) => f.includes(".p2.") && f.endsWith(".json"))!;
+	const job = read<{ prompt: string; replies: { attempt: number; prompt: string; local: Record<string, string>; eligible: boolean; ineligibleReason: string | null; outcome: Outcome }[] }>(rd, `judging/${jobFile}`);
 	assert.equal(job.replies.length, 3);
 	assert.equal(job.replies[0]!.eligible, false);
 	assert.match(job.replies[0]!.ineligibleReason ?? "", /exit 2/);
