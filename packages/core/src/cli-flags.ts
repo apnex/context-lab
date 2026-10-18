@@ -6,10 +6,15 @@ export interface RunFlags { runsPerCell?: number; maxAttemptsPerCell?: 1 | 2; pa
 export function runFlags(argv: string[]): RunFlags {
 	const flag = (n: string): string | undefined => { const i = argv.indexOf(n); return i > 0 ? argv[i + 1] : undefined; };
 	const runs = flag("--runs"), maxAttempts = flag("--max-attempts"), parallel = flag("--parallel"), work = flag("--work"), revision = flag("--revision");
-	const m = maxAttempts !== undefined ? Number(maxAttempts) : undefined;
+	let m: 1 | 2 | undefined;
+	if (maxAttempts !== undefined) {
+		const n = Number(maxAttempts);
+		if (n !== 1 && n !== 2) throw new Error(`--max-attempts must be 1 or 2, got ${JSON.stringify(maxAttempts)}`);
+		m = n;
+	}
 	return {
 		...(runs !== undefined ? { runsPerCell: Number(runs) } : {}),
-		...(m === 1 || m === 2 ? { maxAttemptsPerCell: m } : {}),
+		...(m !== undefined ? { maxAttemptsPerCell: m } : {}),
 		...(parallel !== undefined ? { parallel: Number(parallel) } : {}),
 		...(work !== undefined ? { work } : {}), ...(revision !== undefined ? { revision } : {}),
 	};

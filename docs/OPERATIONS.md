@@ -113,7 +113,8 @@ Fields of an experiment file (no unknown fields are permitted):
 - `scenarios` *(required, string[])*: relative paths from the pack root to scenario JSON files (e.g. `["scenarios/s1.json"]`).
 - `factors` *(required, object)*: `{ "arms": ["<arm-id>", ...], "population": ["<member-id>", ...] }`.
 - `runsPerCell` *(required, positive integer)*: number of independent runs per `(scenario, arm, member)` cell.
-- `maxAttemptsPerCell` *(optional, `1` or `2`)*: maximum attempts per cell when an `infrastructure` or `isolation` failure would normally trigger a re-run (`2` by default; set `1` to disable automatic cell retries).
+- `maxAttemptsPerCell` *(optional, `1` or `2`)*: maximum attempts per cell when an `infrastructure` or `isolation` failure would normally trigger a re-run (`2` by default; set `1` to disable automatic cell retries; recorded in `run.json.maxAttemptsPerCell` and enforced across `resume`).
+- `maxResponseBytes` *(optional, positive integer)*: UTF-8 byte ceiling applied to each phase's scored response text (after self-explanation stripping, at a valid UTF-8 code-point boundary, before `answerHeading` splitting and blinding); records `responseBound` (`{ limitBytes, originalBytes, effectiveBytes, truncated, reason }`) on `CellRecord` and `phaseOutcomes[phase]`.
 - `phases` *(required, array)*: default phase list `[ { "id": "<slug>", "session": "new" } ]` (in `experiment.phases`, `session` must be `"new"`; multi-phase sequences with `"continue"`, `after`, `note`, or `withhold` are declared on `scenario.phases`).
 - `variation` *(optional, required when `declaredStatus` is `"result"`)*: `{ "difference": <number in (0, 1]>, "scope": "pooled" | "property" }`.
 - `default` *(optional, required when `declaredStatus` is `"result"`)*: string stating the default decision when no difference of the stated size is detected (e.g. `"no change indicated"`).
@@ -153,6 +154,7 @@ Fields of a scenario file (no unknown fields are permitted):
   - `notes` *(optional, string)*.
 - `scoredFile` *(optional, relative path)*: file inside `{WORKSPACE}` read as the scored artifact (required if any property declares `answerHeading`, unless `answerSource` is `"final"`).
 - `answerSource` *(optional, `"scored-file"` | `"final"`)*: where `answerHeading` sections are split from (`"scored-file"` by default; set `"final"` to split `### <answerHeading>` directly from the phase's `Outcome.final` message without requiring `scoredFile`).
+- `maxResponseBytes` *(optional, positive integer)*: scenario-level UTF-8 byte ceiling overriding `experiment.maxResponseBytes`.
 - `phases` *(optional, array)*: multi-phase episode definition overriding `experiment.phases`:
   - Phase 0 (the first phase): `{ "id": "<slug>", "session": "new" }` - must have `session: "new"` and **must not** declare `task`, `after`, `note`, or `withhold` (its task is the scenario's top-level `task`).
   - Subsequent phases (`i >= 1`):

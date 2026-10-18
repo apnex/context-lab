@@ -14,12 +14,12 @@ export { runSandboxed, sandboxMounts, type SandboxResult, type SandboxSpec } fro
 export { CODEX_FEATURES_OFF, Refused, codexAdapter, codexVendor, which, externalAdapter, opencodeAdapter, type Adapter, type CodexOptions, type DeliveryMode, type ExternalOptions, type Invocation, type OpencodeOptions } from "./adapters.js";
 export { RERUN, classify, forbiddenPathsNamed, type Cause, type Forbidden, type Validity } from "./validity-classifier.js";
 export { CANARY_QUESTION, probeArm, type ProbeAnswer, type ProbeOptions, type ProbeResult } from "./isolation-prober.js";
-export { splitAnswers, stripSelfExplanation } from "./answer-parser.js";
+export { boundUtf8, splitAnswers, stripSelfExplanation, type ResponseBoundRecord } from "./answer-parser.js";
 export { promptFor, runPhase, type PhaseRun } from "./phase-driver.js";
 export { measure, type CodeScore, type MeasuredOutcome } from "./code-measurer.js";
 export { METHOD, STATES, conductRun, pickRun, resumeRun, tallyRun, type Attempt, type CellRecord, type PickRunOptions, type ResumeOptions, type RunOptions, type RunRecord, type State } from "./run-conductor.js";
 export { blind, mask, shuffle, type Absent, type Blinded, type Unit } from "./blinder.js";
-export { EMPTY_ARM, assignJudges, judgeAll, validate, type PanelOptions, type Vote } from "./judge-panel.js";
+export { EMPTY_ARM, assignJudges, judgeAll, judgeEligible, validate, type JudgeReplyRecord, type PanelOptions, type Vote } from "./judge-panel.js";
 export { resultMarkdown, tally, type GuessBucket, type PropertyGuessBucket, type PropertyResult, type Rate, type Result, type TallyInput } from "./tally.js";
 export { NO_NOTE, assignTraps, phasePrompt, propertyPhase, runEpisode, Ledger, type EpisodeResult, type EpisodeRun, type PhaseRecord, type TrapAssignment } from "./episode.js";
 export { FAULT_KINDS, RESTATED_RUN, classifyFaultKind, detectable, detectableDifference, faultProfile, linkRates, met, sharedRun, words, type Detectable, type FaultKind, type FaultRow, type LinkRow, type RestatedFlag } from "./measures.js";

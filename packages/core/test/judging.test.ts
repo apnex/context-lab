@@ -168,6 +168,43 @@ test("a judge reply reached with a tool is discarded", async () => {
 	assert.ok(read<Vote[]>(rd, "judging/votes.json").filter((v) => v.judge === "p2").every((v) => v.value === null));
 });
 
+test("judge eligibility gates vote acceptance on exit, stop, filter and error, and retains per-attempt prompt, local mapping and outcome in judging/<job>.json", async () => {
+	let call = 0;
+	const { rd } = await run(
+		(d) => {
+			editJson(path.join(d, "experiments", "orchard.json"), (j) => { j.scenarios = ["scenarios/graft.json"]; j.factors.arms = ["bare"]; });
+			editJson(path.join(d, "pack.json"), (j) => { j.suites = j.suites.filter((x: { id: string }) => x.id !== "pruning"); });
+		},
+		{ runtime: "opencode" },
+		{
+			runtime: "codex",
+			judgeOutcome: (p) => {
+				call++;
+				// Attempt 1: well-formed JSON reply, but non-zero exit -> ineligible, must be rejected!
+				if (call === 1) return outcome(judgeReply(p), { exit: 2 });
+				// Attempt 2: well-formed JSON reply, but filtered -> ineligible, must be rejected!
+				if (call === 2) return outcome(judgeReply(p), { filtered: true });
+				// Attempt 3: eligible reply -> accepted!
+				return outcome(judgeReply(p));
+			},
+		},
+	);
+	const votes = read<Vote[]>(rd, "judging/votes.json").filter((v) => v.judge === "p2");
+	assert.equal(votes.length, 1);
+	assert.equal(votes[0]!.value, 1);
+	assert.equal(votes[0]!.attempt, 3);
+	const job = read<{ prompt: string; replies: { attempt: number; prompt: string; local: Record<string, string>; eligible: boolean; ineligibleReason: string | null; outcome: Outcome }[] }>(rd, "judging/graft.task.outcomes.p2.1.json");
+	assert.equal(job.replies.length, 3);
+	assert.equal(job.replies[0]!.eligible, false);
+	assert.match(job.replies[0]!.ineligibleReason ?? "", /exit 2/);
+	assert.equal(job.replies[1]!.eligible, false);
+	assert.match(job.replies[1]!.ineligibleReason ?? "", /filter/);
+	assert.equal(job.replies[2]!.eligible, true);
+	assert.equal(job.replies[2]!.ineligibleReason, null);
+	assert.ok(Object.keys(job.replies[0]!.local).includes("o1"));
+	assert.equal(job.replies[0]!.outcome.exit, 2);
+});
+
 test("agreement counts only outcomes with two or more votes, and a total needs every property's mean", async () => {
 	const { rd } = await run(undefined, { runtime: "opencode", judge: () => "not json" }, { runtime: "codex", judge: () => "not json" });
 	const r = read<{ properties: { property: string; agreement: { of: number } }[]; totals: Record<string, number | null> }>(rd, "RESULT.json");

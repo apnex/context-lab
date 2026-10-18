@@ -21,6 +21,7 @@ import path from "node:path";
 import type { Adapter, DeliveryMode, Invocation } from "./adapters.js";
 import type { ComposedArm } from "./arm-composer.js";
 import { shuffle, type Unit } from "./blinder.js";
+import type { Outcome } from "./outcome.js";
 import { phasesOf, propertiesOf, type Experiment, type LoadedPack, type Member, type Property, type Scenario } from "./pack-schema.js";
 import { createWorkspace } from "./workspace-builder.js";
 
@@ -33,6 +34,31 @@ export interface Vote {
 	reason: string;
 	guess: string | null;
 	prompt: string;
+	/** The 1-indexed attempt within the judge job that produced this vote (or null if missing). */
+	attempt?: number | null;
+}
+
+export interface JudgeReplyRecord {
+	attempt: number;
+	prompt: string;
+	local: Record<string, string>;
+	eligible: boolean;
+	ineligibleReason: string | null;
+	final: string;
+	tools: number;
+	error: string | null;
+	outcome: Outcome;
+}
+
+/** Whether a judge invocation is eligible to cast votes: zero tools, clean exit (0), completed stop, not filtered, no error, and non-empty reply. */
+export function judgeEligible(out: Outcome): { eligible: boolean; reason: string | null } {
+	if (out.tools.length > 0) return { eligible: false, reason: `used ${out.tools.length} tool(s)` };
+	if (out.filtered || out.error?.cause === "filter") return { eligible: false, reason: "blocked by content filter" };
+	if (out.error !== null) return { eligible: false, reason: `error (${out.error.cause}): ${out.error.message.slice(0, 200)}` };
+	if (out.stop.reason !== "completed") return { eligible: false, reason: `stop reason ${out.stop.reason}` };
+	if (out.exit !== 0) return { eligible: false, reason: `exit ${String(out.exit)}` };
+	if (out.final.trim() === "") return { eligible: false, reason: "empty reply" };
+	return { eligible: true, reason: null };
 }
 
 /** The judges for a unit: every given judge of another family; a judge of the unit's own family is never assigned. */
@@ -132,7 +158,7 @@ function parseAnswerReply(text: string): Reply {
 }
 
 /** Valid votes from one reply, outcome by outcome; an outcome missing or invalid gives none. */
-export function validate(reply: Reply | null, local: Map<string, Unit>, scenario: Scenario, judge: Member, prompt: string, guessOptions: string[]): Vote[] {
+export function validate(reply: Reply | null, local: Map<string, Unit>, scenario: Scenario, judge: Member, prompt: string, guessOptions: string[], attempt = 1): Vote[] {
 	if (reply === null || !Array.isArray(reply.outcomes)) return [];
 	const votes: Vote[] = [];
 	for (const [id, u] of local) {
@@ -145,7 +171,7 @@ export function validate(reply: Reply | null, local: Map<string, Unit>, scenario
 			const v = sc?.v;
 			if (typeof v !== "number" || !Number.isInteger(v) || v < p.scale[0] || v > p.scale[1]) { mine.length = 0; break; }
 			const guess = typeof o.guess === "string" && guessOptions.includes(o.guess) ? o.guess : null;
-			mine.push({ unit: u.id, property: pid, judge: judge.id, family: judge.family, value: v, reason: String(sc?.reason ?? ""), guess, prompt });
+			mine.push({ unit: u.id, property: pid, judge: judge.id, family: judge.family, value: v, reason: String(sc?.reason ?? ""), guess, prompt, attempt });
 		}
 		if (mine.length === u.properties.length) votes.push(...mine);
 	}
@@ -190,7 +216,7 @@ export async function judgeAll(o: PanelOptions): Promise<Vote[]> {
 	const votes: Vote[] = [];
 	fs.mkdirSync(path.join(o.recordsDir, "judging"), { recursive: true });
 	await pool(jobs, o.parallel, async (job) => {
-		const record: { prompt: string; replies: { final: string; tools: number; error: string | null }[]; failure?: string } = { prompt: "", replies: [] };
+		const record: { prompt: string; replies: JudgeReplyRecord[]; failure?: string } = { prompt: "", replies: [] };
 		let got: Vote[] = [];
 		try {
 			const adapter = o.adapters[job.judge.runtime];
@@ -207,10 +233,17 @@ export async function judgeAll(o: PanelOptions): Promise<Vote[]> {
 				fs.rmdirSync(inv);
 				const invocation: Invocation = { arm: EMPTY_ARM, workspace: ws.dir, prompt: text, mode, member: job.judge, tools: "off", timeLimitSeconds: o.timeLimitSeconds, work: inv };
 				const out = await adapter.invoke(invocation);
-				record.replies.push({ final: out.final, tools: out.tools.length, error: out.error?.message ?? null });
-				if (out.tools.length > 0) continue;
+				const elig = judgeEligible(out);
+				const localMap = Object.fromEntries([...local.entries()].map(([k, u]) => [k, u.id]));
+				record.replies.push({
+					attempt, prompt: text, local: localMap,
+					eligible: elig.eligible, ineligibleReason: elig.reason,
+					final: out.final, tools: out.tools.length, error: out.error?.message ?? null,
+					outcome: out,
+				});
+				if (!elig.eligible) continue;
 				const reply = job.answers ? parseAnswerReply(out.final) : parseOutcomeReply(out.final);
-				got = [...got, ...validate(reply, local, job.scenario, job.judge, job.name, job.answers ? [] : o.guessOptions)];
+				got = [...got, ...validate(reply, local, job.scenario, job.judge, job.name, job.answers ? [] : o.guessOptions, attempt)];
 			}
 		} catch (e) {
 			record.failure = String(e).slice(0, 1000);
@@ -218,7 +251,7 @@ export async function judgeAll(o: PanelOptions): Promise<Vote[]> {
 		fs.writeFileSync(path.join(o.recordsDir, "judging", `${job.name}.json`), JSON.stringify(record, null, 2) + "\n");
 		votes.push(...got);
 		for (const u of job.units) for (const pid of u.properties) {
-			if (!got.some((v) => v.unit === u.id && v.property === pid)) votes.push({ unit: u.id, property: pid, judge: job.judge.id, family: job.judge.family, value: null, reason: record.failure ?? "no valid vote after three prompts", guess: null, prompt: job.name });
+			if (!got.some((v) => v.unit === u.id && v.property === pid)) votes.push({ unit: u.id, property: pid, judge: job.judge.id, family: job.judge.family, value: null, reason: record.failure ?? "no valid vote after three prompts", guess: null, prompt: job.name, attempt: null });
 		}
 	});
 	return votes.sort((a, b) => `${a.unit}.${a.property}.${a.judge}`.localeCompare(`${b.unit}.${b.property}.${b.judge}`));

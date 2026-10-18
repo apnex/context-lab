@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { promptFor, splitAnswers, stripSelfExplanation, type ComposedArm, type Experiment, type Scenario } from "../src/index.js";
+import { boundUtf8, promptFor, splitAnswers, stripSelfExplanation, type ComposedArm, type Experiment, type Scenario } from "../src/index.js";
 
 test("text after the self-explanation marker is cut", () => {
 	assert.equal(stripSelfExplanation("The message.\nCORPUS-SOURCES: S15, M10", "CORPUS-SOURCES:"), "The message.");
@@ -20,4 +20,35 @@ test("a prompt is the instructions, preamble and task, with placeholders filled"
 	const arm = { arm: "a", instructions: [], folderFiles: [], onRequest: [{ variant: "v", path: "/corpus" }], canaries: [], negativeCanaries: [], revisions: {} } as ComposedArm;
 	assert.equal(promptFor(exp, sc, arm, "/ws"), "Read only files under /corpus.\n\nThe human is busy.\n\nWrite the message.");
 	assert.equal(promptFor({ ...exp, instructions: undefined, preamble: undefined } as unknown as Experiment, sc, arm, "/ws"), "Write the message.");
+});
+
+test("boundUtf8 preserves in-budget text and truncates oversized text at a valid UTF-8 code-point boundary", () => {
+	// 1. In-budget text is unchanged.
+	const ok = boundUtf8("hello", 10);
+	assert.equal(ok.text, "hello");
+	assert.deepEqual(ok.bound, { limitBytes: 10, originalBytes: 5, effectiveBytes: 5, truncated: false, reason: null });
+
+	// 2. Exact boundary is unchanged.
+	const exact = boundUtf8("12345", 5);
+	assert.equal(exact.text, "12345");
+	assert.equal(exact.bound.truncated, false);
+
+	// 3. Multi-byte cut: "a" (1 byte) + "€" (3 bytes: E2 82 AC) + "b" (1 byte) = 5 bytes.
+	// Cutting at limit 3 must not split the 3-byte "€" sequence; it must keep only "a" (1 byte).
+	const multi = boundUtf8("a\u20acb", 3);
+	assert.equal(multi.text, "a");
+	assert.equal(Buffer.from(multi.text, "utf8").includes(0xfffd), false);
+	assert.deepEqual(multi.bound, {
+		limitBytes: 3,
+		originalBytes: 5,
+		effectiveBytes: 1,
+		truncated: true,
+		reason: "truncated from 5 to 1 UTF-8 bytes (limit 3)",
+	});
+
+	// Cutting at limit 4 keeps "a€" (4 bytes).
+	const multi4 = boundUtf8("a\u20acb", 4);
+	assert.equal(multi4.text, "a\u20ac");
+	assert.equal(multi4.bound.effectiveBytes, 4);
+	assert.equal(multi4.bound.truncated, true);
 });
