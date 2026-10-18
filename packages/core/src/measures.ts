@@ -6,6 +6,7 @@ import path from "node:path";
 import type { DeliveryKind, Property, Scenario } from "./pack-schema.js";
 import type { Outcome } from "./outcome.js";
 import type { Attempt, CellRecord } from "./run-conductor.js";
+import type { Vote } from "./judge-panel.js";
 
 // ---------------------------------------------------------------- words and restated guidance
 
@@ -462,4 +463,49 @@ export function costProfile(cells: Pick<CellRecord, "cell" | "arm" | "member" | 
 		for (const m of members) { const g = inArm.filter((c) => c.member === m); if (g.length) out.push(row(a, m, g)); }
 	}
 	return out;
+}
+
+// ---------------------------------------------------------------- judge dissent
+
+export interface JudgeDissentRow {
+	judge: string;
+	/** (unit, property) pairs this judge cast a value on. */
+	votes: number;
+	/** Of the pairs with values from at least three judges that were not unanimous, those this judge was in. */
+	splits: number;
+	/** Of those, the pairs where every other judge agreed and this judge alone differed. */
+	lone: number;
+	/** lone / splits, or null without a split. */
+	rate: number | null;
+}
+
+/**
+ * Per judge: how often it was the lone dissenter where at least three judges valued one (unit,
+ * property) pair and they disagreed. A judge whose rate stands far above the others' is the first
+ * place to look when agreement is low: it is more often that judge than the key. Held-out units are
+ * counted too, since a judge's reading does not depend on the scenario being held out.
+ */
+export function judgeDissent(votes: Pick<Vote, "unit" | "property" | "judge" | "value">[]): JudgeDissentRow[] {
+	const byPair = new Map<string, Map<string, number>>();
+	const cast = new Map<string, number>();
+	for (const v of votes) {
+		if (v.value === null) continue;
+		const key = JSON.stringify([v.unit, v.property]);
+		const m = byPair.get(key) ?? new Map<string, number>();
+		if (!m.has(v.judge)) { m.set(v.judge, v.value); cast.set(v.judge, (cast.get(v.judge) ?? 0) + 1); }
+		byPair.set(key, m);
+	}
+	const splits = new Map<string, number>(), lone = new Map<string, number>();
+	for (const m of byPair.values()) {
+		if (m.size < 3 || new Set(m.values()).size === 1) continue;
+		for (const [j, v] of m) {
+			splits.set(j, (splits.get(j) ?? 0) + 1);
+			const others = [...m].filter(([k]) => k !== j).map(([, w]) => w);
+			if (new Set(others).size === 1 && others[0] !== v) lone.set(j, (lone.get(j) ?? 0) + 1);
+		}
+	}
+	return [...cast.keys()].sort().map((j) => {
+		const sp = splits.get(j) ?? 0, lo = lone.get(j) ?? 0;
+		return { judge: j, votes: cast.get(j) ?? 0, splits: sp, lone: lo, rate: sp > 0 ? lo / sp : null };
+	});
 }

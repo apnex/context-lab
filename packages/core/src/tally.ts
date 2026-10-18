@@ -17,7 +17,7 @@ import type { Unit, Absent } from "./blinder.js";
 import type { Vote } from "./judge-panel.js";
 import type { CellRecord } from "./run-conductor.js";
 import { propertiesOf, type Experiment, type Scenario } from "./pack-schema.js";
-import { FAULT_KINDS, costProfile, detectable, faultProfile, hydrationAdherence, hydrationProfile, linkRates, type ArmDelivery, type CostRow, type Detectable, type FaultRow, type HydrationRow, type LinkRow, type RestatedFlag } from "./measures.js";
+import { FAULT_KINDS, costProfile, detectable, faultProfile, hydrationAdherence, hydrationProfile, judgeDissent, linkRates, type ArmDelivery, type CostRow, type Detectable, type FaultRow, type HydrationRow, type JudgeDissentRow, type LinkRow, type RestatedFlag } from "./measures.js";
 import type { Exposure } from "./experiment-register.js";
 import { tallyHumanPicks, type HumanPicksTally, type PicksRecord } from "./human-panel.js";
 import { countChain, type ChainCountResult, type ChainRecord } from "./judging-chain.js";
@@ -81,8 +81,10 @@ export interface Result {
 	link: LinkRow[];
 	/** Per scenario, arm and guidance id: how often valid cells opened or read the target guidance entry from on-request context, and the adherence of those that did and did not. */
 	hydration?: HydrationRow[];
-	/** Per arm, then per arm and member: the mean tokens, seconds and tool calls of a valid cell's scored attempt. */
+	/** Per arm, then per arm and member: the mean tokens, seconds and tool calls of a counted cell's scored attempt. */
 	costs?: CostRow[];
+	/** Per judge: how often it alone differed where at least three judges valued one unit's property and disagreed. */
+	judgeDissent?: JudgeDissentRow[];
 	/** Notes and final messages sharing a run of words with a delivered instruction or folder file. */
 	restated: RestatedFlag[];
 	/** The stated variation and default, beside the difference detectable per scope. */
@@ -249,6 +251,7 @@ export function tally(t: TallyInput): Result {
 	const link = linkRates(mainCells, cellValues, t.scenarios, propertiesOf);
 	const hydration = hydrationAdherence(hydrationProfile(mainCells, t.scenarios, propertiesOf, t.deliveries), cellValues, t.scenarios, propertiesOf);
 	const costs = costProfile(mainCells, t.members, t.arms);
+	const dissent = judgeDissent(t.votes);
 	const valuesOf = (sid: string, pid: string): Record<string, number[]> => Object.fromEntries(t.arms.map((a) => [a, mainCells
 		.filter((c) => c.scenario === sid && c.arm === a && cellValues[c.cell] !== undefined).map((c) => cellValues[c.cell]![pid]).filter((x): x is number => typeof x === "number")]));
 	const mainProps = [...t.scenarios.values()].filter((s) => !s.heldOut).flatMap((s) => propertiesOf(s).map((p) => ({ scenario: s.id, property: p, byArm: valuesOf(s.id, p.id) })));
@@ -270,7 +273,7 @@ export function tally(t: TallyInput): Result {
 			heldOutScenarios: heldOutSet,
 		})
 		: null;
-	return { run: t.run, status: t.status, arms: t.arms, members: t.members, properties, totals, excluded, absent: t.absent.filter((a) => !heldCell(a.cell)), guesses, faults, unreachable, cellValues, heldOut, heldOutCellValues, heldOutAbsent: t.absent.filter((a) => heldCell(a.cell)), heldOutGuesses, exposed, link, ...(hydration.length ? { hydration } : {}), ...(costs.length ? { costs } : {}), restated, variation, ...(humanPicks ? { humanPicks } : {}), ...(chain ? { chain } : {}) };
+	return { run: t.run, status: t.status, arms: t.arms, members: t.members, properties, totals, excluded, absent: t.absent.filter((a) => !heldCell(a.cell)), guesses, faults, unreachable, cellValues, heldOut, heldOutCellValues, heldOutAbsent: t.absent.filter((a) => heldCell(a.cell)), heldOutGuesses, exposed, link, ...(hydration.length ? { hydration } : {}), ...(costs.length ? { costs } : {}), ...(dissent.length ? { judgeDissent: dissent } : {}), restated, variation, ...(humanPicks ? { humanPicks } : {}), ...(chain ? { chain } : {}) };
 }
 
 /** A warning where a difference of the stated size would usually go undetected, in the stated scope. */
@@ -340,10 +343,18 @@ export function resultMarkdown(r: Result, limits: string[]): string {
 		] : []),
 		...(r.costs?.length ? [
 			"## Cost per arm", "",
-			"Means per valid cell over its scored attempt, phases summed; tokens over the cells whose runtime reported them.", "",
+			"Means per counted cell - valid, or ended on agent behaviour - over its scored attempt, phases summed; a token mean is over the cells whose runtime reported that count in every phase, in brackets where fewer than all.", "",
 			"| Arm | Cells | Input tokens | Cached input | Output tokens | Tool calls | Seconds |",
 			"|---|---|---|---|---|---|---|",
 			...r.costs.filter((c) => c.member === null).map((c) => `| ${c.arm} | ${c.cells} | ${num(c.inputTokens)}${c.tokenCells < c.cells ? ` (${c.tokenCells})` : ""} | ${num(c.cachedInputTokens)} | ${num(c.outputTokens)} | ${c.toolCalls === null ? "-" : c.toolCalls.toFixed(1)} | ${c.seconds === null ? "-" : c.seconds.toFixed(0)} |`),
+			"",
+		] : []),
+		...(r.judgeDissent?.length ? [
+			"## Judge dissent", "",
+			"Where at least three judges valued one unit's property and disagreed: how often each judge was in such a split, and how often it alone differed.", "",
+			"| Judge | Values cast | In splits | Lone dissent | Rate |",
+			"|---|---|---|---|---|",
+			...r.judgeDissent.map((d) => `| ${d.judge} | ${d.votes} | ${d.splits} | ${d.lone} | ${d.rate === null ? "-" : `${Math.round(d.rate * 100)}%`} |`),
 			"",
 		] : []),
 		"## Restated guidance", "",

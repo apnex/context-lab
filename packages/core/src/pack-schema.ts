@@ -136,6 +136,8 @@ export interface FindingRules {
 	routingMissThreshold?: number;
 	/** Share of hydrating cells not meeting an adherence property above which it emits a hydrated-not-acted candidate; 0.5 by default. */
 	hydratedNotActedThreshold?: number;
+	/** Share of a judge's splits in which it alone differed above which it emits a judge-outlier candidate; 0.5 by default. */
+	judgeOutlierThreshold?: number;
 }
 
 export interface Property {

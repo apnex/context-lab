@@ -101,7 +101,7 @@ function packShape(raw: unknown, out: Defect[]): raw is Pack {
 		schema: "string", id: "string", sources: "array", variants: "array", arms: "array", population: "array", hooks: "array",
 		masks: "object", isolation: "object", experiments: "string[]", suites: "array", records: "object",
 	}, { comparisons: "array", findingRules: "object" }, out)) return false;
-	if (isObj(raw["findingRules"])) shape(raw["findingRules"], "findingRules", {}, { wrongFiringThreshold: "number", knowsNotActsThreshold: "number", routingMissThreshold: "number", hydratedNotActedThreshold: "number" }, out);
+	if (isObj(raw["findingRules"])) shape(raw["findingRules"], "findingRules", {}, { wrongFiringThreshold: "number", knowsNotActsThreshold: "number", routingMissThreshold: "number", hydratedNotActedThreshold: "number", judgeOutlierThreshold: "number" }, out);
 	eachShape(raw["comparisons"], "comparisons", { id: "string", experiment: "string", rule: oneOf(["aa", "tolerance", "improve"]), base: "string", head: "string" }, { m: positiveInt, tolerance: "number" }, out);
 	eachShape(raw["sources"], "sources", { id: "string", path: "string", addresses: "string[]" }, { exclude: "string[]" }, out);
 	eachShape(raw["variants"], "variants", { id: "string", source: "string", canaries: "string[]" }, { include: "string[]", transform: "string", revision: "string" }, out);

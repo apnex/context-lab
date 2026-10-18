@@ -51,6 +51,7 @@ They are not copied here; this register starts at the vision.
 | 0029 | 2026-10-17 | Delta-4 is complete: every exit criterion (H1 to H4) was evaluated green by an agent that built none of the code, closing `B4`, `B5` and `B7` and completing milestone M4 (all four planned milestones M1-M4 on context-lab's board are done). | director | ratified | - |
 | 0030 | 2026-10-17 | `README.md` (in `S4`/`S9` four-journey layout) and `docs/OPERATIONS.md` document all 13 CLI commands, the complete `context-lab.pack/1` schema, a copy-pasteable minimal pack, and step-by-step operator workflows, verified by dogfooding `context-lab` on itself across all 5 models with `packages/` excluded (`2.80/10 -> 10.00/10`, `P0` `0/5 -> 5/5` passing `checkPack`). | director | ratified | - |
 | 0031 | 2026-10-18 | The result reports each arm's mean cost (`costs`) and, per hydration row, the adherence of cells that hydrated the entry and of those that did not; hydration rows count cells and are written only for arms with an on-request folder and no instruction or folder file named for the entry, from arm deliveries now kept in the run record; `candidates` gains `routing-miss` and `hydrated-not-acted`; and a probe retry after a tool call says no entry is mounted. | director | ratified | amends 0004 |
+| 0032 | 2026-10-18 | The result reports each judge's dissent (`judgeDissent`); `candidates` gains rule 7, `judge-outlier`; rules 5 and 6 read only guidance a scenario declares it exercises, and rule 6 is written once per scenario, property and arm. | director | ratified | amends 0031 |
 
 ---
 
@@ -483,3 +484,19 @@ Reviewed before landing by an agent that wrote none of it, reading only; its blo
 
 **Source.**\
 `[V, director ruling 2026-10-18 (mission-kit second adherence pass, option 1); mission-kit docs/evals/runs/context-lab/2026-10-18-045019-adherence/run.json probes]`
+
+### 0032
+
+**Ruling.**\
+Three changes to `0031`, each from the diagnostic of mission-kit's run `2026-10-18-093310-adherence-pass2`, the first run with `0031`'s rules:
+
+- `Result.judgeDissent`: per judge, the values it cast, the splits it was in - a unit's property valued by at least three judges who did not all agree - and how often it alone differed; written to `RESULT.md` as *Judge dissent*.
+- `candidates` rule 7, `judge-outlier`: a judge in at least 10 splits that alone differed in more than `judgeOutlierThreshold` of them, 0.5 by default.
+- Rules 5 and 6 read only rows for guidance a scenario declares in its `exercises:` tags, where it declares any; rule 6 is written once per scenario, property and arm.
+
+**Evidence.**\
+On that run, `0031`'s rules wrote 18 candidates; read against the cells each cites, 7 were true and 11 were not: 9 `routing-miss` rows were for an entry a property names beside the one its scenario exercises, opened rarely because the exercised one was opened, and 2 were the same `hydrated-not-acted` finding written from two entries' rows.\
+Re-tallied with these rules, the same record gives 8: the 7 true findings and one `judge-outlier`, for the Grok judge, which alone differed in 72 of the 97 splits it was in, against 8 to 15 for each other judge.
+
+**Source.**\
+`[V, director's standing directive 2026-10-18 to fix tooling found wanting by each run's diagnostic; mission-kit docs/evals/runs/context-lab/2026-10-18-093310-adherence-pass2]`

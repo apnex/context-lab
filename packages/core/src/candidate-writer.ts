@@ -1,7 +1,7 @@
 // candidate-writer - writes candidate findings from results (architecture section 5, principle P9;
 // Delta-3 stage 2, criterion G6).
 //
-// Evaluates a run's Result against six rules (0004, customizable via pack.findingRules):
+// Evaluates a run's Result against seven rules (0004, customizable via pack.findingRules):
 //   1. all-guided-fail  an adherence property whose normalised pass rate is 0 in every guided arm
 //                       (each guided arm having at least 1 counted outcome);
 //   2. wrong-firing     a precision property whose normalised fail rate 1 - (mean - low)/(high - low)
@@ -16,7 +16,12 @@
 //                       2) did not meet it at a share above hydratedNotActedThreshold (0.5 by default):
 //                       agents opened the entry and still did not act on it.
 // Rules 5 and 6 read only rows whose onRequestOnly is true, so a record without the arms' deliveries
-// emits neither.
+// emits neither; and only rows for guidance a scenario declares it exercises (its exercises: tags),
+// where it declares any, since an entry a property names beside the target need not be opened when
+// the target is. Rule 6 is written once per scenario, property and arm.
+//   7. judge-outlier  a judge in at least 10 splits (pairs valued by three or more judges, not
+//                     unanimous) that alone differed in more than judgeOutlierThreshold of them (0.5
+//                     by default).
 //
 // Writes CANDIDATES.json and CANDIDATES.md inside the run folder and modifies no file outside it.
 
@@ -27,7 +32,7 @@ import { propertiesOf, type FindingRules, type LoadedPack, type Property, type S
 import type { RunRecord } from "./run-conductor.js";
 import type { Result } from "./tally.js";
 
-export type CandidateRuleId = "all-guided-fail" | "wrong-firing" | "knows-not-acts" | "chain-threshold" | "routing-miss" | "hydrated-not-acted";
+export type CandidateRuleId = "all-guided-fail" | "wrong-firing" | "knows-not-acts" | "chain-threshold" | "routing-miss" | "hydrated-not-acted" | "judge-outlier";
 
 export interface CandidateFinding {
 	rule: CandidateRuleId;
@@ -61,6 +66,7 @@ export function evaluateCandidates(o: EvaluateCandidatesOptions): CandidatesPack
 		knowsNotActsThreshold: o.rules?.knowsNotActsThreshold ?? 0.5,
 		routingMissThreshold: o.rules?.routingMissThreshold ?? 0.5,
 		hydratedNotActedThreshold: o.rules?.hydratedNotActedThreshold ?? 0.5,
+		judgeOutlierThreshold: o.rules?.judgeOutlierThreshold ?? 0.5,
 	};
 	const guidedArms = o.guidedArms.filter((a) => o.result.arms.includes(a));
 	const propMap = new Map<string, Property>();
@@ -163,8 +169,15 @@ export function evaluateCandidates(o: EvaluateCandidatesOptions): CandidatesPack
 
 	// Rules 5 (routing-miss) and 6 (hydrated-not-acted): hydration rows of guided arms that could
 	// reach the entry only on request.
+	const exercised = (sid: string): Set<string> | null => {
+		const ids = (o.scenarios.get(sid)?.tags ?? []).filter((t) => t.startsWith("exercises:")).map((t) => t.slice("exercises:".length));
+		return ids.length ? new Set(ids) : null;
+	};
+	const notActed = new Set<string>();
 	for (const h of o.result.hydration ?? []) {
 		if (h.onRequestOnly !== true || !guidedArms.includes(h.arm)) continue;
+		const ex = exercised(h.scenario);
+		if (ex !== null && !ex.has(h.guidance)) continue;
 		if (h.cells >= 2 && h.rate < rules.routingMissThreshold) {
 			const target = `${h.scenario}/${h.guidance}@${h.arm}`;
 			const trigger = `hydration trigger of ${h.guidance} is revised`;
@@ -182,6 +195,8 @@ export function evaluateCandidates(o: EvaluateCandidatesOptions): CandidatesPack
 			const notMet = (a.hydrated.of - a.hydrated.met) / a.hydrated.of;
 			if (notMet <= rules.hydratedNotActedThreshold) continue;
 			const target = `${h.scenario}/${a.property}@${h.arm}`;
+			if (notActed.has(target)) continue;
+			notActed.add(target);
 			const trigger = `${h.guidance} is revised to state the move it requires`;
 			candidates.push({
 				rule: "hydrated-not-acted",
@@ -192,6 +207,20 @@ export function evaluateCandidates(o: EvaluateCandidatesOptions): CandidatesPack
 				draftBacklogRow: `| **B-TBD** | S3 | A14 signal | **Agents that opened \`${h.guidance}\` in \`${h.arm}\` did not meet \`${h.scenario}/${a.property}\` in ${a.hydrated.of - a.hydrated.met} of ${a.hydrated.of} cells.** | \`[M, run ${o.result.run} RESULT.json hydration]\` | open - TRIGGER: ${trigger} |`,
 			});
 		}
+	}
+
+	// Rule 7 (judge-outlier).
+	for (const d of o.result.judgeDissent ?? []) {
+		if (d.splits < 10 || d.rate === null || d.rate <= rules.judgeOutlierThreshold) continue;
+		const trigger = `judge ${d.judge} is recalibrated or removed from the panel`;
+		candidates.push({
+			rule: "judge-outlier",
+			target: d.judge,
+			summary: `Judge ${d.judge} alone differed in ${d.lone} of the ${d.splits} splits it was in (rate ${d.rate.toFixed(2)}, threshold > ${rules.judgeOutlierThreshold}).`,
+			evidence: { ...d },
+			revivalTrigger: trigger,
+			draftBacklogRow: `| **B-TBD** | S3 | A8 signal | **Judge \`${d.judge}\` alone differed in ${d.lone} of ${d.splits} split votes.** | \`[M, run ${o.result.run} RESULT.json judgeDissent]\` | open - TRIGGER: ${trigger} |`,
+		});
 	}
 
 	return {

@@ -258,7 +258,22 @@ test("G6: evaluateCandidates and writeRunCandidates emit candidates for all four
 	];
 	const p2 = evaluateCandidates({ result: { ...result, properties: [], link: [], chain: null, hydration }, scenarios, guidedArms: ["almanac", "always"] });
 	assert.deepEqual(p2.candidates.map((c) => [c.rule, c.target]), [["routing-miss", "sc/R-low@almanac"], ["hydrated-not-acted", "sc/adh-h@almanac"]]);
-	assert.deepEqual(p2.rules, { wrongFiringThreshold: 0.25, knowsNotActsThreshold: 0.5, routingMissThreshold: 0.5, hydratedNotActedThreshold: 0.5 });
+	assert.deepEqual(p2.rules, { wrongFiringThreshold: 0.25, knowsNotActsThreshold: 0.5, routingMissThreshold: 0.5, hydratedNotActedThreshold: 0.5, judgeOutlierThreshold: 0.5 });
+	// A scenario declaring what it exercises: rows for other guidance it names emit nothing, and a
+	// property flagged from two exercised entries' rows is written once.
+	const tagged = new Map([["sc", { ...s, tags: ["exercises:R-half", "exercises:R-dup"] }]]);
+	const dup = [...hydration, row("almanac", "R-dup", 4, 2, true, [{ property: "adh-h", hydrated: { of: 2, met: 0 }, missed: { of: 2, met: 1 } }])];
+	const p4 = evaluateCandidates({ result: { ...result, properties: [], link: [], chain: null, hydration: dup }, scenarios: tagged, guidedArms: ["almanac"] });
+	assert.deepEqual(p4.candidates.map((c) => [c.rule, c.target]), [["hydrated-not-acted", "sc/adh-h@almanac"]]);
+	// Rule 7: a judge alone differing in more than half of at least 10 splits.
+	const dissent = [
+		{ judge: "x", votes: 90, splits: 20, lone: 14, rate: 0.7 },
+		{ judge: "o", votes: 90, splits: 20, lone: 3, rate: 0.15 },
+		// A high rate on fewer than 10 splits is not enough.
+		{ judge: "c", votes: 90, splits: 9, lone: 9, rate: 1 },
+	];
+	const p5 = evaluateCandidates({ result: { ...result, properties: [], link: [], chain: null, judgeDissent: dissent }, scenarios, guidedArms: ["almanac"] });
+	assert.deepEqual(p5.candidates.map((c) => [c.rule, c.target]), [["judge-outlier", "x"]]);
 	const p3 = evaluateCandidates({ result: { ...result, properties: [], link: [], chain: null, hydration }, scenarios, guidedArms: ["almanac"], rules: { routingMissThreshold: 0.6, hydratedNotActedThreshold: 0.99 } });
 	assert.deepEqual(p3.candidates.map((c) => [c.rule, c.target]), [["routing-miss", "sc/R-low@almanac"], ["routing-miss", "sc/R-half@almanac"], ["hydrated-not-acted", "sc/adh-h@almanac"]]);
 

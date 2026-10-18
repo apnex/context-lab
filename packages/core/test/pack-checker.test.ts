@@ -118,9 +118,9 @@ test("the synthetic pack is accepted", async () => {
 	assert.equal(r.ok, true);
 });
 
-test("findingRules accepts each of its four thresholds as a number", async () => {
+test("findingRules accepts each of its five thresholds as a number", async () => {
 	const dir = copyPack();
-	editJson(packJson(dir), (j) => { j.findingRules = { wrongFiringThreshold: 0.2, knowsNotActsThreshold: 0.4, routingMissThreshold: 0.6, hydratedNotActedThreshold: 0.7 }; });
+	editJson(packJson(dir), (j) => { j.findingRules = { wrongFiringThreshold: 0.2, knowsNotActsThreshold: 0.4, routingMissThreshold: 0.6, hydratedNotActedThreshold: 0.7, judgeOutlierThreshold: 0.6 }; });
 	const r = await checkPack(dir);
 	assert.equal(r.ok, true, JSON.stringify(r.ok ? [] : r.defects));
 });

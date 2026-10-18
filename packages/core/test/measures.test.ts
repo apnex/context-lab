@@ -8,7 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import {
-	CANARY_QUESTION, cellCost, checkPack, conductRun, costProfile, detectable, detectableDifference, exposureFile, hydrationAdherence, hydrationProfile, linkRates, propertiesOf, readExposures, recordExperiment, recordExposure,
+	CANARY_QUESTION, cellCost, checkPack, conductRun, costProfile, detectable, detectableDifference, exposureFile, hydrationAdherence, hydrationProfile, judgeDissent, linkRates, propertiesOf, readExposures, recordExperiment, recordExposure,
 	sharedRun, tallyRun, words, type Adapter, type HydrationRow, type Invocation, type Outcome, type Property, type Scenario,
 } from "../src/index.js";
 import { commitAll, copyPack, editJson, isJudgePrompt, judgeReply, scratch } from "./helpers.js";
@@ -465,6 +465,10 @@ test("a run records its arms' deliveries, and its tally writes hydration rows fo
 	assert.match(md, /## On-request guidance hydration/);
 	assert.match(md, /\| prune \| shelf \| G1 \| 1\/2 \| 50% \| p1 \| p2 \| prune-a 1\/1, 1\/1 \|/);
 	assert.match(md, /## Cost per arm/);
+	assert.match(md, /Means per counted cell - valid, or ended on agent behaviour -/);
+	// The judge dissent profile is written beside the scores.
+	assert.match(md, /## Judge dissent/);
+	assert.ok((read<{ judgeDissent?: unknown[] }>(rd, "RESULT.json").judgeDissent ?? []).length > 0);
 	assert.match(md, /\| shelf \| 2 \| 300 \| 50 \| 20 \| 0\.5 \| 5 \|/);
 });
 
@@ -496,5 +500,26 @@ test("costProfile gives the mean cost of a counted cell's scored attempt per arm
 		["on", null, 3, 12.3333, 2000, 400, 36.6667, 1.6667, 2],
 		["on", "a", 1, 20, 3000, 400, 50, 1, 1],
 		["on", "c", 2, 8.5, 1000, 400, 30, 2, 1],
+	]);
+});
+
+test("judgeDissent counts, per judge, the splits of three or more values it was in and those where it alone differed", () => {
+	const v = (unit: string, property: string, judge: string, value: number | null) => ({ unit, property, judge, value });
+	const rows = judgeDissent([
+		// u1/p: x alone differs.
+		v("u1", "p", "a", 1), v("u1", "p", "c", 1), v("u1", "p", "x", 0),
+		// u2/p: unanimous, no split.
+		v("u2", "p", "a", 1), v("u2", "p", "c", 1), v("u2", "p", "x", 1),
+		// u3/p: three different values, a split with no lone dissenter.
+		v("u3", "p", "a", 0), v("u3", "p", "c", 0.5), v("u3", "p", "x", 1),
+		// u4/p: two values only, not counted as a split; a null value is not cast.
+		v("u4", "p", "a", 1), v("u4", "p", "c", 0), v("u4", "p", "x", null),
+		// u1/q: c alone differs; a second vote by the same judge on a pair is ignored.
+		v("u1", "q", "a", 0), v("u1", "q", "c", 1), v("u1", "q", "x", 0), v("u1", "q", "x", 1),
+	]);
+	assert.deepEqual(rows, [
+		{ judge: "a", votes: 5, splits: 3, lone: 0, rate: 0 },
+		{ judge: "c", votes: 5, splits: 3, lone: 1, rate: 1 / 3 },
+		{ judge: "x", votes: 4, splits: 3, lone: 1, rate: 1 / 3 },
 	]);
 });
