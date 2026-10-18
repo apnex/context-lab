@@ -489,8 +489,11 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 			if (!props.length || p.outcome === null) continue;
 			const sub: Scenario = { ...scenario, properties: props, trapPairs: [] };
 			const po = cr.phaseOutcomes?.[p.phase];
+			const maxBytes = scenario.maxResponseBytes ?? exp.experiment.maxResponseBytes;
 			const rawScored = scenario.scoredFile !== undefined && p.snapshot !== null ? readInside(p.snapshot, scenario.scoredFile) : null;
-			cr.codeScores.push(...await measure(loaded, sub, { final: po?.final ?? p.outcome.final, rawFinal: p.outcome.final, diff: p.diff ?? "", scored: po?.scored ?? null, rawScored, snapshot: p.snapshot }, now));
+			const measuredFinal = maxBytes !== undefined ? boundUtf8(p.outcome.final, maxBytes).text : p.outcome.final;
+			const measuredScored = maxBytes !== undefined && rawScored !== null ? boundUtf8(rawScored, maxBytes).text : (po?.scored ?? null);
+			cr.codeScores.push(...await measure(loaded, sub, { final: measuredFinal, rawFinal: p.outcome.final, diff: p.diff ?? "", scored: measuredScored, rawScored, snapshot: p.snapshot }, now));
 		}
 		write(path.join(recordsDir, "cells", `${cr.cell}.json`), cr);
 	}
@@ -818,8 +821,11 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 				if (!props.length || p.outcome === null) continue;
 				const sub: Scenario = { ...scenario, properties: props, trapPairs: [] };
 				const po = cr.phaseOutcomes?.[p.phase];
+				const maxBytes = scenario.maxResponseBytes ?? exp.experiment.maxResponseBytes;
 				const rawScored = scenario.scoredFile !== undefined && p.snapshot !== null ? readInside(p.snapshot, scenario.scoredFile) : null;
-				cr.codeScores.push(...await measure(loaded, sub, { final: po?.final ?? p.outcome.final, rawFinal: p.outcome.final, diff: p.diff ?? "", scored: po?.scored ?? null, rawScored, snapshot: p.snapshot }, now));
+				const measuredFinal = maxBytes !== undefined ? boundUtf8(p.outcome.final, maxBytes).text : p.outcome.final;
+				const measuredScored = maxBytes !== undefined && rawScored !== null ? boundUtf8(rawScored, maxBytes).text : (po?.scored ?? null);
+				cr.codeScores.push(...await measure(loaded, sub, { final: measuredFinal, rawFinal: p.outcome.final, diff: p.diff ?? "", scored: measuredScored, rawScored, snapshot: p.snapshot }, now));
 			}
 			write(path.join(resolvedRecords, "cells", `${cr.cell}.json`), cr);
 		}
