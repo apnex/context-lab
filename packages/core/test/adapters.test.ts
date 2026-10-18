@@ -412,10 +412,10 @@ test("runtime-sandbox: node is bound on PATH inside the sandbox without leaking 
 	assert.equal(o.final, "42");
 
 	// Also verify Codex sockets opt-in: refused when tools === "off", and writes [sandbox_workspace_write]\nnetwork_access = true when tools === "on".
-	const cx = adapterFor("codex", e, {});
-	assert.match(cx.refuse(invocation(e, "codex", { tools: "off", sockets: true })) ?? "", /sockets cannot be enabled when tools are off/);
-	fs.rmSync(e.work, { recursive: true, force: true });
-	await cx.invoke(invocation(e, "codex", { tools: "on", sockets: true }));
-	const tomlSockets = fs.readFileSync(path.join(e.work, "codex-home", "config.toml"), "utf8");
+	const e2 = setup();
+	const cx = adapterFor("codex", e2, {});
+	assert.match(cx.refuse(invocation(e2, "codex", { tools: "off", sockets: true })) ?? "", /sockets cannot be enabled when tools are off/);
+	await cx.invoke(invocation(e2, "codex", { tools: "on", sockets: true }));
+	const tomlSockets = fs.readFileSync(path.join(e2.work, "codex-home", "config.toml"), "utf8");
 	assert.match(tomlSockets, /\[sandbox_workspace_write\]\nnetwork_access = true/);
 });
