@@ -669,18 +669,6 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 			cellRecords.push(cr);
 			doneSet.add(cell);
 		}
-		record.end = null;
-		delete record.endReason;
-		record.resumedAt = [...(record.resumedAt ?? []), now().toISOString()];
-		save();
-
-		const forbiddenBase = {
-			paths: [
-				...loaded.pack.isolation.forbidden.paths.map((p) => path.resolve(loaded.dir, p)), loaded.dir, recordsRoot, workRoot,
-				...loaded.pack.sources.map((s) => path.resolve(loaded.dir, s.path)),
-			],
-			addresses: [...new Set([...loaded.pack.isolation.forbidden.addresses, ...loaded.pack.sources.flatMap((s) => s.addresses)])],
-		};
 		const timeLimitSeconds = opts.timeLimitSeconds ?? record.timeLimitSeconds;
 		const remaining = allCells.filter((c) => !doneSet.has(`${c.scenario.id}.${c.arm.arm}.${c.member.id}.${c.run}`));
 		if (afterExecuted && remaining.length > 0) {
@@ -699,6 +687,18 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 				}
 			}
 		}
+		record.end = null;
+		delete record.endReason;
+		record.resumedAt = [...(record.resumedAt ?? []), now().toISOString()];
+		save();
+
+		const forbiddenBase = {
+			paths: [
+				...loaded.pack.isolation.forbidden.paths.map((p) => path.resolve(loaded.dir, p)), loaded.dir, recordsRoot, workRoot,
+				...loaded.pack.sources.map((s) => path.resolve(loaded.dir, s.path)),
+			],
+			addresses: [...new Set([...loaded.pack.isolation.forbidden.addresses, ...loaded.pack.sources.flatMap((s) => s.addresses)])],
+		};
 		await pool(remaining, opts.parallel ?? 4, async (c) => {
 			const cell = `${c.scenario.id}.${c.arm.arm}.${c.member.id}.${c.run}`;
 			const phases = phasesOf(c.scenario, exp.experiment);
