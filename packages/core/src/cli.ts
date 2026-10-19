@@ -22,7 +22,7 @@
 //                                                  run a review prompt across model families and optionally cross-verify
 
 import fs from "node:fs";
-import { assertIdenticalArms, checkPack, codexAdapter, compare, conductRun, deriveThresholds, entryView, opencodeAdapter, pickRun, readTable, readThresholds, recordExperiment, recordExposure, recordThresholds, resolveSuite, resumeRun, runReview, runStatus, writeRunCandidates, type LoadedPack } from "./index.js";
+import { assertIdenticalArms, checkPack, codexAdapter, compare, conductRun, deriveThresholds, entryView, opencodeAdapter, pickRun, readTable, readThresholds, recordExperiment, recordExposure, recordThresholds, resolveSuite, resumeRun, runReview, runStatus, unrecordedResults, writeRunCandidates, type LoadedPack } from "./index.js";
 
 const [cmd, packDir, arg, arg2] = process.argv.slice(2);
 const usage = "usage: context-lab check|record|status|suite|entries|expose|thresholds|compare|run|resume|pick|candidates|review <pack> [experiment|suite|scenario|comparison|run-dir] [change|run-dir] [--runs N] [--parallel P] [--work DIR] [--revision REV] [--prompt FILE] [--files PATH,...] [--out DIR] [--members ID,...] [--verify]";
@@ -43,7 +43,12 @@ async function load(): Promise<LoadedPack> {
 const need = (v: string | undefined): string => { if (v === undefined) { console.error(usage); process.exit(2); } return v; };
 
 switch (cmd) {
-	case "check": { const l = await load(); console.log(`clean: pack ${l.pack.id}, ${l.experiments.size} experiment(s)`); break; }
+	case "check": {
+		const l = await load();
+		console.log(`clean: pack ${l.pack.id}, ${l.experiments.size} experiment(s)`);
+		for (const u of unrecordedResults(l)) console.log(`note: ${u.experiment} declares result, but a run of it now would be exploration: ${u.reason}; record it before its next run`);
+		break;
+	}
 	case "record": { const r = recordExperiment(await load(), need(arg)); console.log(`recorded ${r.experiment} ${r.hash}`); break; }
 	case "status": { const s = runStatus(await load(), need(arg)); console.log(`${s.status}: ${s.reason}`); break; }
 	case "suite": { const s = resolveSuite(await load(), need(arg)); console.log(JSON.stringify(s, null, 2)); break; }

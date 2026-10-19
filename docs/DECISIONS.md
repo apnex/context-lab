@@ -53,6 +53,7 @@ They are not copied here; this register starts at the vision.
 | 0031 | 2026-10-18 | The result reports each arm's mean cost (`costs`) and, per hydration row, the adherence of cells that hydrated the entry and of those that did not; hydration rows count cells and are written only for arms with an on-request folder and no instruction or folder file named for the entry, from arm deliveries now kept in the run record; `candidates` gains `routing-miss` and `hydrated-not-acted`; and a probe retry after a tool call says no entry is mounted. | director | ratified | amends 0004 |
 | 0032 | 2026-10-18 | The result reports each judge's dissent (`judgeDissent`); `candidates` gains rule 7, `judge-outlier`; rules 5 and 6 read only guidance a scenario declares it exercises, and rule 6 is written once per scenario, property and arm. | director | ratified | amends 0031 |
 | 0033 | 2026-10-18 | Each cost row also gives the median input tokens and the costliest cell. | director | ratified | amends 0031 |
+| 0034 | 2026-10-18 | `compare` refuses an A/A threshold set derived on other members, scenarios or judges than the run it judges, and threshold sets record their judges; `check` names every experiment that declares `result` but would run as exploration. | director | ratified | amends 0019 |
 
 ---
 
@@ -512,3 +513,21 @@ On mission-kit's run `2026-10-18-111520-adherence-rule-repeat`, one cell of 150 
 
 **Source.**\
 `[V, director's standing directive 2026-10-18 to fix tooling found wanting by each run's diagnostic; mission-kit docs/evals/runs/context-lab/2026-10-18-111520-adherence-rule-repeat cells]`
+
+### 0034
+
+**Ruling.**\
+Two guards on the register:
+
+- A threshold set records the A/A run's judges, and `compare` under the A/A rule refuses a set whose pools name other members or scenarios than the base run, or whose judges differ from the base run's; a set with no pools, made by hand, or no judges, derived before this ruling, is not checked on what it lacks.
+- `check`, when clean, prints a `note:` line for each experiment that declares `result` and would run as exploration now: unrecorded, or changed since recorded.
+
+**Evidence.**\
+mission-kit dropped one model from its population and judge panels, which changes the design `aa-gate`'s thresholds were derived on, and `compare` read only the set's experiment and `m`, so a gate run of the new design would have been judged against the old design's noise without notice.\
+The same day, the register showed five of mission-kit's eight experiments - `aa`, `c0`, `c2`, `explain`, `handoff`, all declaring `result` - unrecorded since 2026-10-17, by three pack edits that each added an arm to the pack-wide leak probes; `check` passed at each, and no run was labelled exploration only because none of the five ran in between.
+
+**Limits.**\
+The over-broad hash itself is unchanged: an edit to `masks` or `isolation` made for one experiment still unrecords every other; `check` now says so instead of staying silent.
+
+**Source.**\
+`[V, director ruling 2026-10-18 dropping Grok from mission-kit's experiments; mission-kit docs/evals/context-lab/register, bisected over commits abedf32 to 7d49e70]`

@@ -145,6 +145,19 @@ export function runStatus(loaded: LoadedPack, experimentId: string): { status: S
 	return { status: e.experiment.declaredStatus, reason: "recorded, unchanged", record: rec };
 }
 
+/**
+ * The experiments that declare status result but would run as exploration now: not recorded, or
+ * changed since recorded. A pack-wide part - masks, isolation - is hashed into every experiment, so
+ * an edit made for one experiment can unrecord the others; this names them before a run does.
+ */
+export function unrecordedResults(loaded: LoadedPack): { experiment: string; reason: string }[] {
+	return [...loaded.experiments.keys()].sort()
+		.filter((id) => loaded.experiments.get(id)!.experiment.declaredStatus === "result")
+		.map((id) => ({ experiment: id, s: runStatus(loaded, id) }))
+		.filter((x) => x.s.status !== "result")
+		.map((x) => ({ experiment: x.experiment, reason: x.s.reason }));
+}
+
 // ---------------------------------------------------------------- exposure of held-out scenarios
 
 export interface Exposure {

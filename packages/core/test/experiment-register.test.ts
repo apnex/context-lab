@@ -5,7 +5,9 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
-import { checkPack, recordExperiment, runStatus, type LoadedPack } from "../src/index.js";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { checkPack, recordExperiment, runStatus, unrecordedResults, type LoadedPack } from "../src/index.js";
 import { copyPack, editJson } from "./helpers.js";
 
 async function load(dir: string): Promise<LoadedPack> {
@@ -23,6 +25,20 @@ test("a recorded, unchanged experiment runs with its declared status", async () 
 	const loaded = await load(copyPack());
 	recordExperiment(loaded, "orchard");
 	assert.equal(runStatus(loaded, "orchard").status, "result");
+});
+
+test("unrecordedResults names a result experiment unrecorded, or unrecorded by a pack-wide edit, and check prints it", async () => {
+	const dir = copyPack();
+	// orchard declares result; relay declares exploration and is never named.
+	assert.deepEqual(unrecordedResults(await load(dir)), [{ experiment: "orchard", reason: "the experiment is not recorded" }]);
+	recordExperiment(await load(dir), "orchard");
+	assert.deepEqual(unrecordedResults(await load(dir)), []);
+	// A leak probe made for another arm is pack-wide, so it changes orchard's hash.
+	editJson(path.join(dir, "pack.json"), (j) => { j.isolation.leakProbes[0].arms.push("almanac"); });
+	assert.deepEqual(unrecordedResults(await load(dir)), [{ experiment: "orchard", reason: "the experiment changed after it was recorded" }]);
+	const cli = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "cli.js");
+	const out = execFileSync(process.execPath, [cli, "check", dir], { encoding: "utf8" });
+	assert.match(out, /^clean: pack [^\n]+\nnote: orchard declares result, but a run of it now would be exploration: the experiment changed after it was recorded; record it before its next run\n$/);
 });
 
 const changes: Record<string, (d: string) => void> = {

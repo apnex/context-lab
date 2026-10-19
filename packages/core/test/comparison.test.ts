@@ -139,6 +139,8 @@ test("F11: thresholds, the two-stage rate and the drift rank equal an independen
 	assert.deepEqual([set.drift.below, set.drift.of], [ind.drift.below, ind.drift.of]);
 	assert.ok(set.thresholds["3"] > 0 && set.thresholds["9"] > 0, "a degenerate fixture: thresholds of zero test nothing");
 	assert.deepEqual([set.m, set.splits, set.run, set.pools["graft/p1"]], [3, 1000, read<{ run: string }>(rd, "run.json").run, 17]);
+	// The panel that judged the A/A run is recorded with its thresholds.
+	assert.deepEqual(set.judges, [...read<{ judges: string[] }>(rd, "run.json").judges].sort());
 	// Recorded append-only, and read back.
 	recordThresholds(loaded, set);
 	assert.deepEqual(readThresholds(loaded, "twin-gate"), [set]);
@@ -261,6 +263,18 @@ test("F12: the comparator refuses inputs differing in scenarios, population, run
 	assert.throws(() => compare({ comparison: rule(a.loaded, "aa"), ...three, thresholds: hand(1, 4, 16) }), /m is 16, but 3 properties are compared/);
 	assert.throws(() => compare({ comparison: rule(a.loaded, "aa"), ...three }), /needs a threshold set/);
 	assert.throws(() => compare({ comparison: rule(a.loaded, "aa"), ...three, thresholds: { ...hand(1, 4), experiment: "twin" } }), /threshold set is of experiment twin/);
+	// Thresholds derived under another design: other members or scenarios (from the pools), or other judges.
+	const arec = read<{ population: string[]; judges: string[] }>(a.rd, "run.json");
+	const scs = [...new Set(readTable(a.rd).properties.filter((p) => !p.heldOut).map((p) => p.scenario))];
+	const pools = (members: string[], scenarios = scs): Record<string, number> => Object.fromEntries(scenarios.flatMap((sc) => members.map((m) => [`${sc}/${m}`, 18])));
+	const same = { ...hand(100, 100), pools: pools(arec.population), judges: [...arec.judges].sort() };
+	assert.doesNotThrow(() => compare({ comparison: rule(a.loaded, "aa"), ...three, thresholds: same }));
+	assert.throws(() => compare({ comparison: rule(a.loaded, "aa"), ...three, thresholds: { ...same, pools: pools([...arec.population, "px"]) } }), /derived on members .*px.*: derive thresholds from an A\/A run of this design/);
+	assert.throws(() => compare({ comparison: rule(a.loaded, "aa"), ...three, thresholds: { ...same, pools: pools(arec.population, [...scs, "other"]) } }), /derived on scenarios/);
+	assert.throws(() => compare({ comparison: rule(a.loaded, "aa"), ...three, thresholds: { ...same, judges: [...arec.judges, "px"].sort() } }), /derived on judges/);
+	// A set derived before judges were recorded is not checked on them.
+	const { judges: _j, ...noJudges } = same;
+	assert.doesNotThrow(() => compare({ comparison: rule(a.loaded, "aa"), ...three, thresholds: noJudges }));
 });
 
 // ---------------------------------------------------------------- F10, comparison clause

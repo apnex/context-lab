@@ -97,6 +97,8 @@ export interface ThresholdSet {
 	drift: { actual: number; below: number; of: number };
 	/** Present runs per pool, by scenario and member. */
 	pools: Record<string, number>;
+	/** The A/A run's judges, sorted; absent from sets derived before judges were recorded. */
+	judges?: string[];
 	recordedAt: string;
 }
 
@@ -165,8 +167,31 @@ export function deriveThresholds(table: Table, comparison: Comparison, now: Date
 		comparison: comparison.id, experiment: rec.experiment, run: rec.run, hash: rec.register.hash, m, splits: SPLITS,
 		thresholds: { "3": t3, "9": t9 }, twoStageRate: persisting / SPLITS,
 		drift: { actual, below: s9.filter((x) => x < actual).length, of: SPLITS },
-		pools: Object.fromEntries(pools.map((p) => [`${p.scenario}/${p.member}`, p.runs.length])), recordedAt: now.toISOString(),
+		pools: Object.fromEntries(pools.map((p) => [`${p.scenario}/${p.member}`, p.runs.length])), ...(Array.isArray(rec.judges) ? { judges: [...rec.judges].sort() } : {}), recordedAt: now.toISOString(),
 	};
+}
+
+/**
+ * Refuses a threshold set derived under a different design from the run it would judge: other
+ * members or scenarios, read from its pools, or other judges. Thresholds measure the noise of one
+ * population judged by one panel; applied to another, their false-positive rate is unknown. A set
+ * with no pools (made by hand) or no judges (derived before they were recorded) is not checked on
+ * what it lacks.
+ */
+function sameThresholdDesign(set: ThresholdSet, rec: RunRecord, scenarios: string[]): void {
+	const bad = (what: string, set_: string[], run: string[]): never => { throw new Error(`the threshold set was derived on ${what} ${set_.join(", ")}, but run ${rec.run} has ${run.join(", ")}: derive thresholds from an A/A run of this design`); };
+	const keys = Object.keys(set.pools);
+	if (keys.length) {
+		const split = (k: string): [string, string] => { const i = k.lastIndexOf("/"); return [k.slice(0, i), k.slice(i + 1)]; };
+		const members = [...new Set(keys.map((k) => split(k)[1]))].sort(), runMembers = [...rec.population].sort();
+		if (canonical(members) !== canonical(runMembers)) bad("members", members, runMembers);
+		const sc = [...new Set(keys.map((k) => split(k)[0]))].sort(), runSc = [...new Set(scenarios)].sort();
+		if (canonical(sc) !== canonical(runSc)) bad("scenarios", sc, runSc);
+	}
+	if (set.judges !== undefined) {
+		const runJudges = [...(rec.judges ?? [])].sort();
+		if (canonical(set.judges) !== canonical(runJudges)) bad("judges", set.judges, runJudges);
+	}
 }
 
 /** Refuses a comparison whose two arms deliver different things: an A/A run's arms are identical. */
@@ -280,6 +305,7 @@ export function compare(input: CompareInput): ComparisonResult {
 		if (!input.thresholds) throw new Error(`the A/A rule needs a threshold set`);
 		if (input.thresholds.m !== main.length) throw new Error(`the threshold set's m is ${input.thresholds.m}, but ${main.length} properties are compared`);
 		if (input.thresholds.experiment !== base.record.experiment) throw new Error(`the threshold set is of experiment ${input.thresholds.experiment}, not ${base.record.experiment}`);
+		sameThresholdDesign(input.thresholds, base.record, main.map((p) => p.scenario));
 	}
 	const families = new Map(base.record.snapshot.population.map((mm) => [mm.id, mm.family]));
 	const cellsOf = (t: Table, arm: string, p: TableProperty, member?: (m: string) => boolean): Cell[] => t.cells.filter((x) => x.arm === arm && x.scenario === p.scenario && (member === undefined || member(x.member)));
