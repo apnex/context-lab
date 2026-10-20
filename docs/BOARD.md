@@ -80,8 +80,8 @@ It carries mission-kit's adherence suite and one comprehension suite as single-p
 | `B8` | S4 | A5 signal | Local delivery differs from fetching over a network. | a project's decision turns on networked behaviour |
 | `B9` | S4 | A14 signal | Findings travelling between projects has no mechanism beyond records a project chooses to share. | two projects use context-lab |
 | `B10` | S4 | A10 signal | No loop files context-lab's own failures as its defects. | the first run on the core |
-| `B20` | S4 | A1 signal | No operation shows an assembled reader or judge prompt without a model call. | a project needs its payloads inspected before any model call (fired 2026-10-18 by AGP's browser-scale binding request); selection is the board's |
-| `B23` | S4 | A1 signal | An absent answer carries no reason. | a project must tell an absent answer from an extraction miss (AGP's acceptance table asks it) |
+| `B20` | S4 | A1 signal | No operation shows an assembled reader or judge prompt without a model call. | AGP requests it in reply to `incoming/agp-next-actions-2026-10-20.md`, decision 2, or another project needs its payloads inspected before any model call |
+| `B23` | S4 | A1 signal | An absent answer carries no reason. | AGP requests it in reply to `incoming/agp-next-actions-2026-10-20.md`, decision 3, or another project must tell an absent answer from an extraction miss |
 | `B6` | S5 | A3 signal | Only two runtimes have adapters. | a project needs a third runtime |
 | `B17` | S5 | A11 signal | Each invocation keeps its runtime's whole data folder, tool output included. | free space on the working disk falls below 10 GB |
 <!-- END GENERATED: held -->
