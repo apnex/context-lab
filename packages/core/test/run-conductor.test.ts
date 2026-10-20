@@ -11,7 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import {
-	CANARY_QUESTION, METHOD, STATES, checkPack, conductRun, recordExperiment, recordHistory, resumeRun,
+	CANARY_QUESTION, METHOD, STATES, checkPack, conductRun, recordExperiment, recordHistory, resumeRun, variantDir, variantManifestFile,
 	type Adapter, type CellRecord, type Invocation, type Outcome,
 } from "../src/index.js";
 import { commitAll, copyPack, editJson, isJudgePrompt, judgeReply, packageRoot, scratch } from "./helpers.js";
@@ -175,10 +175,43 @@ test("a suite that selects some scenarios records exactly those", async () => {
 	assert.ok(record.cells.every((c) => c.startsWith("prune.")));
 });
 
+test("no path or prompt given to an agent, probe or judge names the run, the experiment, an arm or a variant (B21)", async () => {
+	const { dir, work, records } = await setup((d) => {
+		editJson(path.join(d, "pack.json"), (j) => {
+			j.arms.push({ id: "shelf", deliver: [{ variant: "almanac-full", file: ".", as: "on-request" }] });
+			for (const l of j.isolation.leakProbes ?? []) if (!l.arms.includes("shelf")) l.arms.push("shelf");
+			j.suites = j.suites.filter((x: { id: string; experiment: string }) => x.experiment === "orchard" && x.id !== "pruning");
+		});
+		editJson(path.join(d, "experiments", "orchard.json"), (j) => { j.scenarios = ["scenarios/graft.json"]; j.factors.arms = ["bare", "almanac", "shelf"]; });
+		editJson(path.join(d, "scenarios", "graft.json"), (j) => {
+			j.answerSource = "final";
+			delete j.scoredFile;
+			j.task = "Read {ON_REQUEST} if you were given it, then answer Q1.";
+			j.properties = [{ id: "Q1", type: "comprehension", decidedBy: "judge", key: "quince", scale: [0, 2], answerHeading: "Q1", question: "Rootstock?" }];
+		});
+	});
+	const answer = () => outcome("### Q1\nThe rootstock is quince.\n");
+	const oc = scripted("opencode", answer), cx = scripted("codex", answer);
+	const { record } = await conductRun(dir, { experiment: "orchard", adapters: { opencode: oc, codex: cx }, work, records });
+	assert.equal(path.basename(record.work!).startsWith("run-"), true);
+	const calls = [...oc.calls, ...cx.calls];
+	assert.ok(calls.some((c) => c.arm.onRequest.length > 0), "no call was given an on-request folder");
+	assert.ok(calls.some((c) => c.tools === "off" && isJudgePrompt(c.prompt)), "no judge was asked");
+	const labels = [record.run, "orchard", "almanac", "bare", "shelf"];
+	for (const c of calls) {
+		const seen = [c.workspace, c.work, c.prompt, ...c.arm.instructions.map((i) => i.path), ...c.arm.folderFiles.map((f) => f.path), ...c.arm.onRequest.map((o) => o.path)];
+		for (const text of seen) for (const label of labels) assert.equal(text.includes(label), false, `${label} reached an agent in: ${text.slice(0, 200)}`);
+	}
+	// The variant's manifest is beside the folder an agent is given, not in it.
+	const shelf = calls.find((c) => c.arm.onRequest.length > 0)!.arm.onRequest[0]!.path;
+	assert.equal(fs.existsSync(path.join(shelf, "context-lab-variant.json")), false);
+	assert.equal(JSON.parse(fs.readFileSync(variantManifestFile(shelf), "utf8")).variant, "almanac-full");
+});
+
 test("the synthetic pack's transform hook runs on its success path", async () => {
 	const { dir, work, records } = await setup((d) => fs.appendFileSync(path.join(d, "source", "GUIDE.md"), "\n\n\n"));
 	const { record } = await conductRun(dir, { experiment: "orchard", adapters: { opencode: scripted("opencode"), codex: scripted("codex") }, work, records });
-	const guide = fs.readFileSync(path.join(work, record.run, "variants", "almanac-full", "GUIDE.md"), "utf8");
+	const guide = fs.readFileSync(path.join(variantDir(record.work!, "almanac-full"), "GUIDE.md"), "utf8");
 	assert.ok(guide.endsWith(".\n") && !guide.endsWith("\n\n"), "the transform did not trim the guide");
 });
 
@@ -378,7 +411,7 @@ test("resumeRun completes a run stopped during execution, skips recorded cells, 
 	for (const c of full.record.cells.slice(3)) fs.rmSync(path.join(partialDir, "cells", `${c}.json`));
 	// Leave a stale in-flight ledger for both attempts of the 4th cell (with a lock file from an interrupted git write) to verify Ledger re-initialises cleanly.
 	for (const att of [1, 2]) {
-		const inflightLedger = path.join(work, full.record.run, "ledgers", `${full.record.cells[3]}.${att}`);
+		const inflightLedger = path.join(full.record.work!, "ledgers", `${full.record.cells[3]}.${att}`);
 		fs.mkdirSync(inflightLedger, { recursive: true });
 		fs.writeFileSync(path.join(inflightLedger, "config.lock"), "stale\n");
 	}
@@ -410,8 +443,7 @@ test("resumeRun completes a run stopped during execution, skips recorded cells, 
 	fs.writeFileSync(path.join(partialDir, "cells", `${kept[0]}.json`), savedCell);
 
 	// 4b. Refuse if the built variant manifest on disk does not match run.json.
-	const mfPath = path.join(work, full.record.run, "variants", "almanac-full", "context-lab-variant.json");
-	fs.chmodSync(path.dirname(mfPath), 0o755);
+	const mfPath = variantManifestFile(variantDir(full.record.work!, "almanac-full"));
 	fs.chmodSync(mfPath, 0o644);
 	const savedMf = fs.readFileSync(mfPath);
 	editJson(mfPath, (j) => { j.revision = "tampered"; });
@@ -440,6 +472,36 @@ test("resumeRun completes a run stopped during execution, skips recorded cells, 
 	const fullJson = JSON.parse(fs.readFileSync(path.join(full.dir, "RESULT.json"), "utf8"));
 	assert.deepEqual(resJson.cellValues, fullJson.cellValues);
 	assert.deepEqual(resJson.totals, fullJson.totals);
+});
+
+test("a run stopped before work folders were opaque resumes from its old layout (B21)", async () => {
+	const { dir, work, records } = await setup();
+	const loaded0 = await checkPack(dir);
+	if (!loaded0.ok) throw new Error("pack");
+	recordExperiment(loaded0.loaded, "orchard");
+	const routed = (rt: string) => ({ ...scripted(rt), route: () => ({ r: rt }) });
+	const full = await conductRun(dir, { experiment: "orchard", adapters: { opencode: routed("opencode"), codex: routed("codex") }, work, records, parallel: 1 });
+	assert.equal(full.record.cells.length, 8);
+	// The record as an older core wrote it: no work folder recorded, three cells done, stopped after probed.
+	const partialDir = path.join(scratch(), "old-records", full.record.run);
+	fs.cpSync(full.dir, partialDir, { recursive: true });
+	for (const f of ["sealed", "judging", "RESULT.json", "RESULT.md"]) fs.rmSync(path.join(partialDir, f), { recursive: true, force: true });
+	const kept = full.record.cells.slice(0, 3);
+	for (const c of full.record.cells.slice(3)) fs.rmSync(path.join(partialDir, "cells", `${c}.json`));
+	editJson(path.join(partialDir, "run.json"), (j) => { j.cells = kept; j.end = "failed"; j.states = j.states.slice(0, 4); delete j.work; });
+	// And the work folder as it laid it out: named by the run id, the variant by its id with its manifest inside.
+	const legacyWork = path.join(work, full.record.run);
+	fs.renameSync(full.record.work!, legacyWork);
+	const opaque = variantDir(legacyWork, "almanac-full"), legacyVariant = path.join(legacyWork, "variants", "almanac-full");
+	fs.renameSync(opaque, legacyVariant);
+	fs.chmodSync(legacyVariant, 0o755);
+	fs.renameSync(variantManifestFile(opaque), path.join(legacyVariant, "context-lab-variant.json"));
+	const oc = routed("opencode"), cx = routed("codex");
+	const resumed = await resumeRun(dir, partialDir, { adapters: { opencode: oc, codex: cx }, work, parallel: 2 });
+	assert.equal(resumed.record.end, "completed");
+	assert.equal(oc.calls.filter((c) => c.tools === "on").length + cx.calls.filter((c) => c.tools === "on").length, 5);
+	// The remaining cells ran with the old variant folder.
+	assert.ok([...oc.calls, ...cx.calls].filter((c) => c.tools === "on").every((c) => c.arm.instructions.every((i) => i.variant !== "almanac-full" || i.path.startsWith(legacyVariant))));
 });
 
 test("an outcome-measure hook receives outcome.snapshot and can read the phase's workspace snapshot directly", async () => {

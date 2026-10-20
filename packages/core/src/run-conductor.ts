@@ -24,7 +24,7 @@ import { boundUtf8, splitAnswers, stripSelfExplanation, type ResponseBoundRecord
 import type { Outcome } from "./outcome.js";
 import type { DeliveryKind, Experiment, LoadedPack, Member, Scenario, Status } from "./pack-schema.js";
 import { runPhase } from "./phase-driver.js";
-import { buildVariant, makeReadOnly, makeWritable, VARIANT_MANIFEST, type BuiltVariant, type VariantManifest } from "./variant-builder.js";
+import { buildVariant, makeReadOnly, makeWritable, opaqueName, variantDir, variantManifestFile, VARIANT_MANIFEST, type BuiltVariant, type VariantManifest } from "./variant-builder.js";
 import { classify, forbiddenPathsNamed, RERUN, type Validity } from "./validity-classifier.js";
 import { createWorkspace } from "./workspace-builder.js";
 import { isInside } from "./paths.js";
@@ -260,12 +260,13 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 	const recordsRoot = path.resolve(opts.records ?? path.resolve(loaded.dir, loaded.pack.records.path));
 	const recordsDir = path.join(recordsRoot, runId);
 	const workRoot = path.resolve(opts.work ?? path.join(os.homedir(), "context-lab-work"));
-	const work = path.join(workRoot, runId);
 	fs.mkdirSync(recordsRoot, { recursive: true });
 	fs.mkdirSync(workRoot, { recursive: true });
 	// Made without recursion, so a second run started in the same second is refused, not merged.
 	fs.mkdirSync(recordsDir);
-	fs.mkdirSync(work);
+	// The work folder holds every path an agent or judge is given, so its name carries no run id,
+	// which ends with the experiment's (B21); run.json records where it is.
+	const work = fs.mkdtempSync(path.join(workRoot, "run-"));
 	const timeLimitSeconds = opts.timeLimitSeconds ?? 1200;
 	const armIds0 = exp.experiment.factors.arms;
 	const record: RunRecord = {
@@ -296,7 +297,7 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 		const source = decl.source;
 		const sourceDir = path.resolve(loaded.dir, loaded.pack.sources.find((s) => s.id === source)!.path);
 		const rev = decl.revision ?? opts.revision ?? execFileSync("git", ["rev-parse", "HEAD"], { cwd: sourceDir, encoding: "utf8" }).trim();
-		const b = await buildVariant(loaded, v, rev, path.join(work, "variants", v));
+		const b = await buildVariant(loaded, v, rev, variantDir(work, v));
 		built.set(v, b);
 		variants[v] = b.ok ? b.manifest : { failed: b.reason };
 	}
@@ -321,7 +322,7 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 	for (const m of members) record.routes[m.id] = adapterOf(m).route?.(m) ?? null;
 	const probes: ProbeResult[] = record.probes;
 	await pool([...composed.values()].flatMap((arm) => members.map((m) => ({ arm, m }))), opts.parallel ?? 4, async ({ arm, m }) => {
-		probes.push(await probeArm(loaded, arm, m, adapterOf(m), { base: path.join(work, "probes", `${arm.arm}.${m.id}`), timeLimitSeconds: opts.timeLimitSeconds ?? 300 }));
+		probes.push(await probeArm(loaded, arm, m, adapterOf(m), { base: path.join(work, "probes", opaqueName("p", `${arm.arm}.${m.id}`)), timeLimitSeconds: opts.timeLimitSeconds ?? 300 }));
 	});
 	probes.sort((a, b) => `${a.arm}.${a.member}`.localeCompare(`${b.arm}.${b.member}`));
 	// Judges are probed as agents are, with nothing given and every leak probe asked.
@@ -330,7 +331,7 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 	record.routes ??= {};
 	for (const j of judgeMembers) record.routes[j.id] ??= adapterOf(j).route?.(j) ?? null;
 	await pool(judgeMembers, opts.parallel ?? 4, async (j) => {
-		record.judgeProbes.push(await probeArm(loaded, EMPTY_ARM, j, adapterOf(j), { base: path.join(work, "probes", `judge.${j.id}`), timeLimitSeconds: opts.timeLimitSeconds ?? 300, allLeaks: true }));
+		record.judgeProbes.push(await probeArm(loaded, EMPTY_ARM, j, adapterOf(j), { base: path.join(work, "probes", opaqueName("p", `judge.${j.id}`)), timeLimitSeconds: opts.timeLimitSeconds ?? 300, allLeaks: true }));
 	});
 	record.judgeProbes.sort((a, b) => a.member.localeCompare(b.member));
 	const judges = judgeMembers.filter((j) => record.judgeProbes.some((p) => p.member === j.id && p.pass));
@@ -611,7 +612,9 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 	}
 
 	const workRoot = path.resolve(opts.work ?? path.join(os.homedir(), "context-lab-work"));
-	const work = path.join(workRoot, record.run);
+	// The recorded folder's name under the given root; a record made before run.json kept its work
+	// folder used the run id.
+	const work = path.join(workRoot, record.work !== undefined ? path.basename(record.work) : record.run);
 	const maxAttemptsPerCell: 1 | 2 = record.maxAttemptsPerCell ?? exp.experiment.maxAttemptsPerCell ?? 2;
 	if (maxAttemptsPerCell === 1 && record.work !== undefined && path.resolve(record.work) !== path.resolve(work)) {
 		throw new Error(`run ${record.run} recorded working folder ${record.work}, not ${work}, under maxAttemptsPerCell: 1`);
@@ -635,8 +638,10 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 				built.set(v, { ok: false, variant: v, reason: entry.failed });
 				continue;
 			}
-			const vDir = path.join(work, "variants", v);
-			const mfFile = path.join(vDir, VARIANT_MANIFEST);
+			// A run made before variant folders were opaque built each under its id, its manifest inside.
+			const legacy = path.join(work, "variants", v);
+			const vDir = fs.existsSync(legacy) && !fs.existsSync(variantDir(work, v)) ? legacy : variantDir(work, v);
+			const mfFile = vDir === legacy ? path.join(vDir, VARIANT_MANIFEST) : variantManifestFile(vDir);
 			if (fs.existsSync(mfFile)) {
 				const onDisk = JSON.parse(fs.readFileSync(mfFile, "utf8")) as VariantManifest;
 				if (canonicalJson(onDisk) !== canonicalJson(entry)) throw new Error(`variant ${v} on disk does not match run.json`);

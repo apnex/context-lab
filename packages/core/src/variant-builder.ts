@@ -4,12 +4,15 @@
 // source from git at that revision - never from a working tree, which has no revision to repeat -
 // drops excluded paths, keeps included ones, runs the project's transform hook if one is declared,
 // rewrites every declared address of the source to the copy itself, and plants the variant's
-// canaries in one file at its root. The variant's manifest records the revision it came from.
+// canaries in one file at its root. The variant's manifest records the revision it came from, and
+// is written beside the copy, not in it: an agent given the copy on request must not read which
+// variant, source or revision it holds.
 //
 // Address rewriting is longest-prefix first, so a declared address that extends another - a raw
 // file address under a repository address - is rewritten whole, not by its shorter prefix.
 
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { runHook, type HookResult } from "./hook-runner.js";
@@ -18,6 +21,18 @@ import type { LoadedPack, Variant } from "./pack-schema.js";
 
 export const CANARY_FILE = "context-lab-canary.md";
 export const VARIANT_MANIFEST = "context-lab-variant.json";
+
+/**
+ * A folder name for a label - a variant id, an arm and member - that does not show the label. Agents
+ * see the folders they are given, and an id such as a condition's name must not reach them (B21).
+ */
+export const opaqueName = (prefix: string, label: string): string => `${prefix}-${createHash("sha256").update(label).digest("hex").slice(0, 12)}`;
+
+/** The folder a variant is built in, under a run's work folder. */
+export const variantDir = (work: string, variantId: string): string => path.join(work, "variants", opaqueName("v", variantId));
+
+/** Where a built variant's manifest is written: beside its folder, outside what an agent is given. */
+export const variantManifestFile = (dir: string): string => `${path.resolve(dir)}.${VARIANT_MANIFEST}`;
 
 export interface VariantManifest {
 	variant: string;
@@ -140,7 +155,7 @@ export async function buildVariant(loaded: LoadedPack, variantId: string, revisi
 	const rewritten = rewriteAddresses(outDir, source.addresses, outDir);
 	fs.writeFileSync(path.join(outDir, CANARY_FILE), variant.canaries.map((c) => `${c}\n`).join(""));
 	const manifest: VariantManifest = { variant: variantId, source: source.id, revision: sha, canaries: variant.canaries, rewritten };
-	fs.writeFileSync(path.join(outDir, VARIANT_MANIFEST), JSON.stringify(manifest, null, 2) + "\n");
+	fs.writeFileSync(variantManifestFile(outDir), JSON.stringify(manifest, null, 2) + "\n");
 	makeReadOnly(outDir);
 	return { ok: true, dir: outDir, manifest };
 }

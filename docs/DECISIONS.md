@@ -54,6 +54,7 @@ They are not copied here; this register starts at the vision.
 | 0032 | 2026-10-18 | The result reports each judge's dissent (`judgeDissent`); `candidates` gains rule 7, `judge-outlier`; rules 5 and 6 read only guidance a scenario declares it exercises, and rule 6 is written once per scenario, property and arm. | director | ratified | amends 0031 |
 | 0033 | 2026-10-18 | Each cost row also gives the median input tokens and the costliest cell. | director | ratified | amends 0031 |
 | 0034 | 2026-10-18 | `compare` refuses an A/A threshold set derived on other members, scenarios or judges than the run it judges, and threshold sets record their judges; `check` names every experiment that declares `result` but would run as exploration. | director | ratified | amends 0019 |
+| 0035 | 2026-10-20 | No path or prompt given to an agent, probe or judge names the run, the experiment, an arm or a variant: the comprehension judge prompt's opening line drops the records folder, each run's work folder is named `run-` and six random characters, variant and probe folders are named by a hash of their label, and a variant's manifest is written beside its folder. | director | ratified | amends 0016 |
 
 ---
 
@@ -531,3 +532,27 @@ The over-broad hash itself is unchanged: an edit to `masks` or `isolation` made 
 
 **Source.**\
 `[V, director ruling 2026-10-18 dropping Grok from mission-kit's experiments; mission-kit docs/evals/context-lab/register, bisected over commits abedf32 to 7d49e70]`
+
+### 0035
+
+**Ruling.**\
+The comprehension judge prompt's opening line is `You are scoring answers to a comprehension test against an answer key. Read only this file. Do not open any other file.`, without the records folder `0016` kept from mission-kit's scorer; its other lines are unchanged.\
+And no folder given to an agent, probe or judge is named after a label: each run's work folder is `run-` and six random characters, recorded as `run.json` `work`; a variant's folder is `v-` and twelve hex characters of the SHA-256 of its id, and a probe's `p-` and those of its arm and member; a variant's manifest is written beside its folder rather than in it.\
+`resume` finds the work folder by the name `run.json` records, and a run recorded before this ruling by its run id, with its variants under their ids.
+
+**Why.**\
+A run id ends with its experiment's id, and an experiment, arm or variant id can name a condition - AGP's design runs each reading as its own experiment, and mission-kit's second pass named its old-corpus variant `corpus-pass1`.\
+Every comprehension judge prompt named the records folder, `<records>/<timestamp>-<experiment>`.\
+Removing that line was not enough: a judge's session runs in a workspace under the run's work folder, which was named by the run id, and opencode states the working directory to the model; readers saw the same folder in their working directory, their instruction paths and every rewritten address, and the variant id in their on-request path and in the manifest inside it.\
+No reader of mission-kit's last three runs opened the manifest, by path.
+
+**Evidence.**\
+`packages/core/test/run-conductor.test.ts` runs an on-request, an instruction and a bare arm and asserts that no workspace, work folder, instruction, folder-file or on-request path, and no prompt, given to any agent, probe or judge contains the run id, the experiment id or an arm or variant id; reverting each of the four changes in turn fails it.\
+A second test resumes a run laid out and recorded as before this ruling.
+
+**Disclosed.**\
+A changed judge prompt is a changed instrument: results judged before and after this ruling differ in one sentence of every comprehension judge prompt, and mission-kit's `explain`, `c0` and `c2` and zorg's census are judged with it.\
+Adherence judging - the outcome prompt, used by mission-kit's adherence experiments and `aa` - never named the records folder, so `aa-gate`'s thresholds are not affected by the prompt change; their judges' working directories did carry the run id, and no longer do.
+
+**Source.**\
+`[V, director selection 2026-10-20 ("take up B21 now"); docs/BACKLOG.md B21; mission-kit run 2026-10-18-111520-adherence-rule-repeat judge session store]`

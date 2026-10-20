@@ -3,7 +3,7 @@ export { PACK_CHECKS, checkPack, entryView, selectScenarios, type CheckId, type 
 export { HOOK_FAILURE_RESULT, runHook, sandboxArgs, type HookResult, type HookRun } from "./hook-runner.js";
 export { contentHash, exposureFile, hashedParts, readExposures, readRecord, recordExperiment, recordExposure, recordHistory, runStatus, unrecordedResults, type Exposure, type Record } from "./experiment-register.js";
 export { resolveSuite, select, type ResolvedSuite } from "./selector.js";
-export { CANARY_FILE, VARIANT_MANIFEST, buildVariant, exportAt, makeReadOnly, makeWritable, rewriteAddresses, type BuiltVariant, type VariantManifest } from "./variant-builder.js";
+export { CANARY_FILE, VARIANT_MANIFEST, buildVariant, exportAt, makeReadOnly, makeWritable, opaqueName, rewriteAddresses, variantDir, variantManifestFile, type BuiltVariant, type VariantManifest } from "./variant-builder.js";
 export { composeArm, type ComposeResult, type ComposedArm } from "./arm-composer.js";
 export { createWorkspace, forbiddenPaths, rulesFilesAbove, type Workspace, type WorkspaceOptions } from "./workspace-builder.js";
 export { copyContained, isContainedRelative, isInside, realPathOf } from "./paths.js";

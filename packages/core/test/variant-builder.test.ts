@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
-import { buildVariant, checkPack, composeArm, CANARY_FILE, VARIANT_MANIFEST, type BuiltVariant, type LoadedPack } from "../src/index.js";
+import { buildVariant, checkPack, composeArm, CANARY_FILE, VARIANT_MANIFEST, variantManifestFile, type BuiltVariant, type LoadedPack } from "../src/index.js";
 import { commitAll, copyPack, editJson, scratch } from "./helpers.js";
 
 async function load(dir: string): Promise<LoadedPack> {
@@ -32,7 +32,9 @@ test("a built variant holds no declared address of its source, and records its r
 	assert.ok(text.includes(`${out}/GUIDE.md`), "the address was not rewritten to the copy");
 	assert.equal(text.includes(`${out}/raw/main`), false, "a longer address was rewritten by its shorter prefix");
 	assert.equal(v.manifest.revision, sha);
-	assert.equal(JSON.parse(fs.readFileSync(path.join(out, VARIANT_MANIFEST), "utf8")).revision, sha);
+	// The manifest is beside the variant, not in it, so an agent given the variant cannot read it.
+	assert.equal(JSON.parse(fs.readFileSync(variantManifestFile(out), "utf8")).revision, sha);
+	assert.equal(fs.existsSync(path.join(out, VARIANT_MANIFEST)), false);
 	assert.deepEqual(fs.readFileSync(path.join(out, CANARY_FILE), "utf8").trim().split("\n"), loaded.pack.variants[0]!.canaries);
 });
 

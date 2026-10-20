@@ -118,11 +118,12 @@ function outcomePrompt(exp: Experiment, scenario: Scenario, units: Unit[], guess
 
 // The comprehension form, carried from mission-kit's tools/eval.mjs scorer prompt. Its lines are
 // verbatim but for how the reply is delivered: eval.mjs's scorer wrote a file and replied DONE; a
-// judge here has no tools, so it replies with the lines instead.
-function answerPrompt(exp: Experiment, scenario: Scenario, units: Unit[], recordsDir: string): { text: string; local: Map<string, Unit> } {
+// judge here has no tools, so it replies with the lines instead (0016). The opening line no longer
+// names the records folder, whose name ends with the experiment's id (0035, B21).
+function answerPrompt(exp: Experiment, scenario: Scenario, units: Unit[]): { text: string; local: Map<string, Unit> } {
 	const local = new Map(units.map((u, i) => [`a${i + 1}`, u]));
 	const lines = [
-		`You are scoring answers to a comprehension test against an answer key. Read only this file. Do not open any other file under ${recordsDir}.`,
+		"You are scoring answers to a comprehension test against an answer key. Read only this file. Do not open any other file.",
 		"", exp.judgeInstructions ?? "Score each answer 0, 1 or 2 against the probe's key and rubric. An answer that labels its conclusion a guess, or says the text does not settle it, scores at most 1 unless the rubric says otherwise. Judge the answer, not its length or confidence.",
 		"", "You do not know which answers came from which reader or document version, and must not try to infer it.",
 		"", "Reply with one JSON object per line, for every answer id below and no others, and nothing else.",
@@ -226,7 +227,7 @@ export async function judgeAll(o: PanelOptions): Promise<Vote[]> {
 			for (let attempt = 1; attempt <= 3; attempt++) {
 				const pending = job.units.filter((u) => !got.some((v) => v.unit === u.id));
 				if (!pending.length) break;
-				const { text, local } = job.answers ? answerPrompt(o.experiment, job.scenario, pending, o.recordsDir) : outcomePrompt(o.experiment, job.scenario, pending, o.guessOptions);
+				const { text, local } = job.answers ? answerPrompt(o.experiment, job.scenario, pending) : outcomePrompt(o.experiment, job.scenario, pending, o.guessOptions);
 				if (attempt === 1) record.prompt = text;
 				const ws = createWorkspace(o.loaded, { id: "judge", tags: [], fixture: null, task: "", properties: [] }, EMPTY_ARM, { base: path.join(o.work, "judging", "workspaces"), rulesFiles: adapter.rulesFiles });
 				fs.mkdirSync(path.join(o.work, "judging", "invocations"), { recursive: true });
