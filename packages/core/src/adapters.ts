@@ -296,6 +296,7 @@ export function opencodeAdapter(opts: OpencodeOptions = {}): Adapter {
 				outsideControl: [
 					"opencode's own system prompt and tool descriptions, which include an environment block naming the working directory",
 					"anything the model provider adds before the model",
+					"what opencode writes into these files once it starts: a live run's opencode.json gains a $schema key, so the file a live invocation leaves differs from the one prepared by that line",
 				],
 			};
 		},
@@ -442,6 +443,7 @@ export function codexAdapter(opts: CodexOptions = {}): Adapter {
 				outsideControl: [
 					"Codex's own base instructions and its environment context, which names the working directory",
 					"anything the model provider adds before the model",
+					"what Codex writes into these files once it starts: a live run's config.toml gains a trust entry for the working directory ([projects.\"<directory>\"] trust_level = \"trusted\"), so the file a live invocation leaves differs from the one prepared by those lines",
 				],
 			};
 		},

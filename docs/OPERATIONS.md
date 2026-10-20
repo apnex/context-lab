@@ -483,7 +483,7 @@ A `prepared` invocation holds `command`, `env`, `stdin`, `cwd`, `mounts`, `promp
 
 - **Credentials** are named, never valued: an environment credential shows as `<credential: NAME>`, a key written literally in the operator's provider block is redacted, and Codex's login file is listed with no text. No credential is read to render.
 - **Not rendered**: the runtime cache a live invocation copies, the login, a continued session's store, trap files and a later phase's copied workspace. A Codex phase that continues a session cannot be prepared before that session exists, and is listed with its reason under `unrendered`.
-- **Outside context-lab's control**: the runtime's own system prompt and tool descriptions, which name the working directory, and anything the provider adds.
+- **Outside context-lab's control**: the runtime's own system prompt and tool descriptions, which name the working directory, and anything the provider adds. A runtime also writes into its files once it starts: in a live run opencode adds a `$schema` key to `opencode.json`, and Codex appends a trust entry for the working directory to `config.toml`, so a live invocation's files differ from the prepared ones by those lines.
 - **Generated at run time**: the work folder and every path under it, unit ids and order from the run's seed, sessions and notes, the readers' replies, and which units a retry holds.
 
 `preview` shares live preparation rather than copying it: each adapter's live invocation calls the same preparation, and a test compares a live invocation through a stub runtime with its preview, argument for argument, variable for variable and file for file.

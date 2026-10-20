@@ -30,6 +30,7 @@ Order on the higher: a mandate breach ranks with S2 and a signal with S4; ties g
 | `B10` | S4 | A10 signal | held | No loop files context-lab's own failures as its defects. |
 | `B6` | S5 | A3 signal | held | Only two runtimes have adapters. |
 | `B17` | S5 | A11 signal | held | Each invocation keeps its runtime's whole data folder, tool output included. |
+| `B24` | S5 | A1 signal | held | `ended-at-unrequested-heading` fires on a section a scenario asks for. |
 <!-- END GENERATED: ledger -->
 
 ---
@@ -80,6 +81,7 @@ It carries mission-kit's adherence suite and one comprehension suite as single-p
 | `B10` | S4 | A10 signal | No loop files context-lab's own failures as its defects. | the first run on the core |
 | `B6` | S5 | A3 signal | Only two runtimes have adapters. | a project needs a third runtime |
 | `B17` | S5 | A11 signal | Each invocation keeps its runtime's whole data folder, tool output included. | free space on the working disk falls below 10 GB |
+| `B24` | S5 | A1 signal | `ended-at-unrequested-heading` fires on a section a scenario asks for. | a project's acceptance reads `extractionFlags` and a designed section obscures a real loss |
 <!-- END GENERATED: held -->
 
 ---
