@@ -68,6 +68,8 @@ export interface PreviewAnswer {
 	property: string;
 	/** UTF-8 bytes at each step: the sample response, after self-explanation stripping, after the bound, the answer extracted, and the unit judges see. */
 	bytes: { response: number; stripped: number; bounded: number; answer: number | null; unit: number | null };
+	/** For a property judged with its assigned reading: the reading's UTF-8 bytes as delivered (each file trimmed, joined by a blank line) and as masked in the unit; null otherwise. */
+	reading: { original: number; masked: number } | null;
 	extraction: AnswerExtraction;
 	unit: string | null;
 }
@@ -235,8 +237,11 @@ export async function previewRun(packDir: string, target: string, opts: PreviewO
 		const po = c.phaseOutcomes![x.phase]!;
 		const unit = blinded.units.find((u) => u.cell === c.cell && u.properties.includes(pid)) ?? null;
 		const stripped = x.source === "final" ? po.final : (po.scored ?? "");
+		const withReading = (scenarioMap.get(c.scenario) ? propertiesOf(scenarioMap.get(c.scenario)!).find((q) => q.id === pid)?.judgedWith ?? [] : []).includes("delivered") && (c.deliveredFiles?.length ?? 0) > 0;
+		const maskedReading = unit && withReading ? /^--- ASSIGNED READING ---\n([\s\S]*?)\n--- ANSWER ---\n/.exec(unit.text)?.[1] ?? null : null;
 		answerRows.push({
 			cell: c.cell, property: pid, extraction: x, unit: unit?.id ?? null,
+			reading: withReading && maskedReading !== null ? { original: bytes(c.deliveredFiles!.map((d) => d.text.trim()).join("\n\n")), masked: bytes(maskedReading) } : null,
 			bytes: { response: bytes(response), stripped: po.responseBound?.originalBytes ?? bytes(stripped), bounded: bytes(stripped), answer: x.answerBytes, unit: unit ? bytes(unit.text) : null },
 		});
 	}

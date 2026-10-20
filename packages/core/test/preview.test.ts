@@ -89,6 +89,12 @@ test("a preview renders the run's reader prompts and invocations, extraction, un
 		assert.deepEqual(p.answers.find((a) => a.cell === c.cell && a.property === "Q1")!.extraction, c.extraction!["Q1"]);
 	}
 	assert.deepEqual(cells[0]!.extraction!["Q1"]!.findings, ["ended-at-unrequested-heading"]);
+	// The reading's bytes as delivered and as masked, for the arm that has one; the guide's source addresses are masked, so it shrinks.
+	const withReading = p.answers.filter((a) => a.cell.includes(".almanac."));
+	const withoutReading = p.answers.filter((a) => a.cell.includes(".bare."));
+	assert.ok(withReading.length > 0 && withReading.every((a) => a.reading !== null && a.reading.masked > 0 && a.reading.masked < a.reading.original), JSON.stringify(withReading.map((a) => a.reading)));
+	assert.ok(withoutReading.every((a) => a.reading === null));
+	assert.ok(p.answers.every((a) => a.bytes.response === Buffer.byteLength(RESPONSE, "utf8") && a.bytes.answer === Buffer.byteLength("The rootstock is quince, as the guide says.", "utf8")));
 
 	// Judges: the run's units and jobs, and each job's first prompt; and where the run asked again, its retry.
 	const units = (JSON.parse(fs.readFileSync(path.join(rd, "sealed", "units.json"), "utf8")) as { units: { id: string; cell: string; properties: string[] }[] }).units;

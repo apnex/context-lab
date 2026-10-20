@@ -475,7 +475,7 @@ context-lab preview evals/context-lab pilot --out preview/ --response sample-rep
 | `pack`, `experiment`, `suite`, `status` | What is previewed, and the status a run would carry now, with the registered hash |
 | `variants`, `arms` | Each variant's source and revision, and whether each arm composed |
 | `readers[]` | `cell`, `scenario`, `arm`, `member`, `phase`, `session`, `prompt`, `promptBytes`, `prepared`, `unrendered`, `generated` |
-| `answers[]` | `cell`, `property`, `bytes` (`response`, `stripped`, `bounded`, `answer`, `unit`), `extraction`, `unit` |
+| `answers[]` | `cell`, `property`, `bytes` (`response`, `stripped`, `bounded`, `answer`, `unit`), `reading` (the assigned reading's bytes as delivered and as masked, for a property judged with it), `extraction`, `unit` |
 | `judges[]` | `name`, `judge`, `scenario`, `units` (id, cell, properties), `first` and `retry` (`prompt`, `bytes`, `local`, `prepared`, `unrendered`) |
 | `generated`, `notRendered`, `unsupported` | What a run generates that differs here, what the preview does not reproduce, and members whose runtime cannot prepare |
 
