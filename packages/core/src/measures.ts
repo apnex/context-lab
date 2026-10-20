@@ -205,7 +205,7 @@ export function classifyFaultKind(a: Attempt): FaultKind | null {
 	if (o.error?.cause === "provider") {
 		const msg = o.error.message;
 		if (/429|rate.?limit|quota|too many requests/i.test(msg)) return "rate-limit";
-		if (/\b50[0234]\b|service unavailable|bad gateway|overloaded/i.test(msg)) return "provider-5xx";
+		if (/\b50[0234]\b|service unavailable|bad gateway|overloaded|at capacity/i.test(msg)) return "provider-5xx";
 		return "provider-other";
 	}
 	if (o.error?.cause === "overflow") return "overflow";

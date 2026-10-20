@@ -105,7 +105,7 @@ export function pathsIn(input: unknown, workspace: string, home: string): string
 export function errorCause(name: string, message: string): ErrorCause {
 	if (name === "ContentFilterError" || /content filter|blocked by the provider/i.test(message)) return "filter";
 	if (/context (?:window|length)|maximum context|too many tokens|prompt is too long/i.test(message)) return "overflow";
-	if (name === "APIError" || name === "UnknownError" || /\b(?:4\d\d|5\d\d)\b|bad request|rate limit|unavailable/i.test(message)) return "provider";
+	if (name === "APIError" || name === "UnknownError" || /\b(?:4\d\d|5\d\d)\b|bad request|rate limit|unavailable|at capacity|overloaded/i.test(message)) return "provider";
 	return "unknown";
 }
 

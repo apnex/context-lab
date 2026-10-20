@@ -87,6 +87,11 @@ test("a different repository whose name extends the forbidden one is not isolati
 	assert.deepEqual(classify(oc([ocTool("bash", { command: "git clone https://github.com/apnex/mission-kit-other" })]), f), { valid: true });
 });
 
+test("a model at capacity, as Codex reports it, is a provider error", () => {
+	const o = cx([{ type: "error", message: "Selected model is at capacity. Please try a different model." }]);
+	assert.equal(o.error?.cause, "provider");
+});
+
 test("a filter is decided before an overflow, and a provider error before a model wait", () => {
 	const both = oc([{ type: "error", error: { name: "ContentFilterError", data: { message: "maximum context" } } }]);
 	const v = classify(both, FORBIDDEN);
