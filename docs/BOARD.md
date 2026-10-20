@@ -29,7 +29,6 @@ Order on the higher: a mandate breach ranks with S2 and a signal with S4; ties g
 | `B9` | S4 | A14 signal | held | Findings travelling between projects has no mechanism beyond records a project chooses to share. |
 | `B10` | S4 | A10 signal | held | No loop files context-lab's own failures as its defects. |
 | `B20` | S4 | A1 signal | held | No operation shows an assembled reader or judge prompt without a model call. |
-| `B23` | S4 | A1 signal | held | An absent answer carries no reason. |
 | `B6` | S5 | A3 signal | held | Only two runtimes have adapters. |
 | `B17` | S5 | A11 signal | held | Each invocation keeps its runtime's whole data folder, tool output included. |
 <!-- END GENERATED: ledger -->
@@ -81,7 +80,6 @@ It carries mission-kit's adherence suite and one comprehension suite as single-p
 | `B9` | S4 | A14 signal | Findings travelling between projects has no mechanism beyond records a project chooses to share. | two projects use context-lab |
 | `B10` | S4 | A10 signal | No loop files context-lab's own failures as its defects. | the first run on the core |
 | `B20` | S4 | A1 signal | No operation shows an assembled reader or judge prompt without a model call. | AGP requests it in reply to `incoming/agp-next-actions-2026-10-20.md`, decision 2, or another project needs its payloads inspected before any model call |
-| `B23` | S4 | A1 signal | An absent answer carries no reason. | AGP requests it in reply to `incoming/agp-next-actions-2026-10-20.md`, decision 3, or another project must tell an absent answer from an extraction miss |
 | `B6` | S5 | A3 signal | Only two runtimes have adapters. | a project needs a third runtime |
 | `B17` | S5 | A11 signal | Each invocation keeps its runtime's whole data folder, tool output included. | free space on the working disk falls below 10 GB |
 <!-- END GENERATED: held -->

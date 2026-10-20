@@ -14,7 +14,7 @@ export { runSandboxed, sandboxMounts, type SandboxResult, type SandboxSpec } fro
 export { CODEX_FEATURES_OFF, Refused, codexAdapter, codexVendor, which, externalAdapter, opencodeAdapter, type Adapter, type CodexOptions, type DeliveryMode, type ExternalOptions, type Invocation, type OpencodeOptions } from "./adapters.js";
 export { RERUN, classify, forbiddenPathsNamed, type Cause, type Forbidden, type Validity } from "./validity-classifier.js";
 export { CANARY_QUESTION, probeArm, probeRetryPrompt, type ProbeAnswer, type ProbeOptions, type ProbeResult } from "./isolation-prober.js";
-export { boundUtf8, splitAnswers, stripSelfExplanation, type ResponseBoundRecord } from "./answer-parser.js";
+export { boundUtf8, extractAnswer, splitAnswers, stripSelfExplanation, type AnswerExtraction, type ExtractionFinding, type ResponseBoundRecord } from "./answer-parser.js";
 export { promptFor, runPhase, type PhaseRun } from "./phase-driver.js";
 export { measure, type CodeScore, type MeasuredOutcome } from "./code-measurer.js";
 export { METHOD, STATES, conductRun, pickRun, resumeRun, tallyRun, type Attempt, type CellRecord, type PickRunOptions, type ResumeOptions, type RunOptions, type RunRecord, type State } from "./run-conductor.js";

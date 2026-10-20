@@ -297,7 +297,8 @@ test("answers under headings are judged in the comprehension form, and an empty 
 	assert.match(prompt, /PROBE orchard\.G2\n\nQuestion:\nWhat scion\?\n\nKey:/, "the last question carried the reader's instructions");
 	assert.equal(prompt.includes("give your guess") || prompt.includes('"guess"'), false);
 	const r = read<{ absent: { cell: string; property: string }[]; cellValues: Record<string, Record<string, unknown>> }>(rd, "RESULT.json");
-	assert.deepEqual(r.absent, [{ cell: "graft.bare.p1.1", property: "g2" }]);
+	// The empty answer is absent, and says why (B23).
+	assert.deepEqual(r.absent, [{ cell: "graft.bare.p1.1", property: "g2", findings: ["empty-section"] }]);
 	assert.equal(r.cellValues["graft.bare.p1.1"]!["g2"], 0);
 	assert.equal(r.cellValues["graft.bare.p2.1"]!["g2"], 1);
 });

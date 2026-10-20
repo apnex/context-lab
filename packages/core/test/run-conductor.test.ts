@@ -11,7 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import {
-	CANARY_QUESTION, METHOD, STATES, checkPack, conductRun, recordExperiment, recordHistory, resumeRun, variantDir, variantManifestFile,
+	CANARY_QUESTION, METHOD, STATES, checkPack, conductRun, recordExperiment, recordHistory, resumeRun, tallyRun, variantDir, variantManifestFile,
 	type Adapter, type CellRecord, type Invocation, type Outcome,
 } from "../src/index.js";
 import { commitAll, copyPack, editJson, isJudgePrompt, judgeReply, packageRoot, scratch } from "./helpers.js";
@@ -474,8 +474,12 @@ test("resumeRun completes a run stopped during execution, skips recorded cells, 
 	assert.deepEqual(resJson.totals, fullJson.totals);
 });
 
-test("a run stopped before work folders were opaque resumes from its old layout (B21)", async () => {
-	const { dir, work, records } = await setup();
+test("a run stopped before work folders were opaque resumes from its old layout (B21), and resumed cells keep extraction provenance (B23)", async () => {
+	const { dir, work, records } = await setup((d) => editJson(path.join(d, "scenarios", "graft.json"), (j) => {
+		j.answerSource = "final";
+		delete j.scoredFile;
+		j.properties.push({ id: "Q1", type: "comprehension", decidedBy: "judge", key: "quince", scale: [0, 2], answerHeading: "Q1", question: "Rootstock?" });
+	}));
 	const loaded0 = await checkPack(dir);
 	if (!loaded0.ok) throw new Error("pack");
 	recordExperiment(loaded0.loaded, "orchard");
@@ -500,6 +504,13 @@ test("a run stopped before work folders were opaque resumes from its old layout 
 	const resumed = await resumeRun(dir, partialDir, { adapters: { opencode: oc, codex: cx }, work, parallel: 2 });
 	assert.equal(resumed.record.end, "completed");
 	assert.equal(oc.calls.filter((c) => c.tools === "on").length + cx.calls.filter((c) => c.tools === "on").length, 5);
+	// Every graft cell the resume ran records how its answer was extracted: the scripted reply has no heading.
+	const resumedGraft = resumed.record.cells.filter((c) => !kept.includes(c) && c.startsWith("graft."));
+	assert.ok(resumedGraft.length > 0, "the resume ran no graft cell");
+	for (const c of resumedGraft) {
+		const cr = JSON.parse(fs.readFileSync(path.join(partialDir, "cells", `${c}.json`), "utf8")) as CellRecord;
+		assert.deepEqual(cr.extraction?.["Q1"]?.findings, ["no-heading"], c);
+	}
 	// The remaining cells ran with the old variant folder.
 	assert.ok([...oc.calls, ...cx.calls].filter((c) => c.tools === "on").every((c) => c.arm.instructions.every((i) => i.variant !== "almanac-full" || i.path.startsWith(legacyVariant))));
 });
@@ -608,6 +619,20 @@ test("maxResponseBytes truncates oversized responses before answer splitting and
 	assert.deepEqual(ocCell.codeScores.map((s) => [s.property, "value" in s ? s.value : -1]), [["M1", 1]], "measure hook must receive bounded final and rawFinal");
 	assert.equal(cxCell.responseBound?.truncated, false);
 	assert.equal(cxCell.answers["Q2"], "p");
+	// Extraction provenance (B23): Q2's heading lay beyond the cut, which no-heading alone would hide.
+	assert.deepEqual(ocCell.extraction?.["Q2"]?.findings, ["no-heading", "heading-beyond-bound", "cut-by-bound"]);
+	assert.deepEqual([ocCell.extraction?.["Q2"]?.phase, ocCell.extraction?.["Q2"]?.attempt, ocCell.extraction?.["Q2"]?.source, ocCell.extraction?.["Q2"]?.bounded], ["work", 1, "final", true]);
+	assert.deepEqual(ocCell.extraction?.["Q1"]?.findings, []);
+	assert.deepEqual(cxCell.extraction?.["Q1"]?.endedAt, { heading: "orchard.Q2", requested: true, bytes: 0 });
+	const sealed = JSON.parse(fs.readFileSync(path.join(rd, "sealed", "units.json"), "utf8")) as { absent: { cell: string; property: string; findings?: string[] }[] };
+	assert.deepEqual(sealed.absent, [{ cell: "graft.bare.p1.1", property: "Q2", findings: ["no-heading", "heading-beyond-bound", "cut-by-bound"] }]);
+	assert.match(fs.readFileSync(path.join(rd, "RESULT.md"), "utf8"), /Absent answers, scored at the bottom of their scale: graft\.bare\.p1\.1 Q2 \(no-heading, heading-beyond-bound, cut-by-bound\)\./);
+	// A record made before extraction was kept reads as unknown, not as an inferred reason.
+	const legacy = path.join(scratch(), "legacy-run");
+	fs.cpSync(rd, legacy, { recursive: true });
+	editJson(path.join(legacy, "sealed", "units.json"), (j) => { for (const a of j.absent) delete a.findings; });
+	tallyRun(legacy);
+	assert.match(fs.readFileSync(path.join(legacy, "RESULT.md"), "utf8"), /graft\.bare\.p1\.1 Q2 \(reason not recorded\)/);
 
 	// Test resumeRun refusing when a cell is in dispatchedCells (or has a ledger in work/ledgers/<cell>.1) but its completion cell file was not written.
 	editJson(path.join(rd, "run.json"), (j) => {

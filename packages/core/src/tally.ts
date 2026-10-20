@@ -14,6 +14,7 @@
 // diagnostics beside the scores, computed from them and from outcomes, and change none.
 
 import type { Unit, Absent } from "./blinder.js";
+import type { ExtractionFinding } from "./answer-parser.js";
 import type { Vote } from "./judge-panel.js";
 import type { CellRecord } from "./run-conductor.js";
 import { propertiesOf, type Experiment, type Scenario } from "./pack-schema.js";
@@ -85,6 +86,8 @@ export interface Result {
 	costs?: CostRow[];
 	/** Per judge: how often it alone differed where at least three judges valued one unit's property and disagreed. */
 	judgeDissent?: JudgeDissentRow[];
+	/** Present answers whose extraction found something - a cut, a duplicate heading, text lost at a heading - with the findings (B23); absent answers carry theirs in `absent`. */
+	extractionFlags?: { cell: string; property: string; findings: ExtractionFinding[] }[];
 	/** Notes and final messages sharing a run of words with a delivered instruction or folder file. */
 	restated: RestatedFlag[];
 	/** The stated variation and default, beside the difference detectable per scope. */
@@ -252,6 +255,9 @@ export function tally(t: TallyInput): Result {
 	const hydration = hydrationAdherence(hydrationProfile(mainCells, t.scenarios, propertiesOf, t.deliveries), cellValues, t.scenarios, propertiesOf);
 	const costs = costProfile(mainCells, t.members, t.arms);
 	const dissent = judgeDissent(t.votes);
+	const extractionFlags = mainCells.flatMap((c) => Object.entries(c.extraction ?? {})
+		.filter(([pid, x]) => x.findings.length > 0 && (c.answers[pid] ?? "").trim() !== "")
+		.map(([pid, x]) => ({ cell: c.cell, property: pid, findings: x.findings })));
 	const valuesOf = (sid: string, pid: string): Record<string, number[]> => Object.fromEntries(t.arms.map((a) => [a, mainCells
 		.filter((c) => c.scenario === sid && c.arm === a && cellValues[c.cell] !== undefined).map((c) => cellValues[c.cell]![pid]).filter((x): x is number => typeof x === "number")]));
 	const mainProps = [...t.scenarios.values()].filter((s) => !s.heldOut).flatMap((s) => propertiesOf(s).map((p) => ({ scenario: s.id, property: p, byArm: valuesOf(s.id, p.id) })));
@@ -273,7 +279,7 @@ export function tally(t: TallyInput): Result {
 			heldOutScenarios: heldOutSet,
 		})
 		: null;
-	return { run: t.run, status: t.status, arms: t.arms, members: t.members, properties, totals, excluded, absent: t.absent.filter((a) => !heldCell(a.cell)), guesses, faults, unreachable, cellValues, heldOut, heldOutCellValues, heldOutAbsent: t.absent.filter((a) => heldCell(a.cell)), heldOutGuesses, exposed, link, ...(hydration.length ? { hydration } : {}), ...(costs.length ? { costs } : {}), ...(dissent.length ? { judgeDissent: dissent } : {}), restated, variation, ...(humanPicks ? { humanPicks } : {}), ...(chain ? { chain } : {}) };
+	return { run: t.run, status: t.status, arms: t.arms, members: t.members, properties, totals, excluded, absent: t.absent.filter((a) => !heldCell(a.cell)), guesses, faults, unreachable, cellValues, heldOut, heldOutCellValues, heldOutAbsent: t.absent.filter((a) => heldCell(a.cell)), heldOutGuesses, exposed, link, ...(hydration.length ? { hydration } : {}), ...(costs.length ? { costs } : {}), ...(dissent.length ? { judgeDissent: dissent } : {}), ...(extractionFlags.length ? { extractionFlags } : {}), restated, variation, ...(humanPicks ? { humanPicks } : {}), ...(chain ? { chain } : {}) };
 }
 
 /** A warning where a difference of the stated size would usually go undetected, in the stated scope. */
@@ -315,7 +321,8 @@ export function resultMarkdown(r: Result, limits: string[]): string {
 			"",
 		] : []),
 		r.excluded.length ? `Excluded cells: ${r.excluded.map((e) => `${e.cell} (${e.cause})`).join(", ")}.` : "No cell excluded.", "",
-		r.absent.length ? `Absent answers, scored at the bottom of their scale: ${r.absent.map((a) => `${a.cell} ${a.property}`).join(", ")}.` : "No answer absent.", "",
+		r.absent.length ? `Absent answers, scored at the bottom of their scale: ${r.absent.map((a) => `${a.cell} ${a.property} (${a.findings?.join(", ") ?? "reason not recorded"})`).join(", ")}.` : "No answer absent.", "",
+		...(r.extractionFlags?.length ? [`Present answers extraction flagged: ${r.extractionFlags.map((f) => `${f.cell} ${f.property} (${f.findings.join(", ")})`).join(", ")}.`, ""] : []),
 		r.unreachable.length ? `Sandboxed agents named forbidden paths that did not exist for them, in: ${r.unreachable.join(", ")}.` : "No sandboxed agent named a forbidden path.", "",
 		"## Stated variation", "",
 		r.variation.stated ? `Stated: a difference of ${r.variation.stated.difference} in pass rate, ${r.variation.stated.scope}; default when none is detected: ${r.variation.default ?? "-"}.` : "No variation stated: the experiment is not declared result.",
@@ -325,7 +332,7 @@ export function resultMarkdown(r: Result, limits: string[]): string {
 		...undetectable(r),
 		"",
 		"## Held-out scenarios", "",
-		...(r.heldOut.length ? [`| Scenario | Property | ${r.arms.join(" | ")} |`, `|---|---|${r.arms.map(() => "---").join("|")}|`, ...r.heldOut.map((p) => `| ${p.scenario} | ${p.property} | ${r.arms.map((a) => fmt(p.byArm[a]!)).join(" | ")} |`), "", `${r.heldOutAbsent.length ? `Absent answers, scored at the bottom of their scale: ${r.heldOutAbsent.map((a) => `${a.cell} ${a.property}`).join(", ")}. ` : ""}Counted in no total; judges guessed the condition of these outcomes right ${r.heldOutGuesses.right} of ${r.heldOutGuesses.all} times, counted apart from the guesses above.`] : ["None in this run."]),
+		...(r.heldOut.length ? [`| Scenario | Property | ${r.arms.join(" | ")} |`, `|---|---|${r.arms.map(() => "---").join("|")}|`, ...r.heldOut.map((p) => `| ${p.scenario} | ${p.property} | ${r.arms.map((a) => fmt(p.byArm[a]!)).join(" | ")} |`), "", `${r.heldOutAbsent.length ? `Absent answers, scored at the bottom of their scale: ${r.heldOutAbsent.map((a) => `${a.cell} ${a.property} (${a.findings?.join(", ") ?? "reason not recorded"})`).join(", ")}. ` : ""}Counted in no total; judges guessed the condition of these outcomes right ${r.heldOutGuesses.right} of ${r.heldOutGuesses.all} times, counted apart from the guesses above.`] : ["None in this run."]),
 		...(r.exposed.length ? ["", `Exposed to a change: ${r.exposed.map((e) => `${e.scenario} to ${e.change} (recorded ${e.recordedAt})`).join("; ")}.`] : []),
 		"",
 		"## Comprehension and behaviour", "",

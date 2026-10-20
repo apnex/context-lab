@@ -20,7 +20,7 @@ import { checkPack, selectScenarios } from "./pack-checker.js";
 import { measure, type CodeScore } from "./code-measurer.js";
 import { runStatus, contentHash, type Record as RegisterRecord } from "./experiment-register.js";
 import { probeArm, type ProbeResult } from "./isolation-prober.js";
-import { boundUtf8, splitAnswers, stripSelfExplanation, type ResponseBoundRecord } from "./answer-parser.js";
+import { boundUtf8, extractAnswer, stripSelfExplanation, type AnswerExtraction, type ResponseBoundRecord } from "./answer-parser.js";
 import type { Outcome } from "./outcome.js";
 import type { DeliveryKind, Experiment, LoadedPack, Member, Scenario, Status } from "./pack-schema.js";
 import { runPhase } from "./phase-driver.js";
@@ -95,6 +95,8 @@ export interface CellRecord {
 	scoredFile: { path: string; content: string | null; matchesFinal: boolean } | null;
 	/** Per property with an answer heading: its answer split from the scored file, self-explanation cut; null if absent. */
 	answers: Record<string, string | null>;
+	/** Per answer property: how its answer was extracted, and what extraction found (B23); absent from records made before it was kept. */
+	extraction?: Record<string, AnswerExtraction>;
 	diff: string | null;
 	codeScores: CodeScore[];
 	/** The trap versions and positions this cell met. */
@@ -415,6 +417,7 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 		const phaseOutcomes: NonNullable<CellRecord["phaseOutcomes"]> = {};
 		const maxBytes = c.scenario.maxResponseBytes ?? exp.experiment.maxResponseBytes;
 		let lastBound: ResponseBoundRecord | undefined;
+		const beforeBound: Record<string, { final: string; scored: string | null }> = {};
 		for (const p of lastPhases) {
 			if (p.status !== "run" || p.validity?.valid !== true || p.outcome === null) continue;
 			const rawFinal = stripSelfExplanation(p.outcome.final, marker);
@@ -422,18 +425,21 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 			let final = rawFinal;
 			let scoredContent = rawScored;
 			let responseBound: ResponseBoundRecord | undefined;
+			const pre = { final: rawFinal, scored: rawScored };
 			if (maxBytes !== undefined) {
 				if (c.scenario.answerSource === "final" || c.scenario.scoredFile === undefined) {
 					const b = boundUtf8(rawFinal, maxBytes);
 					final = b.text;
 					responseBound = b.bound;
 				} else if (rawScored !== null) {
-					const b = boundUtf8(stripSelfExplanation(rawScored, marker), maxBytes);
+					pre.scored = stripSelfExplanation(rawScored, marker);
+					const b = boundUtf8(pre.scored, maxBytes);
 					scoredContent = b.text;
 					responseBound = b.bound;
 				}
 				lastBound = responseBound;
 			}
+			beforeBound[p.phase] = pre;
 			phaseOutcomes[p.phase] = {
 				final, diff: p.diff ?? "", note: p.note, startDiff: p.startDiff, scored: scoredContent, traps: p.traps.map((t) => t.text),
 				...(responseBound !== undefined ? { responseBound } : {}),
@@ -445,14 +451,7 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 			const content = readInside(lastRan.snapshot!, c.scenario.scoredFile);
 			scored = { path: c.scenario.scoredFile, content, matchesFinal: content !== null && content.trim() === (lastRan.outcome?.final ?? "").trim() };
 		}
-		const answers: Record<string, string | null> = {};
-		for (const pr of propertiesOf(c.scenario).filter((x) => x.answerHeading !== undefined)) {
-			const pp = propertyPhases[pr.id]!;
-			if (pp.state !== "valid") continue;
-			const po = phaseOutcomes[pp.phase];
-			const sourceText = c.scenario.answerSource === "final" ? (po?.final ?? "") : (po?.scored ?? "");
-			answers[pr.id] = splitAnswers(sourceText, [pr.answerHeading!], marker).get(pr.answerHeading!) ?? null;
-		}
+		const { answers, extraction } = answersOf(c.scenario, propertyPhases, phaseOutcomes, beforeBound, marker, attempts.length);
 		// Restated guidance: every final message and every note a session was given, in the last attempt,
 		// against every file delivered to the arm as an instruction or a folder file.
 		const restated: RestatedFlag[] = [];
@@ -471,7 +470,7 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 		const cr: CellRecord = {
 			cell, scenario: c.scenario.id, arm: c.arm.arm, member: c.member.id, run: c.run, attempts, valid: last.validity.valid,
 			final: last.validity.valid ? (lastRan ? (phaseOutcomes[lastRan.phase]?.final ?? stripSelfExplanation(last.outcome.final, marker)) : stripSelfExplanation(last.outcome.final, marker)) : null,
-			scoredFile: scored, answers, diff: last.diff, codeScores: [],
+			scoredFile: scored, answers, ...(Object.keys(extraction).length ? { extraction } : {}), diff: last.diff, codeScores: [],
 			traps, propertyPhases, phaseOutcomes, restated,
 			...(deliveredFiles.length ? { deliveredFiles } : {}),
 			...(lastBound !== undefined ? { responseBound: lastBound } : {}),
@@ -762,6 +761,7 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 			const phaseOutcomes: NonNullable<CellRecord["phaseOutcomes"]> = {};
 			const maxBytes = c.scenario.maxResponseBytes ?? exp.experiment.maxResponseBytes;
 			let lastBound: ResponseBoundRecord | undefined;
+			const beforeBound: Record<string, { final: string; scored: string | null }> = {};
 			for (const p of lastPhases) {
 				if (p.status !== "run" || p.validity?.valid !== true || p.outcome === null) continue;
 				const rawFinal = stripSelfExplanation(p.outcome.final, marker);
@@ -769,18 +769,21 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 				let final = rawFinal;
 				let scoredContent = rawScored;
 				let responseBound: ResponseBoundRecord | undefined;
+				const pre = { final: rawFinal, scored: rawScored };
 				if (maxBytes !== undefined) {
 					if (c.scenario.answerSource === "final" || c.scenario.scoredFile === undefined) {
 						const b = boundUtf8(rawFinal, maxBytes);
 						final = b.text;
 						responseBound = b.bound;
 					} else if (rawScored !== null) {
-						const b = boundUtf8(stripSelfExplanation(rawScored, marker), maxBytes);
+						pre.scored = stripSelfExplanation(rawScored, marker);
+						const b = boundUtf8(pre.scored, maxBytes);
 						scoredContent = b.text;
 						responseBound = b.bound;
 					}
 					lastBound = responseBound;
 				}
+				beforeBound[p.phase] = pre;
 				phaseOutcomes[p.phase] = {
 					final, diff: p.diff ?? "", note: p.note, startDiff: p.startDiff, scored: scoredContent, traps: p.traps.map((t) => t.text),
 					...(responseBound !== undefined ? { responseBound } : {}),
@@ -792,14 +795,7 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 				const content = readInside(lastRan.snapshot!, c.scenario.scoredFile);
 				scored = { path: c.scenario.scoredFile, content, matchesFinal: content !== null && content.trim() === (lastRan.outcome?.final ?? "").trim() };
 			}
-			const answers: Record<string, string | null> = {};
-			for (const pr of propertiesOf(c.scenario).filter((x) => x.answerHeading !== undefined)) {
-				const pp = propertyPhases[pr.id]!;
-				if (pp.state !== "valid") continue;
-				const po = phaseOutcomes[pp.phase];
-				const sourceText = c.scenario.answerSource === "final" ? (po?.final ?? "") : (po?.scored ?? "");
-				answers[pr.id] = splitAnswers(sourceText, [pr.answerHeading!], marker).get(pr.answerHeading!) ?? null;
-			}
+			const { answers, extraction } = answersOf(c.scenario, propertyPhases, phaseOutcomes, beforeBound, marker, attempts.length);
 			const restated: RestatedFlag[] = [];
 			const delivered = [...c.arm.instructions, ...c.arm.folderFiles].map((f) => ({ file: f.file, path: f.path, text: fs.readFileSync(f.path, "utf8") }));
 			const deliveredFiles = delivered.filter((d) => path.basename(d.file) !== "context-lab-canary.md").map((d) => ({ file: d.file, text: d.text }));
@@ -816,7 +812,7 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 			const cr: CellRecord = {
 				cell, scenario: c.scenario.id, arm: c.arm.arm, member: c.member.id, run: c.run, attempts, valid: last.validity.valid,
 				final: last.validity.valid ? (lastRan ? (phaseOutcomes[lastRan.phase]?.final ?? stripSelfExplanation(last.outcome.final, marker)) : stripSelfExplanation(last.outcome.final, marker)) : null,
-				scoredFile: scored, answers, diff: last.diff, codeScores: [],
+				scoredFile: scored, answers, ...(Object.keys(extraction).length ? { extraction } : {}), diff: last.diff, codeScores: [],
 				traps, propertyPhases, phaseOutcomes, restated,
 				...(deliveredFiles.length ? { deliveredFiles } : {}),
 				...(lastBound !== undefined ? { responseBound: lastBound } : {}),
@@ -886,6 +882,34 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 		for (const v of built.values()) if (v.ok && fs.existsSync(v.dir)) makeWritable(v.dir);
 	}
 	return { dir: resolvedRecords, record };
+}
+
+/**
+ * Each answer property's answer, from its phase's text as judges are given it, and how it was
+ * extracted (B23). One function for every path that records a cell, so a run and a resume cannot
+ * extract differently.
+ */
+function answersOf(
+	scenario: Scenario, propertyPhases: NonNullable<CellRecord["propertyPhases"]>, phaseOutcomes: NonNullable<CellRecord["phaseOutcomes"]>,
+	beforeBound: Record<string, { final: string; scored: string | null }>, marker: string | undefined, attempt: number,
+): { answers: Record<string, string | null>; extraction: Record<string, AnswerExtraction> } {
+	const answers: Record<string, string | null> = {};
+	const extraction: Record<string, AnswerExtraction> = {};
+	const heads = propertiesOf(scenario).filter((x) => x.answerHeading !== undefined);
+	const requested = heads.map((x) => x.answerHeading!);
+	const source = scenario.answerSource === "final" ? "final" : "scored-file";
+	for (const pr of heads) {
+		const pp = propertyPhases[pr.id]!;
+		if (pp.state !== "valid") continue;
+		const po = phaseOutcomes[pp.phase];
+		const text = source === "final" ? (po?.final ?? "") : (po?.scored ?? "");
+		const pre = beforeBound[pp.phase];
+		const before = source === "final" ? (pre?.final ?? text) : (pre?.scored ?? text);
+		const r = extractAnswer(text, before, pr.answerHeading!, requested, marker, { source, phase: pp.phase, attempt });
+		answers[pr.id] = r.answer;
+		extraction[pr.id] = r.extraction;
+	}
+	return { answers, extraction };
 }
 
 /** Re-tally a run from its record alone: the same files give the same result, whatever the pack is now. */

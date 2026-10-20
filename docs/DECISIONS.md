@@ -55,6 +55,7 @@ They are not copied here; this register starts at the vision.
 | 0033 | 2026-10-18 | Each cost row also gives the median input tokens and the costliest cell. | director | ratified | amends 0031 |
 | 0034 | 2026-10-18 | `compare` refuses an A/A threshold set derived on other members, scenarios or judges than the run it judges, and threshold sets record their judges; `check` names every experiment that declares `result` but would run as exploration. | director | ratified | amends 0019 |
 | 0035 | 2026-10-20 | No path or prompt given to an agent, probe or judge names the run, the experiment, an arm or a variant: the comprehension judge prompt's opening line drops the records folder, each run's work folder is named `run-` and six random characters, variant and probe folders are named by a hash of their label, and a variant's manifest is written beside its folder. | director | ratified | amends 0016 |
+| 0036 | 2026-10-20 | Answer extraction is recorded per answer property, with overlapping findings, in cell records; absent answers carry their findings, records made before it read as unknown, and the result lists present answers extraction flagged. | director | ratified | - |
 
 ---
 
@@ -556,3 +557,20 @@ Adherence judging - the outcome prompt, used by mission-kit's adherence experime
 
 **Source.**\
 `[V, director selection 2026-10-20 ("take up B21 now"); docs/BACKLOG.md B21; mission-kit run 2026-10-18-111520-adherence-rule-repeat judge session store]`
+
+### 0036
+
+**Ruling.**\
+For each answer property whose phase ran validly, `cells/<cell>.json` `extraction` records how its answer was taken: the heading, source, phase and attempt; whether the response bound truncated the text; the matched and empty sections and the one taken; the answer's bytes; matched sections and answer bytes before the bound; the heading that ended the answer and whether it names a requested answer; and findings, which may overlap - `no-heading`, `empty-section`, `duplicate-heading`, `heading-beyond-bound`, `cut-by-bound`, `ended-at-unrequested-heading`.\
+Each absent answer in `sealed/units.json` carries its findings; an absent answer from a record made before this ruling carries none and is reported as `reason not recorded`, never given an inferred reason.\
+`RESULT.json` `extractionFlags` lists present answers whose extraction found something.\
+Extraction itself is unchanged: `extractAnswer` and `splitAnswers` share one section splitter and heading matcher, and a test holds their answers equal; one function extracts for both `run` and `resume`.
+
+**Why.**\
+AGP's acceptance rule scores zero only an established absence from an eligible completed reader, and gives no verdict where extraction lost or could not place an answer; an absent answer recorded as `{ cell, property }` alone could not tell the two apart (`B23`).
+
+**Evidence.**\
+`packages/core/test/answer-parser.test.ts` covers each finding, their overlap when the bound cuts away a heading, a cut inside a multi-byte character, and equality with `splitAnswers`; `packages/core/test/run-conductor.test.ts` asserts the record, the absent findings and `RESULT.md` on a run whose bound cuts away an answer's heading, `reason not recorded` on a record with the findings removed, and extraction on cells a resume ran; reverting the absent findings, the beyond-the-bound finding, or the resume path's extraction fails one of them.
+
+**Source.**\
+`[V, director selection 2026-10-20 ("continue"); AGP request incoming/agp-browser-scale-compatibility-request.md section 3]`

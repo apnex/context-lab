@@ -432,6 +432,25 @@ context-lab run evals/context-lab pilot --parallel 4
 - **Judge dissent** (`judgeDissent`): per judge, the values it cast, the splits it was in (a unit's property valued by at least three judges who did not all agree), and how often it alone differed. A judge whose rate stands far above the others is the first place to look when agreement is low. A split needs three judges on one outcome, and no judge scores its own family, so a three-judge panel splits only on outcomes of agents whose family has no judge.
 - **Provider and agent faults** (`faults`): attempts, retries, exclusions and fault kinds per member, family and arm.
 
+**Answer extraction provenance.**\
+For each property with an `answerHeading` whose phase ran validly, `cells/<cell>.json` `extraction.<property>` records how its answer was taken and what extraction found; context-lab reports these facts, and what an absent answer means is the project's to decide.
+
+| Field | Meaning |
+|---|---|
+| `heading`, `source`, `phase`, `attempt` | The heading searched for; `final` or `scored-file`; the phase and the cell attempt the text is from |
+| `bounded` | Whether `maxResponseBytes` truncated the text read |
+| `matched`, `emptyMatched` | Sections of the text read whose heading names the answer, and how many were empty |
+| `selected` | The 1-based place, among the matched sections, of the one taken, or `null` |
+| `answerBytes` | UTF-8 bytes of the answer taken, or `null` |
+| `matchedBeforeBound`, `cutBytes` | Matched sections in the text before the bound, and the UTF-8 bytes of the answer the bound removed |
+| `endedAt` | The heading that ended the answer, whether it names a requested answer, and the UTF-8 bytes under it and any further headings up to the next requested one; `null` when the answer ran to the end |
+| `findings` | Any of `no-heading`, `empty-section`, `duplicate-heading`, `heading-beyond-bound`, `cut-by-bound`, `ended-at-unrequested-heading`; they can overlap, so a heading cut away by the bound shows both `no-heading` and `heading-beyond-bound` |
+
+- The text read is `phaseOutcomes.<phase>.final` (`final`) or `.scored` (`scored-file`), after self-explanation stripping and the bound. The text before the bound is the same text before truncation. The unstripped response is `attempts[attempt - 1].phases[].outcome.final` for the phase, or the scored file in that phase's snapshot.
+- With duplicate headings, the first non-empty matched section is taken; `selected` says which, and the others stay in the text read and the raw response.
+- Each absent answer in `sealed/units.json` `absent` carries its `findings`; `RESULT.md` lists them beside it. A record made before extraction was kept has neither: its reason is unknown, written `reason not recorded`, never inferred.
+- `RESULT.json` `extractionFlags` lists present answers whose extraction found something, with the findings; `RESULT.md` lists them under the absent answers.
+
 Each isolation probe answer in `run.json` (`probes[].answers[]`) records `toolCalls` and `attempts`.\
 A probe answer counts only if its last attempt made no tool call; a retry after a tool call tells the agent that no file is mounted, so a read cannot help.
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { boundUtf8, promptFor, splitAnswers, stripSelfExplanation, type ComposedArm, type Experiment, type Scenario } from "../src/index.js";
+import { boundUtf8, extractAnswer, promptFor, splitAnswers, stripSelfExplanation, type ComposedArm, type Experiment, type Scenario } from "../src/index.js";
 
 test("text after the self-explanation marker is cut", () => {
 	assert.equal(stripSelfExplanation("The message.\nCORPUS-SOURCES: S15, M10", "CORPUS-SOURCES:"), "The message.");
@@ -72,4 +72,37 @@ test("boundUtf8 preserves in-budget text and truncates oversized text at a valid
 	assert.equal(multi4.text, "a\u20ac");
 	assert.equal(multi4.bound.effectiveBytes, 4);
 	assert.equal(multi4.bound.truncated, true);
+});
+
+test("extractAnswer reports each extraction finding, overlapping where they overlap, and takes the answer splitAnswers takes (B23)", () => {
+	const at = { source: "final" as const, phase: "work", attempt: 1 };
+	const ex = (text: string, id = "Q1", before = text, requested = ["Q1", "Q2"]) => extractAnswer(text, before, id, requested, "MARK:", at);
+	// No heading.
+	const none = ex("Just prose, no headings.");
+	assert.deepEqual([none.answer, none.extraction.findings, none.extraction.matched, none.extraction.selected], [null, ["no-heading"], 0, null]);
+	// A matched section that is empty; the self-explanation marker empties it too.
+	const empty = ex("### Q1\nMARK: S15\n### Q2\nb\n");
+	assert.deepEqual([empty.answer, empty.extraction.findings, empty.extraction.emptyMatched, empty.extraction.endedAt], ["", ["empty-section"], 1, null]);
+	// Duplicate headings: the first non-empty is taken, and its place recorded.
+	const dup = ex("### Q1\n\n### Q1\nsecond\n### Q1\nthird\n");
+	assert.deepEqual([dup.answer, dup.extraction.findings, dup.extraction.matched, dup.extraction.selected], ["second", ["duplicate-heading"], 3, 2]);
+	// A cut inside the answer, at a multi-byte character: three bytes removed (the two of e-acute and one of b).
+	const full = "### Q1\na\u00e9b";
+	const cut = boundUtf8(full, Buffer.byteLength("### Q1\na", "utf8") + 1);
+	assert.equal(cut.text, "### Q1\na");
+	const shortened = ex(cut.text, "Q1", full);
+	assert.deepEqual([shortened.answer, shortened.extraction.bounded, shortened.extraction.cutBytes, shortened.extraction.findings], ["a", true, 3, ["cut-by-bound"]]);
+	// The heading itself beyond the cut: no heading in the text read, and the cut is not hidden by it.
+	const beyond = ex("intro\n", "Q1", "intro\n### Q1\nans\n");
+	assert.deepEqual([beyond.answer, beyond.extraction.findings, beyond.extraction.matchedBeforeBound], [null, ["no-heading", "heading-beyond-bound", "cut-by-bound"], 1]);
+	// An answer ending at a heading that names no requested answer, with text under it; and one ending at the next requested heading.
+	const lost = ex("### Q1\nans\n## Evidence\nmore\n#### Detail\nx\n### Q2\nb\n");
+	assert.deepEqual([lost.answer, lost.extraction.endedAt, lost.extraction.findings], ["ans", { heading: "Evidence", requested: false, bytes: 5 }, ["ended-at-unrequested-heading"]]);
+	const clean = ex("### Q1\nans\n### Q2\nb\n");
+	assert.deepEqual([clean.extraction.endedAt, clean.extraction.findings, clean.extraction.answerBytes], [{ heading: "Q2", requested: true, bytes: 0 }, [], 3]);
+	assert.deepEqual([clean.extraction.heading, clean.extraction.source, clean.extraction.phase, clean.extraction.attempt, clean.extraction.bounded], ["Q1", "final", "work", 1, false]);
+	// The same answer as splitAnswers, on every text above.
+	for (const [text, id] of [["Just prose.", "Q1"], ["### Q1\nMARK: S15\n### Q2\nb\n", "Q1"], ["### Q1\n\n### Q1\nsecond\n", "Q1"], ["### Q1\nans\n## Evidence\nmore\n", "Q1"], ["# suite.Q2 - Title\nb", "Q2"]] as const) {
+		assert.equal(extractAnswer(text, text, id, ["Q1", "Q2"], "MARK:", at).answer, splitAnswers(text, [id], "MARK:").get(id), text);
+	}
 });

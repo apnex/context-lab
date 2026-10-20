@@ -8,6 +8,7 @@
 // (criterion E14). An absent answer is not judged; it scores 0, and is recorded as absent.
 
 import { createHash } from "node:crypto";
+import type { ExtractionFinding } from "./answer-parser.js";
 import type { CellRecord } from "./run-conductor.js";
 import { propertiesOf, type LoadedPack, type Property, type Scenario } from "./pack-schema.js";
 
@@ -28,6 +29,12 @@ export interface Unit {
 export interface Absent {
 	cell: string;
 	property: string;
+	/**
+	 * What extraction found for the answer (B23): no heading, empty sections, a cut by the response
+	 * bound, and so on, possibly several; the cell's `extraction` holds the detail. Absent where the
+	 * cell record kept no extraction, made before it was kept: the reason is then unknown, not inferred.
+	 */
+	findings?: ExtractionFinding[];
 }
 
 export interface Blinded {
@@ -100,6 +107,12 @@ const judged = (s: Scenario): Property[] => s.properties.filter((p) => p.decided
  */
 const answerUnit = (reading: string, answer: string): string => (reading ? `${reading}--- ANSWER ---\n${answer}\n` : `--- ANSWER ---\n${answer}\n`);
 
+/** An absent answer, with what extraction found where the cell record kept it. */
+const absentOf = (c: CellRecord, property: string): Absent => {
+	const f = c.extraction?.[property]?.findings;
+	return { cell: c.cell, property, ...(f !== undefined ? { findings: f } : {}) };
+};
+
 export function blind(loaded: LoadedPack, scenarios: Map<string, Scenario>, cellsIn: CellRecord[], families: Map<string, string>, seed: string, now: () => Date = () => new Date(), ctx: MaskContext = { paths: [], literals: [] }): Blinded {
 	// Ordered by cell id first, so the seed alone fixes the mapping, whatever order cells finished in.
 	const cells = [...cellsIn].sort((a, b) => a.cell.localeCompare(b.cell));
@@ -135,7 +148,7 @@ export function blind(loaded: LoadedPack, scenarios: Map<string, Scenario>, cell
 			}
 			for (const p of props.filter((x) => x.answerHeading !== undefined)) {
 				const answer = c.answers[p.id];
-				if (answer === null || answer === undefined || answer.trim() === "") absent.push({ cell: c.cell, property: p.id });
+				if (answer === null || answer === undefined || answer.trim() === "") absent.push(absentOf(c, p.id));
 				else {
 					const withDelivered = (p.judgedWith ?? []).includes("delivered") && c.deliveredFiles?.length
 						? `--- ASSIGNED READING ---\n${c.deliveredFiles.map((d) => mask(d.text, loaded, ctx, ws).trim()).join("\n\n")}\n`
@@ -156,7 +169,7 @@ export function blind(loaded: LoadedPack, scenarios: Map<string, Scenario>, cell
 		}
 		for (const p of judged(s).filter((x) => x.answerHeading !== undefined)) {
 			const answer = c.answers[p.id];
-			if (answer === null || answer === undefined || answer.trim() === "") absent.push({ cell: c.cell, property: p.id });
+			if (answer === null || answer === undefined || answer.trim() === "") absent.push(absentOf(c, p.id));
 			else {
 				const withDelivered = (p.judgedWith ?? []).includes("delivered") && c.deliveredFiles?.length
 					? `--- ASSIGNED READING ---\n${c.deliveredFiles.map((d) => mask(d.text, loaded, ctx, ws).trim()).join("\n\n")}\n`
