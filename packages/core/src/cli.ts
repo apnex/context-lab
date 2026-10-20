@@ -22,10 +22,10 @@
 //                                                  run a review prompt across model families and optionally cross-verify
 
 import fs from "node:fs";
-import { assertIdenticalArms, checkPack, codexAdapter, compare, conductRun, deriveThresholds, entryView, opencodeAdapter, pickRun, readTable, readThresholds, recordExperiment, recordExposure, recordThresholds, resolveSuite, resumeRun, runReview, runStatus, unrecordedResults, writeRunCandidates, type LoadedPack } from "./index.js";
+import { assertIdenticalArms, checkPack, codexAdapter, compare, conductRun, deriveThresholds, entryView, opencodeAdapter, pickRun, readTable, readThresholds, recordExperiment, recordExposure, recordThresholds, previewRun, resolveSuite, resumeRun, runReview, runStatus, unrecordedResults, writeRunCandidates, type LoadedPack } from "./index.js";
 
 const [cmd, packDir, arg, arg2] = process.argv.slice(2);
-const usage = "usage: context-lab check|record|status|suite|entries|expose|thresholds|compare|run|resume|pick|candidates|review <pack> [experiment|suite|scenario|comparison|run-dir] [change|run-dir] [--runs N] [--parallel P] [--work DIR] [--revision REV] [--prompt FILE] [--files PATH,...] [--out DIR] [--members ID,...] [--verify]";
+const usage = "usage: context-lab check|record|status|suite|entries|expose|thresholds|compare|run|resume|pick|candidates|review|preview <pack> [experiment|suite|scenario|comparison|run-dir] [change|run-dir] [--runs N] [--parallel P] [--work DIR] [--revision REV] [--prompt FILE] [--files PATH,...] [--out DIR] [--members ID,...] [--verify] [--response FILE]";
 import { runFlags } from "./cli-flags.js";
 const flag = (n: string): string | undefined => { const i = process.argv.indexOf(n); return i > 0 ? process.argv[i + 1] : undefined; };
 const comparisonOf = (l: LoadedPack, id: string) => { const c = (l.pack.comparisons ?? []).find((x) => x.id === id); if (!c) { console.error(`no comparison ${id} in pack ${l.pack.id}`); process.exit(2); } return c; };
@@ -106,6 +106,18 @@ switch (cmd) {
 			...(withoutArm !== undefined ? { withoutArm } : {}),
 		});
 		console.log(`picked ${picks.answers.length} item(s) (${picks.complete ? "complete" : "incomplete"})`);
+		break;
+	}
+	case "preview": {
+		const outDir = need(flag("--out"));
+		const responseFile = flag("--response"), members = flag("--members"), revision = flag("--revision");
+		const p = await previewRun(packDir ?? "", need(arg), {
+			adapters: { opencode: opencodeAdapter(), codex: codexAdapter() }, out: outDir,
+			...(responseFile !== undefined ? { response: fs.readFileSync(responseFile, "utf8") } : {}),
+			...(members !== undefined ? { members: members.split(",").filter(Boolean) } : {}),
+			...(revision !== undefined ? { revision } : {}),
+		});
+		console.log(`preview ${p.suite ?? p.experiment}: ${p.readers.length} reader invocation(s), ${p.judges.length} judge job(s), nothing invoked; written to ${outDir}`);
 		break;
 	}
 	case "candidates": {

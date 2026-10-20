@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
 import {
-	CODEX_FEATURES_OFF, Refused, codexAdapter, externalAdapter, opencodeAdapter,
+	ATTACHMENT_WRAPPER, CODEX_FEATURES_OFF, EMPTY_ARM, Refused, codexAdapter, externalAdapter, opencodeAdapter,
 	type Adapter, type ComposedArm, type DeliveryMode, type Invocation, type Member, type Outcome,
 } from "../src/index.js";
 import { packageRoot, scratch } from "./helpers.js";
@@ -418,4 +418,58 @@ test("runtime-sandbox: node is bound on PATH inside the sandbox without leaking 
 	await cx.invoke(invocation(e2, "codex", { tools: "on", sockets: true }));
 	const tomlSockets = fs.readFileSync(path.join(e2.work, "codex-home", "config.toml"), "utf8");
 	assert.match(tomlSockets, /\[sandbox_workspace_write\]\nnetwork_access = true/);
+});
+
+// B20: prepare renders what invoke runs. A live invocation goes through the stub, which records the
+// arguments, environment and stdin it was given; the same invocation is prepared in another folder;
+// the two must agree but for that folder's path, a credential's value, and an empty workspace's name.
+for (const kind of ["opencode", "codex"] as const) for (const role of ["reader", "judge"] as const) {
+	test(`${kind}: prepare renders the ${role} invocation invoke runs, and reads no credential (B20)`, async () => {
+		const e = setup();
+		const a = adapterFor(kind, e, { stream: path.join(STREAMS, kind === "codex" ? "codex-inflight-model.synthetic.jsonl" : "opencode-notext.synthetic.jsonl") });
+		const judge = role === "judge";
+		const over: Partial<Invocation> = judge ? { tools: "off", arm: EMPTY_ARM, mode: kind === "opencode" ? "attachment" : "stdin", prompt: "Score these.\nLine two." } : {};
+		await a.invoke(invocation(e, kind, over));
+		const cwd = judge && kind === "codex" ? path.join(e.work, fs.readdirSync(e.work).find((d) => d.startsWith("empty-"))!) : e.workspace;
+		const live = readRecord(cwd);
+		const work2 = path.join(e.dir, "work2");
+		const pv = a.prepare!(invocation(e, kind, { ...over, work: work2 }));
+		const norm = (t: string): string => t.split(work2).join("<WORK>").split(e.work).join("<WORK>").replace(/empty-[A-Za-z0-9]{6}/g, "empty-*");
+		assert.deepEqual(pv.command.slice(1).map(norm), live.argv.map(norm), "arguments differ");
+		const shell = new Set(["SHLVL", "_", "OLDPWD"]);
+		const liveEnv = Object.fromEntries([...live.env].filter(([k]) => !shell.has(k)).map(([k, v]) => [k, v === KEY ? "<credential: CL_TEST_KEY>" : norm(v)]));
+		assert.deepEqual(Object.fromEntries(Object.entries(pv.env).map(([k, v]) => [k, norm(v)])), liveEnv, "environment differs");
+		assert.equal(pv.stdin ?? "", live.stdin, "stdin differs");
+		// Every file prepare lists, but a credential, is the file invoke left in its folder.
+		for (const f of pv.files) {
+			if (f.text === null) continue;
+			const livePath = f.path.split(work2).join(e.work);
+			assert.equal(norm(f.text), norm(fs.readFileSync(livePath, "utf8")), `${path.relative(work2, f.path)} differs`);
+		}
+		assert.equal(pv.prompt.wrapper, judge && kind === "opencode" ? ATTACHMENT_WRAPPER : null);
+		if (judge && kind === "opencode") assert.ok(live.argv.includes(ATTACHMENT_WRAPPER));
+		// Nothing ran, and no credential was read or written.
+		assert.equal(fs.existsSync(path.join(work2, "events.jsonl")), false, "prepare ran the runtime");
+		assert.equal(fs.existsSync(path.join(work2, "codex-home", "auth.json")), false, "prepare copied the login");
+		assert.equal(fs.existsSync(path.join(work2, "cache", "opencode")), false, "prepare copied the cache");
+		for (const t of [JSON.stringify(pv), ...pv.files.filter((f) => f.text !== null).map((f) => f.text!)]) {
+			assert.equal(t.includes(KEY), false, "a provider key was rendered");
+			assert.equal(t.includes(AUTH_TOKEN), false, "a login token was rendered");
+		}
+		assert.ok(pv.notRendered.length > 0 && pv.outsideControl.length > 0);
+	});
+}
+
+test("opencode: prepare redacts a key or header written literally in the operator's provider block, and says so (B20)", () => {
+	const e = setup();
+	const literal = "cl-test-literal-key-9876543210", header = "Bearer cl-test-literal-header-abcdef";
+	const config = path.join(e.dir, "literal.json");
+	fs.writeFileSync(config, JSON.stringify({ provider: { test: { options: { apiKey: literal, headers: { Authorization: header }, baseURL: "http://x.invalid/v1" }, models: { m: { name: "m" } } } } }));
+	const a = opencodeAdapter({ binary: opencodeStub(path.join(e.dir, "stub"), {}), operatorConfig: config, operatorCache: path.join(e.dir, "none"), env: { ...process.env } });
+	const pv = a.prepare!(invocation(e, "opencode"));
+	const cfg = pv.files.find((f) => f.path.endsWith("opencode.json"))!.text!;
+	assert.equal(cfg.includes(literal) || cfg.includes(header) || JSON.stringify(pv).includes(literal) || JSON.stringify(pv).includes(header), false, "a literal credential was rendered");
+	const opts = JSON.parse(cfg).provider.test.options;
+	assert.deepEqual([opts.apiKey, opts.headers.Authorization, opts.baseURL], ["<credential redacted>", "<header redacted>", "http://x.invalid/v1"]);
+	assert.ok(pv.notRendered.some((n) => /written literally in the operator's provider block/.test(n)));
 });

@@ -149,6 +149,11 @@ function fillSlots(text: string, traps: TrapAssignment[]): string {
 	return text.replace(/\{SLOT:([^}]+)\}/g, (_, slot: string) => traps.filter((t) => t.position === slot).map((t) => t.text).join(" "));
 }
 
+/** The invocation of one reader phase: tools on, the adapter's first delivery mode, continuing a session where the phase does. */
+export function readerInvocation(arm: ComposedArm, member: Member, adapter: Pick<Adapter, "modes">, prompt: string, workspace: string, work: string, timeLimitSeconds: number, continueFrom?: Invocation["continueFrom"]): Invocation {
+	return { arm, workspace, prompt, mode: adapter.modes[0]!, member, tools: "on", timeLimitSeconds, work, ...(continueFrom !== undefined ? { continueFrom } : {}) };
+}
+
 export function phasePrompt(experiment: Experiment, scenario: Scenario, phase: ScenarioPhase, first: boolean, arm: ComposedArm, workspace: string, note: string | null, traps: TrapAssignment[]): string {
 	let task = fillSlots(first ? scenario.task : phase.task ?? "", traps);
 	if (note !== null) task = task.includes("{NOTE}") ? task.split("{NOTE}").join(note) : `${task}\n\n${note}`;
@@ -257,10 +262,8 @@ export async function runEpisode(r: EpisodeRun): Promise<EpisodeResult> {
 			}
 		}
 		rec.prompt = phasePrompt(r.experiment, r.scenario, ph, i === 0, r.arm, rec.workspace, rec.note, rec.traps);
-		const invocation: Invocation = {
-			arm: r.arm, workspace: rec.workspace, prompt: rec.prompt, mode: r.adapter.modes[0]!, member: r.member, tools: "on", timeLimitSeconds: r.timeLimitSeconds, work: inv,
-			...(ph.session === "continue" ? { continueFrom: { session: prev!.outcome?.session ?? "", work: prev!.invocation, workspace: prev!.workspace } } : {}),
-		};
+		const invocation = readerInvocation(r.arm, r.member, r.adapter, rec.prompt, rec.workspace, inv, r.timeLimitSeconds,
+			ph.session === "continue" ? { session: prev!.outcome?.session ?? "", work: prev!.invocation, workspace: prev!.workspace } : undefined);
 		const why = ph.session === "continue" && !prev!.outcome?.session ? "the phase it continues returned no session" : r.adapter.refuse(invocation);
 		if (why !== null) {
 			rec.status = "incomplete";

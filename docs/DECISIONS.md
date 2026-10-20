@@ -56,6 +56,7 @@ They are not copied here; this register starts at the vision.
 | 0034 | 2026-10-18 | `compare` refuses an A/A threshold set derived on other members, scenarios or judges than the run it judges, and threshold sets record their judges; `check` names every experiment that declares `result` but would run as exploration. | director | ratified | amends 0019 |
 | 0035 | 2026-10-20 | No path or prompt given to an agent, probe or judge names the run, the experiment, an arm or a variant: the comprehension judge prompt's opening line drops the records folder, each run's work folder is named `run-` and six random characters, variant and probe folders are named by a hash of their label, and a variant's manifest is written beside its folder. | director | ratified | amends 0016 |
 | 0036 | 2026-10-20 | Answer extraction is recorded per answer property, with overlapping findings, in cell records; absent answers carry their findings, records made before it read as unknown, and the result lists present answers extraction flagged. | director | ratified | - |
+| 0037 | 2026-10-20 | `context-lab preview` renders a run's reader invocations and judge prompts without contacting a runtime or reading a credential, through the preparation and prompt functions a run uses. | director | ratified | - |
 
 ---
 
@@ -574,3 +575,21 @@ AGP's acceptance rule scores zero only an established absence from an eligible c
 
 **Source.**\
 `[V, director selection 2026-10-20 ("continue"); AGP request incoming/agp-browser-scale-compatibility-request.md section 3]`
+
+### 0037
+
+**Ruling.**\
+`context-lab preview <pack> <experiment|suite> --out DIR` renders what a run would hand its readers and judges, contacting no runtime and reading no credential: each reader invocation of run 1, each judge job's first prompt and a retry prompt, and the extraction and masking of a sample response, with UTF-8 bytes at each step, into `PREVIEW.json`, `PREVIEW.md` and each invocation's files.\
+To share live preparation rather than copy it, each adapter's invocation is split into a preparation, which `invoke` and the new `prepare` both call, and a run; and the reader invocation, judge job planning, judge prompts and invocation, and a phase's cut text are each one exported function, called by `run`, `resume` and `preview`.\
+In preparation for a preview, credentials are named, never valued; the runtime cache, the login and a continued session's store are not copied, and are listed as not rendered.
+
+**Why.**\
+No operation showed an assembled prompt without a model call (`B20`); AGP requires one before it builds its pack.
+
+**Evidence.**\
+`packages/core/test/adapters.test.ts` runs each runtime's reader and judge invocation live through the stub runtime and prepares the same invocation in another folder; arguments, environment, stdin and files agree but for the folder's path and a credential's value, which the preview names as a placeholder, and no credential, login or cache is read or copied; making the preview differ from the live preparation in either runtime fails it.\
+`packages/core/test/preview.test.ts` runs an experiment with scripted runtimes, then previews it with the same response and seed through runtimes that fail if invoked; the reader prompts and invocations, the extraction, the units, and each judge job's first prompt and the run's own retry are the preview's; dropping the guess options, ignoring the seed or recording the wrong attempt fails it.\
+A preview of mission-kit's `explain` suite with the operator's real adapters wrote no file holding the provider key's value.
+
+**Source.**\
+`[V, director selection 2026-10-20 ("continue"); AGP request incoming/agp-browser-scale-compatibility-request.md section 2]`

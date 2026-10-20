@@ -15,7 +15,7 @@ import { scrub, type Outcome } from "./outcome.js";
 import { parseCodex } from "./parse-codex.js";
 import { parseOpencode } from "./parse-opencode.js";
 import type { Member } from "./pack-schema.js";
-import { runSandboxed, type SandboxResult } from "./runtime-sandbox.js";
+import { runSandboxed, type SandboxResult, type SandboxSpec } from "./runtime-sandbox.js";
 
 export type DeliveryMode = "inline" | "attachment" | "stdin" | "file-pointer";
 
@@ -56,6 +56,12 @@ export interface Adapter {
 	refuse(inv: Invocation): string | null;
 	invoke(inv: Invocation): Promise<Outcome>;
 	/**
+	 * Prepares an invocation as invoke would - the same files written into inv.work, the same command,
+	 * environment and mounts - without running the runtime, reading a credential or copying the
+	 * runtime's cache (B20). What it could not render is listed, never filled in.
+	 */
+	prepare?(inv: Invocation): PreparedInvocation;
+	/**
 	 * How a member's requests reach its model - the client package, endpoint and model settings the
 	 * runtime is given - for the run record, so two runs that reached a model differently are not
 	 * compared as alike. Credentials and headers are left out.
@@ -64,6 +70,39 @@ export interface Adapter {
 }
 
 export class Refused extends Error {}
+
+/** A file an invocation writes for its runtime to read. */
+export interface PreparedFile {
+	/** Its path, under the invocation's folder. */
+	path: string;
+	/** What it is for the runtime. */
+	role: string;
+	/** UTF-8 bytes, and the text; text is null where the file holds a credential and is not rendered. */
+	bytes: number | null;
+	text: string | null;
+}
+
+/** What an invocation hands its runtime, as invoke would, rendered without running it (B20). */
+export interface PreparedInvocation {
+	runtime: string;
+	/** The command, binary first, as the sandbox runs it. */
+	command: string[];
+	/** The environment; a credential's value is replaced by `<credential: NAME>`. */
+	env: Record<string, string>;
+	stdin: string | null;
+	cwd: string;
+	/** What the sandbox mounts: the runtime's installation read-only, these read-write, these read-only. */
+	mounts: { install: string; writable: string[]; readOnly: string[] };
+	/** The prompt, how it is delivered, and the fixed text sent beside it, if any. */
+	prompt: { text: string; delivery: DeliveryMode; wrapper: string | null; bytes: number };
+	files: PreparedFile[];
+	/** What a live invocation adds that this rendering does not: copies of credentials and caches, a continued session. */
+	notRendered: string[];
+	/** Context the runtime itself adds, which context-lab neither controls nor sees. */
+	outsideControl: string[];
+}
+
+const fileOf = (p: string, role: string): PreparedFile => { const text = fs.readFileSync(p, "utf8"); return { path: p, role, bytes: Buffer.byteLength(text, "utf8"), text }; };
 
 function readVersion(binary: string): string | null {
 	try {
@@ -143,6 +182,20 @@ export interface OpencodeOptions {
 	env?: NodeJS.ProcessEnv;
 }
 
+/** The text an opencode invocation sends beside a prompt delivered as an attached file. */
+export const ATTACHMENT_WRAPPER = "Read the attached file and follow it exactly.";
+
+/** The provider block with any key or header that is not an environment reference replaced, for a rendering that must not show a secret. */
+function redactProvider(block: Record<string, unknown>): Record<string, unknown> {
+	const walk = (v: unknown, key: string): unknown => {
+		if (typeof v === "string") return /^(apiKey|key|token|authorization)$/i.test(key) && !/^\{env:[A-Za-z_][A-Za-z0-9_]*\}$/.test(v) ? "<credential redacted>" : v;
+		if (Array.isArray(v)) return v.map((x) => walk(x, key));
+		if (typeof v === "object" && v !== null) return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, k.toLowerCase() === "headers" ? Object.fromEntries(Object.keys(x as object).map((h) => [h, "<header redacted>"])) : walk(x, k)]));
+		return v;
+	};
+	return walk(block, "") as Record<string, unknown>;
+}
+
 const OPENCODE_TOOLS = ["bash", "edit", "write", "read", "glob", "grep", "list", "patch", "webfetch", "websearch", "codesearch", "task", "todowrite", "todoread", "skill", "question", "lsp"];
 const sandboxPath = (): string => {
 	const dir = path.dirname(fs.realpathSync(process.execPath));
@@ -212,49 +265,82 @@ export function opencodeAdapter(opts: OpencodeOptions = {}): Adapter {
 			return null;
 		},
 		async invoke(inv) {
-			const { home, instr } = prepare(inv, adapter);
-			const p = provider();
-			const xdg = path.join(inv.work, "config");
-			for (const d of ["config/opencode", "data", "state", "cache"]) fs.mkdirSync(path.join(inv.work, d), { recursive: true });
-			if (inv.continueFrom) fs.cpSync(path.join(inv.continueFrom.work, "data"), path.join(inv.work, "data"), { recursive: true });
-			if (fs.existsSync(operatorCache)) fs.cpSync(operatorCache, path.join(inv.work, "cache", "opencode"), { recursive: true });
-			const onRequest = inv.tools === "off" ? [] : inv.arm.onRequest.map((o) => o.path);
-			const permission = inv.tools === "off"
-				? Object.fromEntries(["edit", "bash", "read", "webfetch", "websearch", "task", "glob", "grep", "list", "external_directory"].map((k) => [k, "deny"]))
-				: { edit: "allow", bash: "allow", read: "allow", webfetch: "deny", websearch: "deny", task: "deny", external_directory: onRequest.length ? Object.fromEntries([["*", "deny"], ...onRequest.map((o) => [`${o}/**`, "allow"])]) : "deny" };
-			const config: Record<string, unknown> = { provider: p.block, plugin: [], permission, instructions: copyInstructions(inv.arm, instr).map((f) => f.path) };
-			if (inv.tools === "off") config["tools"] = Object.fromEntries(OPENCODE_TOOLS.map((t) => [t, false]));
-			if (inv.member.settings?.["reasoningEffort"] !== undefined) config["variant"] = inv.member.settings["reasoningEffort"];
-			fs.writeFileSync(path.join(xdg, "opencode", "opencode.json"), JSON.stringify(config, null, 2));
-			const binary = opts.binary ?? which("opencode", env);
-			const args = ["run", "--format", "json", "-m", inv.member.model, ...(inv.continueFrom ? ["-s", inv.continueFrom.session] : [])];
-			if (inv.mode === "attachment") {
-				const f = path.join(inv.work, "prompt.md");
-				fs.writeFileSync(f, inv.prompt);
-				args.push("--file", f, "--", "Read the attached file and follow it exactly.");
-			} else args.push("--", inv.prompt);
-			const secrets = p.credentialVars.map((v) => env[v] ?? "").filter(Boolean);
-			const runEnv: Record<string, string> = {
-				PATH: sandboxPath(), PWD: inv.workspace, HOME: home,
-				XDG_CONFIG_HOME: xdg, XDG_DATA_HOME: path.join(inv.work, "data"), XDG_STATE_HOME: path.join(inv.work, "state"), XDG_CACHE_HOME: path.join(inv.work, "cache"),
-				OPENCODE_DISABLE_CLAUDE_CODE: "1",
-			};
-			for (const v of p.credentialVars) if (env[v] !== undefined) runEnv[v] = env[v]!;
-			// opencode caps every reply at 32,000 tokens, or at this, whichever is lower than the model's own
-			// limit.output; the cap is declared by the member in the pack, never read from the operator's shell.
-			if (inv.member.settings?.["outputTokenMax"] !== undefined) runEnv["OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX"] = String(inv.member.settings["outputTokenMax"]);
-			const r = await runSandboxed({ install: binary, writable: [inv.work, inv.workspace], readOnly: onRequest, home, cwd: inv.workspace, command: [binary, ...args], env: runEnv, stdin: null, timeLimitSeconds: inv.timeLimitSeconds });
+			const b = build(inv, true);
+			const r = await runSandboxed(b.spec);
 			// opencode installs packages into its configuration folder and the home's npm cache on every
 			// invocation, and the cache copy is about 150 MB: none is part of any record, so all go as
 			// soon as the runtime ends, leaving the configuration file.
 			fs.rmSync(path.join(inv.work, "cache"), { recursive: true, force: true });
-			fs.rmSync(home, { recursive: true, force: true });
-			for (const f of fs.readdirSync(path.join(xdg, "opencode"))) if (f !== "opencode.json") fs.rmSync(path.join(xdg, "opencode", f), { recursive: true, force: true });
+			fs.rmSync(b.home, { recursive: true, force: true });
+			for (const f of fs.readdirSync(path.join(b.xdg, "opencode"))) if (f !== "opencode.json") fs.rmSync(path.join(b.xdg, "opencode", f), { recursive: true, force: true });
 			removeLogins(path.join(inv.work, "data"));
-			const events = writeEvents(inv, r, secrets);
-			return scrubOutcome(parseOpencode(r.lines, { workspace: inv.workspace, home, exit: r.exit, signal: r.signal, timedOut: r.timedOut, seconds: r.seconds, events }), secrets);
+			const events = writeEvents(inv, r, b.secrets);
+			return scrubOutcome(parseOpencode(r.lines, { workspace: inv.workspace, home: b.home, exit: r.exit, signal: r.signal, timedOut: r.timedOut, seconds: r.seconds, events }), b.secrets);
+		},
+		prepare(inv) {
+			const b = build(inv, false);
+			const files: PreparedFile[] = [fileOf(path.join(b.xdg, "opencode", "opencode.json"), "opencode configuration: provider, permissions, tools and the instruction files it lists")];
+			for (const f of b.instructions) files.push(fileOf(f.path, `instruction file ${f.name}, listed in the configuration`));
+			if (inv.mode === "attachment") files.push(fileOf(path.join(inv.work, "prompt.md"), "the prompt, attached to the message"));
+			return {
+				runtime: "opencode", command: b.spec.command, env: b.shownEnv, stdin: b.spec.stdin, cwd: b.spec.cwd,
+				mounts: { install: b.spec.install, writable: b.spec.writable, readOnly: b.spec.readOnly },
+				prompt: { text: inv.prompt, delivery: inv.mode, wrapper: inv.mode === "attachment" ? ATTACHMENT_WRAPPER : null, bytes: Buffer.byteLength(inv.prompt, "utf8") },
+				files,
+				notRendered: [
+					"the operator's opencode cache, copied into cache/opencode before a live invocation: packages and model metadata, no prompt text",
+					...b.credentialVars.map((v) => `the value of ${v}, a credential, passed in the environment`),
+					...(b.redacted ? ["a key or header written literally in the operator's provider block, written in the live configuration and redacted here"] : []),
+					...(inv.continueFrom ? [`the session store of the invocation continued (${inv.continueFrom.work}/data), copied into data/`] : []),
+				],
+				outsideControl: [
+					"opencode's own system prompt and tool descriptions, which include an environment block naming the working directory",
+					"anything the model provider adds before the model",
+				],
+			};
 		},
 	};
+	/** Everything invoke does before the runtime runs; live, it also copies the cache and a continued session, and reads credential values. */
+	function build(inv: Invocation, live: boolean) {
+		const { home, instr } = prepare(inv, adapter);
+		const p = provider();
+		const xdg = path.join(inv.work, "config");
+		for (const d of ["config/opencode", "data", "state", "cache"]) fs.mkdirSync(path.join(inv.work, d), { recursive: true });
+		if (live && inv.continueFrom) fs.cpSync(path.join(inv.continueFrom.work, "data"), path.join(inv.work, "data"), { recursive: true });
+		if (live && fs.existsSync(operatorCache)) fs.cpSync(operatorCache, path.join(inv.work, "cache", "opencode"), { recursive: true });
+		const onRequest = inv.tools === "off" ? [] : inv.arm.onRequest.map((o) => o.path);
+		const permission = inv.tools === "off"
+			? Object.fromEntries(["edit", "bash", "read", "webfetch", "websearch", "task", "glob", "grep", "list", "external_directory"].map((k) => [k, "deny"]))
+			: { edit: "allow", bash: "allow", read: "allow", webfetch: "deny", websearch: "deny", task: "deny", external_directory: onRequest.length ? Object.fromEntries([["*", "deny"], ...onRequest.map((o) => [`${o}/**`, "allow"])]) : "deny" };
+		const instructions = copyInstructions(inv.arm, instr);
+		const config: Record<string, unknown> = { provider: live ? p.block : redactProvider(p.block), plugin: [], permission, instructions: instructions.map((f) => f.path) };
+		if (inv.tools === "off") config["tools"] = Object.fromEntries(OPENCODE_TOOLS.map((t) => [t, false]));
+		if (inv.member.settings?.["reasoningEffort"] !== undefined) config["variant"] = inv.member.settings["reasoningEffort"];
+		fs.writeFileSync(path.join(xdg, "opencode", "opencode.json"), JSON.stringify(config, null, 2));
+		const binary = opts.binary ?? which("opencode", env);
+		const args = ["run", "--format", "json", "-m", inv.member.model, ...(inv.continueFrom ? ["-s", inv.continueFrom.session] : [])];
+		if (inv.mode === "attachment") {
+			const f = path.join(inv.work, "prompt.md");
+			fs.writeFileSync(f, inv.prompt);
+			args.push("--file", f, "--", ATTACHMENT_WRAPPER);
+		} else args.push("--", inv.prompt);
+		const secrets = live ? p.credentialVars.map((v) => env[v] ?? "").filter(Boolean) : [];
+		const runEnv: Record<string, string> = {
+			PATH: sandboxPath(), PWD: inv.workspace, HOME: home,
+			XDG_CONFIG_HOME: xdg, XDG_DATA_HOME: path.join(inv.work, "data"), XDG_STATE_HOME: path.join(inv.work, "state"), XDG_CACHE_HOME: path.join(inv.work, "cache"),
+			OPENCODE_DISABLE_CLAUDE_CODE: "1",
+		};
+		const shownEnv: Record<string, string> = { ...runEnv };
+		for (const v of p.credentialVars) {
+			if (live && env[v] !== undefined) runEnv[v] = env[v]!;
+			if (env[v] !== undefined) shownEnv[v] = `<credential: ${v}>`;
+		}
+		// opencode caps every reply at 32,000 tokens, or at this, whichever is lower than the model's own
+		// limit.output; the cap is declared by the member in the pack, never read from the operator's shell.
+		if (inv.member.settings?.["outputTokenMax"] !== undefined) runEnv["OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX"] = shownEnv["OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX"] = String(inv.member.settings["outputTokenMax"]);
+		const spec: SandboxSpec = { install: binary, writable: [inv.work, inv.workspace], readOnly: onRequest, home, cwd: inv.workspace, command: [binary, ...args], env: runEnv, stdin: null, timeLimitSeconds: inv.timeLimitSeconds };
+		return { spec, home, xdg, secrets, shownEnv, instructions, credentialVars: p.credentialVars, redacted: JSON.stringify(redactProvider(p.block)) !== JSON.stringify(p.block) };
+	}
 	return adapter;
 }
 
@@ -330,53 +416,81 @@ export function codexAdapter(opts: CodexOptions = {}): Adapter {
 			return null;
 		},
 		async invoke(inv) {
-			const { home, instr } = prepare(inv, adapter);
-			const codexHome = path.join(inv.work, "codex-home");
-			fs.mkdirSync(codexHome);
-			fs.copyFileSync(auth, path.join(codexHome, "auth.json"));
-			fs.chmodSync(path.join(codexHome, "auth.json"), 0o600);
-			// The instructions go only into config.toml, which Codex itself must read; no second copy is made.
-			fs.rmdirSync(instr);
-			const nonCanary = inv.arm.instructions.filter((f) => path.basename(f.file) !== "context-lab-canary.md");
-			const canaryLines = [...new Set(inv.arm.instructions.filter((f) => path.basename(f.file) === "context-lab-canary.md").flatMap((f) => fs.readFileSync(f.path, "utf8").split("\n")).filter(Boolean))];
-			const devParts = nonCanary.map((f) => `<file name="${path.basename(f.file)}">\n${fs.readFileSync(f.path, "utf8")}</file>`);
-			if (canaryLines.length > 0) devParts.push(`<file name="context-lab-canary.md">\n${canaryLines.map((c) => `${c}\n`).join("")}</file>`);
-			const dev = devParts.join("\n\n");
-			if (inv.continueFrom) fs.cpSync(path.join(inv.continueFrom.work, "codex-home", "sessions"), path.join(codexHome, "sessions"), { recursive: true });
-			// No --ephemeral, so a session can be resumed; and the sandbox mode in configuration, since
-			// exec resume takes no --sandbox.
-			const lines = ['approval_policy = "never"', 'web_search = "disabled"', "project_doc_fallback_filenames = []", `sandbox_mode = ${toml(inv.tools === "off" ? "read-only" : "workspace-write")}`];
-			if (dev) lines.push(`developer_instructions = ${toml(dev)}`);
-			const effort = inv.member.settings?.["reasoningEffort"];
-			if (effort !== undefined) lines.push(`model_reasoning_effort = ${toml(String(effort))}`);
-			// Hosted tools reach the web outside the sandbox: a live check found Codex opening a page
-			// through its apps connector with web search disabled. Each is switched off by name.
-			lines.push("", "[features]", ...CODEX_FEATURES_OFF.map((f) => `${f} = false`));
-			if (inv.sockets && inv.tools === "on") {
-				lines.push("", "[sandbox_workspace_write]", "network_access = true");
-			}
-			fs.writeFileSync(path.join(codexHome, "config.toml"), lines.join("\n") + "\n");
-			const vendor = opts.vendor ?? codexVendor(env);
-			const binary = opts.binary ?? path.join(vendor, "bin", "codex");
-			const common = ["--json", "--skip-git-repo-check", "--strict-config", "--ignore-rules", "-m", inv.member.model];
-			// With tools off the agent's shell remains, so its workspace is an empty folder of its own.
-			const workspace = inv.tools === "off" ? fs.mkdtempSync(path.join(inv.work, "empty-")) : inv.workspace;
-			const args = inv.continueFrom
-				? ["exec", "resume", ...common, inv.continueFrom.session, inv.prompt]
-				: ["exec", ...common, "-C", workspace, inv.mode === "stdin" ? "-" : inv.prompt];
-			const secrets = authSecrets(auth);
-			const r = await runSandboxed({
-				install: vendor, writable: inv.tools === "off" ? [inv.work] : [inv.work, inv.workspace], readOnly: inv.tools === "off" ? [] : inv.arm.onRequest.map((o) => o.path), home, cwd: workspace,
-				command: [binary, ...args], env: { PATH: sandboxPath(), PWD: workspace, HOME: home, CODEX_HOME: codexHome }, stdin: inv.mode === "stdin" ? inv.prompt : null, timeLimitSeconds: inv.timeLimitSeconds,
-			});
+			const b = build(inv, true);
+			const r = await runSandboxed(b.spec);
 			// The login copy and Codex's own databases are removed, so no run record carries them.
-			fs.rmSync(path.join(codexHome, "auth.json"), { force: true });
-			fs.rmSync(home, { recursive: true, force: true });
-			for (const f of fs.readdirSync(codexHome)) if (/\.sqlite(-shm|-wal)?$/.test(f)) fs.rmSync(path.join(codexHome, f), { force: true });
-			const events = writeEvents(inv, r, secrets);
-			return scrubOutcome(parseCodex(r.lines, { workspace, home, exit: r.exit, signal: r.signal, timedOut: r.timedOut, seconds: r.seconds, events }), secrets);
+			fs.rmSync(path.join(b.codexHome, "auth.json"), { force: true });
+			fs.rmSync(b.home, { recursive: true, force: true });
+			for (const f of fs.readdirSync(b.codexHome)) if (/\.sqlite(-shm|-wal)?$/.test(f)) fs.rmSync(path.join(b.codexHome, f), { force: true });
+			const events = writeEvents(inv, r, b.secrets);
+			return scrubOutcome(parseCodex(r.lines, { workspace: b.workspace, home: b.home, exit: r.exit, signal: r.signal, timedOut: r.timedOut, seconds: r.seconds, events }), b.secrets);
+		},
+		prepare(inv) {
+			const b = build(inv, false);
+			return {
+				runtime: "codex", command: b.spec.command, env: b.spec.env, stdin: b.spec.stdin, cwd: b.spec.cwd,
+				mounts: { install: b.spec.install, writable: b.spec.writable, readOnly: b.spec.readOnly },
+				prompt: { text: inv.prompt, delivery: inv.mode, wrapper: null, bytes: Buffer.byteLength(inv.prompt, "utf8") },
+				files: [
+					fileOf(path.join(b.codexHome, "config.toml"), "Codex configuration: approval, sandbox, features off, and the instruction files as developer_instructions"),
+					{ path: path.join(b.codexHome, "auth.json"), role: "the operator's Codex login, copied before a live invocation; a credential, not rendered", bytes: null, text: null },
+				],
+				notRendered: [
+					"the operator's Codex login, copied into codex-home/auth.json before a live invocation",
+					...(inv.continueFrom ? [`the session files of the invocation continued (${inv.continueFrom.work}/codex-home/sessions), copied into codex-home/sessions`] : []),
+				],
+				outsideControl: [
+					"Codex's own base instructions and its environment context, which names the working directory",
+					"anything the model provider adds before the model",
+				],
+			};
 		},
 	};
+	/** Everything invoke does before the runtime runs; live, it also copies the login and a continued session, and reads the login's secrets to scrub. */
+	function build(inv: Invocation, live: boolean) {
+		const { home, instr } = prepare(inv, adapter);
+		const codexHome = path.join(inv.work, "codex-home");
+		fs.mkdirSync(codexHome);
+		if (live) {
+			fs.copyFileSync(auth, path.join(codexHome, "auth.json"));
+			fs.chmodSync(path.join(codexHome, "auth.json"), 0o600);
+		}
+		// The instructions go only into config.toml, which Codex itself must read; no second copy is made.
+		fs.rmdirSync(instr);
+		const nonCanary = inv.arm.instructions.filter((f) => path.basename(f.file) !== "context-lab-canary.md");
+		const canaryLines = [...new Set(inv.arm.instructions.filter((f) => path.basename(f.file) === "context-lab-canary.md").flatMap((f) => fs.readFileSync(f.path, "utf8").split("\n")).filter(Boolean))];
+		const devParts = nonCanary.map((f) => `<file name="${path.basename(f.file)}">\n${fs.readFileSync(f.path, "utf8")}</file>`);
+		if (canaryLines.length > 0) devParts.push(`<file name="context-lab-canary.md">\n${canaryLines.map((c) => `${c}\n`).join("")}</file>`);
+		const dev = devParts.join("\n\n");
+		if (live && inv.continueFrom) fs.cpSync(path.join(inv.continueFrom.work, "codex-home", "sessions"), path.join(codexHome, "sessions"), { recursive: true });
+		// No --ephemeral, so a session can be resumed; and the sandbox mode in configuration, since
+		// exec resume takes no --sandbox.
+		const lines = ['approval_policy = "never"', 'web_search = "disabled"', "project_doc_fallback_filenames = []", `sandbox_mode = ${toml(inv.tools === "off" ? "read-only" : "workspace-write")}`];
+		if (dev) lines.push(`developer_instructions = ${toml(dev)}`);
+		const effort = inv.member.settings?.["reasoningEffort"];
+		if (effort !== undefined) lines.push(`model_reasoning_effort = ${toml(String(effort))}`);
+		// Hosted tools reach the web outside the sandbox: a live check found Codex opening a page
+		// through its apps connector with web search disabled. Each is switched off by name.
+		lines.push("", "[features]", ...CODEX_FEATURES_OFF.map((f) => `${f} = false`));
+		if (inv.sockets && inv.tools === "on") {
+			lines.push("", "[sandbox_workspace_write]", "network_access = true");
+		}
+		fs.writeFileSync(path.join(codexHome, "config.toml"), lines.join("\n") + "\n");
+		const vendor = opts.vendor ?? codexVendor(env);
+		const binary = opts.binary ?? path.join(vendor, "bin", "codex");
+		const common = ["--json", "--skip-git-repo-check", "--strict-config", "--ignore-rules", "-m", inv.member.model];
+		// With tools off the agent's shell remains, so its workspace is an empty folder of its own.
+		const workspace = inv.tools === "off" ? fs.mkdtempSync(path.join(inv.work, "empty-")) : inv.workspace;
+		const args = inv.continueFrom
+			? ["exec", "resume", ...common, inv.continueFrom.session, inv.prompt]
+			: ["exec", ...common, "-C", workspace, inv.mode === "stdin" ? "-" : inv.prompt];
+		const secrets = live ? authSecrets(auth) : [];
+		const spec: SandboxSpec = {
+			install: vendor, writable: inv.tools === "off" ? [inv.work] : [inv.work, inv.workspace], readOnly: inv.tools === "off" ? [] : inv.arm.onRequest.map((o) => o.path), home, cwd: workspace,
+			command: [binary, ...args], env: { PATH: sandboxPath(), PWD: workspace, HOME: home, CODEX_HOME: codexHome }, stdin: inv.mode === "stdin" ? inv.prompt : null, timeLimitSeconds: inv.timeLimitSeconds,
+		};
+		return { spec, home, codexHome, workspace, secrets };
+	}
 	return adapter;
 }
 

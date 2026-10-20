@@ -200,9 +200,13 @@ async function pool<T>(items: T[], n: number, fn: (t: T) => Promise<void>): Prom
 	await Promise.all(Array.from({ length: Math.max(1, n) }, async () => { while (q.length) await fn(q.shift()!); }));
 }
 
-export async function judgeAll(o: PanelOptions): Promise<Vote[]> {
+/** One judge's prompt over some units of one scenario and phase: its name, the units, and whether they are answers. */
+export interface JudgeJob { judge: Member; scenario: Scenario; units: Unit[]; name: string; answers: boolean }
+
+/** The jobs judgeAll runs: per judge, scenario, phase and kind, the units assigned to that judge, shuffled by the seed and cut into prompts of outcomesPerPrompt. */
+export function planJudgeJobs(o: Pick<PanelOptions, "experiment" | "scenarios" | "units" | "judges" | "seed">): JudgeJob[] {
 	const per = o.experiment.judging?.outcomesPerPrompt ?? 6;
-	const jobs: { judge: Member; scenario: Scenario; units: Unit[]; name: string; answers: boolean }[] = [];
+	const jobs: JudgeJob[] = [];
 	for (const judge of o.judges) {
 		for (const [sid, scenario] of o.scenarios) {
 			const mine = o.units.filter((u) => u.scenario === sid && assignJudges(u, o.judges).some((j) => j.id === judge.id));
@@ -215,6 +219,28 @@ export async function judgeAll(o: PanelOptions): Promise<Vote[]> {
 			}
 		}
 	}
+	return jobs;
+}
+
+/** How a judge's prompt reaches its runtime: on stdin where it can, else as an attached file, else its first mode. */
+export const judgeMode = (adapter: Pick<Adapter, "modes">): DeliveryMode => (adapter.modes.includes("stdin") ? "stdin" : adapter.modes.includes("attachment") ? "attachment" : adapter.modes[0]!);
+
+/**
+ * The prompt for a job's pending units, and the label each unit has in it. The first attempt's
+ * pending units are all the job's; a retry's are those without a valid vote yet, so a retry is the
+ * same prompt over fewer units, relabelled from a1 or o1.
+ */
+export function judgePrompt(experiment: Experiment, job: Pick<JudgeJob, "scenario" | "answers">, pending: Unit[], guessOptions: string[]): { text: string; local: Map<string, Unit> } {
+	return job.answers ? answerPrompt(experiment, job.scenario, pending) : outcomePrompt(experiment, job.scenario, pending, guessOptions);
+}
+
+/** The invocation of one judge attempt: tools off, the empty arm, the prompt in the judge's mode. */
+export const judgeInvocation = (judge: Member, adapter: Pick<Adapter, "modes">, prompt: string, workspace: string, work: string, timeLimitSeconds: number): Invocation => (
+	{ arm: EMPTY_ARM, workspace, prompt, mode: judgeMode(adapter), member: judge, tools: "off", timeLimitSeconds, work }
+);
+
+export async function judgeAll(o: PanelOptions): Promise<Vote[]> {
+	const jobs = planJudgeJobs(o);
 	const votes: Vote[] = [];
 	fs.mkdirSync(path.join(o.recordsDir, "judging"), { recursive: true });
 	await pool(jobs, o.parallel, async (job) => {
@@ -223,17 +249,16 @@ export async function judgeAll(o: PanelOptions): Promise<Vote[]> {
 		try {
 			const adapter = o.adapters[job.judge.runtime];
 			if (!adapter) throw new Error(`no adapter for judge runtime ${job.judge.runtime}`);
-			const mode: DeliveryMode = adapter.modes.includes("stdin") ? "stdin" : adapter.modes.includes("attachment") ? "attachment" : adapter.modes[0]!;
 			for (let attempt = 1; attempt <= 3; attempt++) {
 				const pending = job.units.filter((u) => !got.some((v) => v.unit === u.id));
 				if (!pending.length) break;
-				const { text, local } = job.answers ? answerPrompt(o.experiment, job.scenario, pending) : outcomePrompt(o.experiment, job.scenario, pending, o.guessOptions);
+				const { text, local } = judgePrompt(o.experiment, job, pending, o.guessOptions);
 				if (attempt === 1) record.prompt = text;
 				const ws = createWorkspace(o.loaded, { id: "judge", tags: [], fixture: null, task: "", properties: [] }, EMPTY_ARM, { base: path.join(o.work, "judging", "workspaces"), rulesFiles: adapter.rulesFiles });
 				fs.mkdirSync(path.join(o.work, "judging", "invocations"), { recursive: true });
 				const inv = fs.mkdtempSync(path.join(o.work, "judging", "invocations", "j-"));
 				fs.rmdirSync(inv);
-				const invocation: Invocation = { arm: EMPTY_ARM, workspace: ws.dir, prompt: text, mode, member: job.judge, tools: "off", timeLimitSeconds: o.timeLimitSeconds, work: inv };
+				const invocation = judgeInvocation(job.judge, adapter, text, ws.dir, inv, o.timeLimitSeconds);
 				const localMap = Object.fromEntries([...local.entries()].map(([k, u]) => [k, u.id]));
 				const entry: JudgeReplyRecord = {
 					attempt, prompt: text, local: localMap, work: inv,

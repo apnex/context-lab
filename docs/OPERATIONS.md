@@ -1,6 +1,6 @@
 # context-lab Operations and Pack Authoring Guide
 
-Consumer reference for onboarding a project onto `context-lab` (`schema: "context-lab.pack/1"`), authoring packs, and operating all 13 CLI commands without reading `context-lab`'s implementation.
+Consumer reference for onboarding a project onto `context-lab` (`schema: "context-lab.pack/1"`), authoring packs, and operating all 14 CLI commands without reading `context-lab`'s implementation.
 
 ---
 
@@ -37,6 +37,7 @@ Every command takes `<pack>` (the path to the directory containing `pack.json`) 
 | `thresholds` | `context-lab thresholds <pack> <comparison> <aa-run-dir>` | Checks that the two arms of `<comparison>` delivered identical context in `<aa-run-dir>` (`assertIdenticalArms`), derives the two-stage A/A noise thresholds (size-3 and size-9 per-property and pooled thresholds, two-stage false-positive rate, and drift rate), and appends them to `<pack>/register/thresholds/<comparison>.jsonl`, with the members and scenarios of its pools and the A/A run's judges. |
 | `compare` | `context-lab compare <pack> <comparison> <base-run-dir> [--head DIR] [--runs K] [--nine DIR] [--nine-head DIR] [--out FILE]` | Compares `<comparison>`'s `base` and `head` arms using the rule declared on `<comparison>` (`"aa"`, `"tolerance"`, or `"improve"`). Reads the latest recorded threshold set from `<pack>/register/thresholds/<comparison>.jsonl` when present. If `--head` is omitted, reads both `base` and `head` arms from `<base-run-dir>`. `--runs K` limits the comparison to the first `K` cell runs (`run <= K`) of each arm. When `--nine` (and optional `--nine-head`) is given under `rule: "aa"`, runs stage-2 size-9 confirmation on properties flagged at stage 1. Under `rule: "aa"`, refuses a threshold set derived on other members, scenarios or judges than the base run's, since its noise was measured for another design. Prints the comparison JSON and writes it to `--out` if given. |
 | `pick` | `context-lab pick <pack> <run-dir> [--mode calibration\|preference] [--count N] [--with ARM] [--without ARM]` | Runs the interactive human panel in the terminal on blinded outcome pairs from `<run-dir>`. Defaults to `--mode calibration` and `--count 12` when omitted (`calibration` checks judge-person agreement; `preference` compares `--with` against `--without`). Writes `<run-dir>/picks.json` and re-tallies `<run-dir>/RESULT.json` and `<run-dir>/RESULT.md`. |
+| `preview` | `context-lab preview <pack> <experiment\|suite> --out DIR [--response FILE] [--members ID,...] [--revision REV]` | Renders what a run would hand its readers and judges, contacting no runtime and reading no credential: every reader invocation of run 1, each judge job's first prompt and a retry prompt, and the extraction and masking of a sample response, with byte counts. Writes `DIR/PREVIEW.json`, `DIR/PREVIEW.md` and each invocation's files under `DIR/work/`. See section 5.1. |
 | `candidates` | `context-lab candidates <pack> <run-dir>` | Extracts candidate findings from `<run-dir>` (adherence failing in every guided arm, wrong firings, comprehension-without-adherence gaps, classify-then-verify chain findings meeting threshold, guidance entries agents did not open when only reachable on request, adherence missed by agents that did open the entry, and judges that alone differ in most splits) and writes `<run-dir>/CANDIDATES.json` and `<run-dir>/CANDIDATES.md`. |
 | `review` | `context-lab review <pack> --prompt <file> [--files <path,...>] --out <dir> [--members <id,...>] [--verify] [--parallel N] [--work <dir>] [--tools on\|off] [--sockets] [--mount-sources] [--ro <path,...>] [--timeout <seconds>]` | Orchestrates an on-demand multi-model review across model families. Selects one member per family from `<pack>`'s population by default (or the comma-separated `--members`), runs `<prompt>` (with optional comma-separated `--files` attached; when `--tools on` is passed, gives each reviewer a writable `{WORKSPACE}`, optionally enables socket creation in Codex's workspace-write sandbox via `--sockets`, mounts `<pack>`'s `sources` read-only via `--mount-sources` with `{SOURCES}` substituted in the prompt and extra read-only paths via `--ro`, and retains `<out>/workspaces/<member>/` and `<out>/events/<member>.jsonl`), extracts structured findings (mapping `"high"\|"critical"` to `"blocking"` and `"medium"\|"major"\|"material"` to `"should-fix"`), and when `--verify` is passed, sends each finding to every other family's reviewer for a boolean `supports: true\|false` verdict (recording `verdicts`, `supportingFamilies`, and `familyCount` on each finding). Writes `REVIEW.json` and `REVIEW.md` into `--out`. |
 
@@ -453,6 +454,39 @@ For each property with an `answerHeading` whose phase ran validly, `cells/<cell>
 
 Each isolation probe answer in `run.json` (`probes[].answers[]`) records `toolCalls` and `attempts`.\
 A probe answer counts only if its last attempt made no tool call; a retry after a tool call tells the agent that no file is mounted, so a read cannot help.
+
+### 5.1 Preview a run without model calls (`preview`)
+
+Render every prompt and invocation a run would make, before any model call:
+```sh
+context-lab preview evals/context-lab pilot --out preview/ --response sample-reply.md
+```
+
+`preview` builds the variants, composes the arms and creates the workspaces as `run` does, then:
+
+- **Readers**: for each cell of run 1 and each phase, the prompt - built by the same function a run uses - and the invocation, prepared by the runtime's adapter with the same code its live invocation uses. That covers the instruction files and canary, the configuration context-lab writes (opencode's `opencode.json`, Codex's `config.toml`), the command and its arguments, any wrapper text, the environment, and the sandbox's mounts.
+- **Extraction**: the sample response (`--response`, or a placeholder answering every answer heading) is given as every reader's reply, cut by `maxResponseBytes` and extracted as a run does, with UTF-8 bytes at each step and each answer's extraction record.
+- **Judges**: the units are blinded and masked, and the judge jobs planned, as a run does with the same seed (`seed` in `PREVIEW.json`). For each job: its first prompt, and a retry prompt over all but the first unit - the prompt a run sends after the first unit has a valid vote - each with its answer labels and prepared invocation.
+
+`PREVIEW.json` fields:
+
+| Field | Holds |
+|---|---|
+| `pack`, `experiment`, `suite`, `status` | What is previewed, and the status a run would carry now, with the registered hash |
+| `variants`, `arms` | Each variant's source and revision, and whether each arm composed |
+| `readers[]` | `cell`, `scenario`, `arm`, `member`, `phase`, `session`, `prompt`, `promptBytes`, `prepared`, `unrendered`, `generated` |
+| `answers[]` | `cell`, `property`, `bytes` (`response`, `stripped`, `bounded`, `answer`, `unit`), `extraction`, `unit` |
+| `judges[]` | `name`, `judge`, `scenario`, `units` (id, cell, properties), `first` and `retry` (`prompt`, `bytes`, `local`, `prepared`, `unrendered`) |
+| `generated`, `notRendered`, `unsupported` | What a run generates that differs here, what the preview does not reproduce, and members whose runtime cannot prepare |
+
+A `prepared` invocation holds `command`, `env`, `stdin`, `cwd`, `mounts`, `prompt` (`text`, `delivery`, `wrapper`, `bytes`), `files` (each `path`, `role`, `bytes`, `text`), `notRendered` and `outsideControl`.
+
+- **Credentials** are named, never valued: an environment credential shows as `<credential: NAME>`, a key written literally in the operator's provider block is redacted, and Codex's login file is listed with no text. No credential is read to render.
+- **Not rendered**: the runtime cache a live invocation copies, the login, a continued session's store, trap files and a later phase's copied workspace. A Codex phase that continues a session cannot be prepared before that session exists, and is listed with its reason under `unrendered`.
+- **Outside context-lab's control**: the runtime's own system prompt and tool descriptions, which name the working directory, and anything the provider adds.
+- **Generated at run time**: the work folder and every path under it, unit ids and order from the run's seed, sessions and notes, the readers' replies, and which units a retry holds.
+
+`preview` shares live preparation rather than copying it: each adapter's live invocation calls the same preparation, and a test compares a live invocation through a stub runtime with its preview, argument for argument, variable for variable and file for file.
 
 ---
 

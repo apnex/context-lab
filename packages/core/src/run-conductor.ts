@@ -420,25 +420,9 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 		const beforeBound: Record<string, { final: string; scored: string | null }> = {};
 		for (const p of lastPhases) {
 			if (p.status !== "run" || p.validity?.valid !== true || p.outcome === null) continue;
-			const rawFinal = stripSelfExplanation(p.outcome.final, marker);
 			const rawScored = c.scenario.scoredFile !== undefined && p.snapshot !== null ? readInside(p.snapshot, c.scenario.scoredFile) : null;
-			let final = rawFinal;
-			let scoredContent = rawScored;
-			let responseBound: ResponseBoundRecord | undefined;
-			const pre = { final: rawFinal, scored: rawScored };
-			if (maxBytes !== undefined) {
-				if (c.scenario.answerSource === "final" || c.scenario.scoredFile === undefined) {
-					const b = boundUtf8(rawFinal, maxBytes);
-					final = b.text;
-					responseBound = b.bound;
-				} else if (rawScored !== null) {
-					pre.scored = stripSelfExplanation(rawScored, marker);
-					const b = boundUtf8(pre.scored, maxBytes);
-					scoredContent = b.text;
-					responseBound = b.bound;
-				}
-				lastBound = responseBound;
-			}
+			const { final, scored: scoredContent, responseBound, pre } = phaseText(c.scenario, maxBytes, marker, p.outcome.final, rawScored);
+			if (maxBytes !== undefined) lastBound = responseBound;
 			beforeBound[p.phase] = pre;
 			phaseOutcomes[p.phase] = {
 				final, diff: p.diff ?? "", note: p.note, startDiff: p.startDiff, scored: scoredContent, traps: p.traps.map((t) => t.text),
@@ -455,8 +439,7 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 		// Restated guidance: every final message and every note a session was given, in the last attempt,
 		// against every file delivered to the arm as an instruction or a folder file.
 		const restated: RestatedFlag[] = [];
-		const delivered = [...c.arm.instructions, ...c.arm.folderFiles].map((f) => ({ file: f.file, path: f.path, text: fs.readFileSync(f.path, "utf8") }));
-		const deliveredFiles = delivered.filter((d) => path.basename(d.file) !== "context-lab-canary.md").map((d) => ({ file: d.file, text: d.text }));
+		const { delivered, deliveredFiles } = deliveredOf(c.arm);
 		for (const p of lastPhases.filter((x) => x.status === "run")) {
 			const decl = phases.find((x) => x.id === p.phase);
 			const texts: { source: "final" | "note"; path: string; text: string }[] = [];
@@ -764,25 +747,9 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 			const beforeBound: Record<string, { final: string; scored: string | null }> = {};
 			for (const p of lastPhases) {
 				if (p.status !== "run" || p.validity?.valid !== true || p.outcome === null) continue;
-				const rawFinal = stripSelfExplanation(p.outcome.final, marker);
 				const rawScored = c.scenario.scoredFile !== undefined && p.snapshot !== null ? readInside(p.snapshot, c.scenario.scoredFile) : null;
-				let final = rawFinal;
-				let scoredContent = rawScored;
-				let responseBound: ResponseBoundRecord | undefined;
-				const pre = { final: rawFinal, scored: rawScored };
-				if (maxBytes !== undefined) {
-					if (c.scenario.answerSource === "final" || c.scenario.scoredFile === undefined) {
-						const b = boundUtf8(rawFinal, maxBytes);
-						final = b.text;
-						responseBound = b.bound;
-					} else if (rawScored !== null) {
-						pre.scored = stripSelfExplanation(rawScored, marker);
-						const b = boundUtf8(pre.scored, maxBytes);
-						scoredContent = b.text;
-						responseBound = b.bound;
-					}
-					lastBound = responseBound;
-				}
+				const { final, scored: scoredContent, responseBound, pre } = phaseText(c.scenario, maxBytes, marker, p.outcome.final, rawScored);
+				if (maxBytes !== undefined) lastBound = responseBound;
 				beforeBound[p.phase] = pre;
 				phaseOutcomes[p.phase] = {
 					final, diff: p.diff ?? "", note: p.note, startDiff: p.startDiff, scored: scoredContent, traps: p.traps.map((t) => t.text),
@@ -797,8 +764,7 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 			}
 			const { answers, extraction } = answersOf(c.scenario, propertyPhases, phaseOutcomes, beforeBound, marker, attempts.length);
 			const restated: RestatedFlag[] = [];
-			const delivered = [...c.arm.instructions, ...c.arm.folderFiles].map((f) => ({ file: f.file, path: f.path, text: fs.readFileSync(f.path, "utf8") }));
-			const deliveredFiles = delivered.filter((d) => path.basename(d.file) !== "context-lab-canary.md").map((d) => ({ file: d.file, text: d.text }));
+			const { delivered, deliveredFiles } = deliveredOf(c.arm);
 			for (const p of lastPhases.filter((x) => x.status === "run")) {
 				const decl = phases.find((x) => x.id === p.phase);
 				const texts: { source: "final" | "note"; path: string; text: string }[] = [];
@@ -885,11 +851,37 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 }
 
 /**
+ * A phase's text as judges and measures are given it: the final message after self-explanation
+ * stripping, and the scored file; the one answers are read from is cut to maxResponseBytes, and its
+ * text before the cut is kept for extraction provenance. One function for every path that records a
+ * cell, and for the preview.
+ */
+export function phaseText(scenario: Scenario, maxBytes: number | undefined, marker: string | undefined, rawFinal: string, rawScored: string | null): { final: string; scored: string | null; responseBound?: ResponseBoundRecord; pre: { final: string; scored: string | null } } {
+	const stripped = stripSelfExplanation(rawFinal, marker);
+	const pre = { final: stripped, scored: rawScored };
+	if (maxBytes === undefined) return { final: stripped, scored: rawScored, pre };
+	if (scenario.answerSource === "final" || scenario.scoredFile === undefined) {
+		const b = boundUtf8(stripped, maxBytes);
+		return { final: b.text, scored: rawScored, responseBound: b.bound, pre };
+	}
+	if (rawScored === null) return { final: stripped, scored: null, pre };
+	pre.scored = stripSelfExplanation(rawScored, marker);
+	const b = boundUtf8(pre.scored, maxBytes);
+	return { final: stripped, scored: b.text, responseBound: b.bound, pre };
+}
+
+/** The files an arm delivers as instructions or folder files, read; and those judges may be shown with judgedWith delivered, the canary left out. */
+export function deliveredOf(arm: ComposedArm): { delivered: { file: string; path: string; text: string }[]; deliveredFiles: { file: string; text: string }[] } {
+	const delivered = [...arm.instructions, ...arm.folderFiles].map((f) => ({ file: f.file, path: f.path, text: fs.readFileSync(f.path, "utf8") }));
+	return { delivered, deliveredFiles: delivered.filter((d) => path.basename(d.file) !== "context-lab-canary.md").map((d) => ({ file: d.file, text: d.text })) };
+}
+
+/**
  * Each answer property's answer, from its phase's text as judges are given it, and how it was
  * extracted (B23). One function for every path that records a cell, so a run and a resume cannot
  * extract differently.
  */
-function answersOf(
+export function answersOf(
 	scenario: Scenario, propertyPhases: NonNullable<CellRecord["propertyPhases"]>, phaseOutcomes: NonNullable<CellRecord["phaseOutcomes"]>,
 	beforeBound: Record<string, { final: string; scored: string | null }>, marker: string | undefined, attempt: number,
 ): { answers: Record<string, string | null>; extraction: Record<string, AnswerExtraction> } {
