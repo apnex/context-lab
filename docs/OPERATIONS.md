@@ -155,7 +155,7 @@ Fields of a scenario file (no unknown fields are permitted):
   - `guidance` *(optional, string[])*: corpus entry IDs tested by this property (used to compute comprehension-behaviour links).
   - `notes` *(optional, string)*.
 - `scoredFile` *(optional, relative path)*: file inside `{WORKSPACE}` read as the scored artifact (required if any property declares `answerHeading`, unless `answerSource` is `"final"`).
-- `answerSource` *(optional, `"scored-file"` | `"final"`)*: where `answerHeading` sections are split from (`"scored-file"` by default; set `"final"` to split `### <answerHeading>` directly from the phase's `Outcome.final` message without requiring `scoredFile`).
+- `answerSource` *(optional, `"scored-file"` | `"final"`)*: where `answerHeading` sections are split from (`"scored-file"` by default; set `"final"` to split them directly from the phase's `Outcome.final` message without requiring `scoredFile`; headings of any level from `#` to `######` match, as `answerHeading` describes).
 - `maxResponseBytes` *(optional, positive integer)*: scenario-level UTF-8 byte ceiling overriding `experiment.maxResponseBytes`.
 - `phases` *(optional, array)*: multi-phase episode definition overriding `experiment.phases`:
   - Phase 0 (the first phase): `{ "id": "<slug>", "session": "new" }` - must have `session: "new"` and **must not** declare `task`, `after`, `note`, or `withhold` (its task is the scenario's top-level `task`).
