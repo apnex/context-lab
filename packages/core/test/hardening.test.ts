@@ -185,6 +185,17 @@ test("H3: Result.guesses.byScenario and byProperty flag notBlind iff all >= 6 &&
 	const md = resultMarkdown(res, ["base limit"]);
 	assert.match(md, /Blinding to condition did not hold on s-unblind\/pu: lean on code-scored properties there\./);
 
+	// With no guess cast (mission-kit run 2026-10-20-102650-m2-separation, which asked for none), the
+	// result says blindness is unmeasured rather than reporting "0 of 0" against a base rate of "-".
+	const unguessed = tally({
+		run: "test-no-guesses", status: "result", arms: ["on", "off"], members: ["p1"], scenarios, cells, units,
+		absent: [], votes: votes.map((v) => ({ ...v, guess: null })), assigned: () => ["j1"], guessGroups: {},
+	});
+	assert.equal(unguessed.guesses.all, 0);
+	const mdNone = resultMarkdown(unguessed, ["base limit"]);
+	assert.match(mdNone, /No judge guessed the condition, so whether judges could tell it from the outcome is unmeasured in this run\./);
+	assert.doesNotMatch(mdNone, /guessed the condition right 0 of 0/);
+
 	// 2. Re-tally copies of mission-kit's 2026-10-11-092325-adherence and 2026-10-14-112229-adherence runs.
 	const run3m = "/home/apnex/taceng/mission-kit/docs/evals/runs/context-lab/2026-10-11-092325-adherence";
 	const run5m = "/home/apnex/taceng/mission-kit/docs/evals/runs/context-lab/2026-10-14-112229-adherence";

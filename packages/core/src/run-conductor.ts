@@ -940,7 +940,7 @@ export function tallyRun(recordsDir: string, opts: TallyOptions = {}): Result {
 	const limits = [
 		`${record.runsPerCell} run(s) per cell: one outcome moves a cell's mean by up to 1/${record.runsPerCell} of the scale.`,
 		"Agents and judges are language models; each outcome is judged by the families other than its agent's, which removes self-judging, not shared blind spots.",
-		"Judges can often tell the condition from the outcome itself; the guess rate below says how often.",
+		result.guesses.all > 0 ? "Judges can often tell the condition from the outcome itself; the guess rate below says how often." : "Judges can often tell the condition from the outcome itself; no judge guessed it in this run, so how often is unmeasured.",
 		record.status === "exploration" ? `This run is exploration: ${record.statusReason}.` : "This run's experiment was recorded before the run, unchanged.",
 	];
 	fs.writeFileSync(path.join(recordsDir, "RESULT.md"), resultMarkdown(result, limits));

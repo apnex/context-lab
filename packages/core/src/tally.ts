@@ -313,7 +313,9 @@ export function resultMarkdown(r: Result, limits: string[]): string {
 		`| Scenario | Property | ${r.arms.join(" | ")} | votes agree |`, `|---|---|${r.arms.map(() => "---").join("|")}|---|`,
 		...r.properties.map((p) => `| ${p.scenario} | ${p.property} | ${r.arms.map((a) => fmt(p.byArm[a]!)).join(" | ")} | ${p.agreement.of ? `${p.agreement.agree}/${p.agreement.of}` : "-"} |`),
 		"", `Totals, each property on its own scale: ${r.arms.map((a) => `${a} ${r.totals[a] === null ? "- (a property has no mean)" : r.totals[a]!.toFixed(2)}`).join(", ")}.`, "",
-		`Judges guessed the condition right ${r.guesses.right} of ${r.guesses.all} times; always guessing the largest condition would score ${r.guesses.baseRate === null ? "-" : `${Math.round(r.guesses.baseRate * 100)}%`}.`, "",
+		r.guesses.all > 0
+			? `Judges guessed the condition right ${r.guesses.right} of ${r.guesses.all} times; always guessing the largest condition would score ${r.guesses.baseRate === null ? "-" : `${Math.round(r.guesses.baseRate * 100)}%`}.`
+			: "No judge guessed the condition, so whether judges could tell it from the outcome is unmeasured in this run.", "",
 		...(r.guesses.all > 0 && Object.keys(r.guesses.byScenario ?? {}).length > 0 ? [
 			"| Scenario | right / all | rate | base rate | not blind |",
 			"|---|---|---|---|---|",
