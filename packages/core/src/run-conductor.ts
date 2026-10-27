@@ -890,6 +890,10 @@ export function answersOf(
 	const heads = propertiesOf(scenario).filter((x) => x.answerHeading !== undefined);
 	const requested = heads.map((x) => x.answerHeading!);
 	const source = scenario.answerSource === "final" ? "final" : "scored-file";
+	const splitOpts = {
+		...(scenario.expectedHeadings !== undefined ? { expectedHeadings: scenario.expectedHeadings } : {}),
+		...(scenario.answerTermination !== undefined ? { answerTermination: scenario.answerTermination } : {}),
+	};
 	for (const pr of heads) {
 		const pp = propertyPhases[pr.id]!;
 		if (pp.state !== "valid") continue;
@@ -897,7 +901,7 @@ export function answersOf(
 		const text = source === "final" ? (po?.final ?? "") : (po?.scored ?? "");
 		const pre = beforeBound[pp.phase];
 		const before = source === "final" ? (pre?.final ?? text) : (pre?.scored ?? text);
-		const r = extractAnswer(text, before, pr.answerHeading!, requested, marker, { source, phase: pp.phase, attempt });
+		const r = extractAnswer(text, before, pr.answerHeading!, requested, marker, { source, phase: pp.phase, attempt }, splitOpts);
 		answers[pr.id] = r.answer;
 		extraction[pr.id] = r.extraction;
 	}

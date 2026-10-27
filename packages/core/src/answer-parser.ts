@@ -58,7 +58,7 @@ export function boundUtf8(text: string, limitBytes: number): { text: string; bou
 	};
 }
 
-interface Section { heading: string; body: string }
+interface Section { hashes: string; rawHeading: string; heading: string; body: string }
 
 /**
  * The sections of a text under Markdown headings (`#` to `######`); text before the first heading
@@ -68,7 +68,7 @@ interface Section { heading: string; body: string }
  */
 function sectionsOf(text: string): Section[] {
 	const secs: Section[] = [];
-	let cur: { heading: string; lines: string[] } | null = null;
+	let cur: { hashes: string; rawHeading: string; heading: string; lines: string[] } | null = null;
 	let fence: { char: string; len: number } | null = null;
 	for (const line of text.split("\n")) {
 		if (fence !== null) {
@@ -83,15 +83,15 @@ function sectionsOf(text: string): Section[] {
 			cur?.lines.push(line);
 			continue;
 		}
-		const hm = /^#{1,6}\s+(.*)$/.exec(line);
+		const hm = /^(#{1,6}\s+)(.*)$/.exec(line);
 		if (hm !== null) {
-			if (cur !== null) secs.push({ heading: cur.heading, body: cur.lines.join("\n") });
-			cur = { heading: hm[1]!.trim(), lines: [] };
+			if (cur !== null) secs.push({ hashes: cur.hashes, rawHeading: cur.rawHeading, heading: cur.heading, body: cur.lines.join("\n") });
+			cur = { hashes: hm[1]!, rawHeading: hm[2]!, heading: hm[2]!.trim(), lines: [] };
 		} else {
 			cur?.lines.push(line);
 		}
 	}
-	if (cur !== null) secs.push({ heading: cur.heading, body: cur.lines.join("\n") });
+	if (cur !== null) secs.push({ hashes: cur.hashes, rawHeading: cur.rawHeading, heading: cur.heading, body: cur.lines.join("\n") });
 	return secs;
 }
 
@@ -101,16 +101,54 @@ function headingId(heading: string, ids: string[]): string | undefined {
 	return ids.find((x) => heading === x) ?? ids.find((x) => heading.endsWith(`.${x}`)) ?? ids.find((x) => firstToken === x || firstToken.endsWith(`.${x}`));
 }
 
+/** Whether a heading names one of `expected`, without regard to case, on the heading or its first token (B24). */
+function isExpectedHeading(heading: string, expected: string[]): boolean {
+	if (expected.length === 0) return false;
+	const lower = heading.toLowerCase();
+	const lowIds = expected.map((x) => x.toLowerCase());
+	return headingId(lower, lowIds) !== undefined;
+}
+
+export interface SplitAnswersOptions {
+	/** Non-answer headings the scenario expects (such as `OBSERVATIONS`), which end the preceding answer without firing `ended-at-unrequested-heading` (B24). */
+	expectedHeadings?: string[];
+	/** Whether an answer ends at any heading (`"any-heading"`, default) or only at a requested `answerHeading` or one of `expectedHeadings` (`"question-or-expected"`, B27). */
+	answerTermination?: "any-heading" | "question-or-expected";
+}
+
+/**
+ * When `answerTermination` is `"question-or-expected"`, merge any section whose heading is neither
+ * a requested answer nor an expected heading into the requested answer section before it, keeping
+ * its `#` heading line intact (B27).
+ */
+function foldInternalHeadings(secs: Section[], ids: string[], expected: string[]): Section[] {
+	const out: Section[] = [];
+	for (const s of secs) {
+		const isBoundary = headingId(s.heading, ids) !== undefined || isExpectedHeading(s.heading, expected);
+		const last = out[out.length - 1];
+		if (!isBoundary && last !== undefined && headingId(last.heading, ids) !== undefined) {
+			const sub = `${s.hashes}${s.rawHeading}\n${s.body}`;
+			last.body = `${last.body}\n${sub}`;
+		} else {
+			out.push({ ...s });
+		}
+	}
+	return out;
+}
+
 /**
  * Answers under Markdown headings (`#` to `######`), for each id expected; an id with no heading is
  * absent, and a heading not expected (such as `Observations`) is ignored. A heading may carry a
  * prefix before the id, as `### suite.X1`, or trailing title text after the id, as `## Q01 - Routing`.
  * If a heading appears more than once, the first non-empty occurrence is kept. An answer ends at the
- * next heading of any level.
+ * next heading of any level, or, when `answerTermination` is `"question-or-expected"`, at the next
+ * requested or expected heading.
  */
-export function splitAnswers(text: string, ids: string[], marker?: string): Map<string, string | null> {
+export function splitAnswers(text: string, ids: string[], marker?: string, opts?: SplitAnswersOptions): Map<string, string | null> {
 	const out = new Map<string, string | null>(ids.map((id) => [id, null]));
-	for (const sec of sectionsOf(text)) {
+	const rawSecs = sectionsOf(text);
+	const secs = opts?.answerTermination === "question-or-expected" ? foldInternalHeadings(rawSecs, ids, opts.expectedHeadings ?? []) : rawSecs;
+	for (const sec of secs) {
 		const id = headingId(sec.heading, ids);
 		if (id === undefined) continue;
 		const cleaned = stripSelfExplanation(sec.body, marker);
@@ -173,12 +211,16 @@ function pick(secs: Section[], id: string, marker: string | undefined): { answer
 export function extractAnswer(
 	text: string, beforeBound: string, id: string, requested: string[], marker: string | undefined,
 	where: { source: "final" | "scored-file"; phase: string; attempt: number },
+	opts?: SplitAnswersOptions,
 ): { answer: string | null; extraction: AnswerExtraction } {
-	const secs = sectionsOf(text);
+	const expected = opts?.expectedHeadings ?? [];
+	const fold = (s: Section[]): Section[] => (opts?.answerTermination === "question-or-expected" ? foldInternalHeadings(s, requested, expected) : s);
+	const secs = fold(sectionsOf(text));
 	const got = pick(secs, id, marker);
 	const bounded = beforeBound !== text;
-	const before = bounded ? pick(sectionsOf(beforeBound), id, marker) : got;
+	const before = bounded ? pick(fold(sectionsOf(beforeBound)), id, marker) : got;
 	const cutBytes = bounded ? Math.max(0, bytesOf(before.answer ?? "") - bytesOf(got.answer ?? "")) : 0;
+	const isKnownBoundary = (h: string): boolean => headingId(h, requested) !== undefined || isExpectedHeading(h, expected);
 	let endedAt: AnswerExtraction["endedAt"] = null;
 	if (got.matched.length > 0) {
 		const endOf = (mIdx: number): { heading: string; requested: boolean; bytes: number } | null => {
@@ -193,7 +235,7 @@ export function extractAnswer(
 		if (got.selected !== null) {
 			endedAt = endOf(got.matched[got.selected - 1]!);
 		} else {
-			endedAt = got.matched.map(endOf).find((e) => e !== null && !e.requested && e.bytes > 0) ?? endOf(got.matched[got.matched.length - 1]!);
+			endedAt = got.matched.map(endOf).find((e) => e !== null && !isKnownBoundary(e.heading) && e.bytes > 0) ?? endOf(got.matched[got.matched.length - 1]!);
 		}
 	}
 	const findings: ExtractionFinding[] = [];
@@ -202,7 +244,7 @@ export function extractAnswer(
 	if (got.matched.length > 1) findings.push("duplicate-heading");
 	if (before.matched.length > got.matched.length) findings.push("heading-beyond-bound");
 	if (cutBytes > 0) findings.push("cut-by-bound");
-	if (endedAt !== null && !endedAt.requested && endedAt.bytes > 0) findings.push("ended-at-unrequested-heading");
+	if (endedAt !== null && !isKnownBoundary(endedAt.heading) && endedAt.bytes > 0) findings.push("ended-at-unrequested-heading");
 	return {
 		answer: got.answer,
 		extraction: {

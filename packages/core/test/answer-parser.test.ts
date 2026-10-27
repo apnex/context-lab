@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import { test } from "node:test";
-import { boundUtf8, extractAnswer, promptFor, splitAnswers, stripSelfExplanation, type ComposedArm, type Experiment, type Scenario } from "../src/index.js";
+import { boundUtf8, extractAnswer, promptFor, splitAnswers, stripSelfExplanation, type CellRecord, type ComposedArm, type Experiment, type RunRecord, type Scenario } from "../src/index.js";
 
 test("text after the self-explanation marker is cut", () => {
 	assert.equal(stripSelfExplanation("The message.\nCORPUS-SOURCES: S15, M10", "CORPUS-SOURCES:"), "The message.");
@@ -113,5 +115,57 @@ test("extractAnswer reports each extraction finding, overlapping where they over
 	// The same answer as splitAnswers, on every text above.
 	for (const [text, id] of [["Just prose.", "Q1"], ["### Q1\nMARK: S15\n### Q2\nb\n", "Q1"], ["### Q1\n\n### Q1\nsecond\n", "Q1"], ["### Q1\nans\n## Evidence\nmore\n", "Q1"], ["# suite.Q2 - Title\nb", "Q2"], ["# Q1\n## Decision\nUse the router.\n# Q2\nb\n", "Q1"], ["### Q1\nBefore.\n```sh\n# shell comment\n### Q2\n```\nAfter.\n### Q2\nReal two.\n", "Q1"]] as const) {
 		assert.equal(extractAnswer(text, text, id, ["Q1", "Q2"], "MARK:", at).answer, splitAnswers(text, [id], "MARK:").get(id), text);
+	}
+});
+
+test("expectedHeadings ends an answer without firing ended-at-unrequested-heading (B24), and answerTermination 'question-or-expected' keeps internal subheadings across zorg and mission-kit recorded runs (B27)", () => {
+	const at = { source: "final" as const, phase: "work", attempt: 1 };
+	// 1. B24: a trailing ### OBSERVATIONS section ends Q2 without ended-at-unrequested-heading when expectedHeadings names OBSERVATIONS.
+	const withObs = "### Q1\nFirst.\n### Q2\nSecond.\n### OBSERVATIONS\nNone noted.\n";
+	const unflagged = extractAnswer(withObs, withObs, "Q2", ["Q1", "Q2"], undefined, at, { expectedHeadings: ["OBSERVATIONS"] });
+	assert.equal(unflagged.answer, "Second.");
+	assert.deepEqual(unflagged.extraction.endedAt, { heading: "OBSERVATIONS", requested: false, bytes: 11 });
+	assert.deepEqual(unflagged.extraction.findings, []);
+	const flagged = extractAnswer(withObs, withObs, "Q2", ["Q1", "Q2"], undefined, at);
+	assert.deepEqual(flagged.extraction.findings, ["ended-at-unrequested-heading"]);
+
+	// 2. B27 + AGP direct-peer: under answerTermination: "question-or-expected", internal subheadings (even immediately after # Q1) stay inside the answer up to the next question or expected heading.
+	const subText = "# Q1\n## Decision\nUse the router.\n### Document support\nQUOTE: \"route by name\"\n# Q2\n#### Detail\nPart B.\n## Observations\nTrailing note.\n";
+	const opts = { expectedHeadings: ["Observations"], answerTermination: "question-or-expected" as const };
+	const q1 = extractAnswer(subText, subText, "Q1", ["Q1", "Q2"], undefined, at, opts);
+	const q2 = extractAnswer(subText, subText, "Q2", ["Q1", "Q2"], undefined, at, opts);
+	assert.equal(q1.answer, "## Decision\nUse the router.\n### Document support\nQUOTE: \"route by name\"");
+	assert.deepEqual([q1.extraction.endedAt, q1.extraction.findings], [{ heading: "Q2", requested: true, bytes: 0 }, []]);
+	assert.equal(q2.answer, "#### Detail\nPart B.");
+	assert.deepEqual([q2.extraction.endedAt, q2.extraction.findings], [{ heading: "Observations", requested: false, bytes: 14 }, []]);
+	assert.deepEqual(Object.fromEntries(splitAnswers(subText, ["Q1", "Q2"], undefined, opts)), { Q1: q1.answer, Q2: q2.answer });
+
+	// 3. When sibling zorg and mission-kit recorded runs are present on disk, re-extracting every recorded cell with question-or-expected + expectedHeadings ["OBSERVATIONS", "census-zorg.Y1"] reproduces 100% of recorded answers with 0 false OBSERVATIONS flags.
+	const recordedRuns: [string, string, string[]][] = [
+		["/home/apnex/taceng/zorg/evals/runs/context-lab/2026-10-17-021542-census", "WHY:", ["OBSERVATIONS", "census-zorg.Y1"]],
+		["/home/apnex/taceng/mission-kit/docs/evals/runs/context-lab/2026-10-17-082606-c0", "CORPUS-SOURCES:", ["OBSERVATIONS"]],
+		["/home/apnex/taceng/mission-kit/docs/evals/runs/context-lab/2026-10-17-095808-c2", "CORPUS-SOURCES:", ["OBSERVATIONS"]],
+		["/home/apnex/taceng/mission-kit/docs/evals/runs/context-lab/2026-10-17-100515-c2", "CORPUS-SOURCES:", ["OBSERVATIONS"]],
+		["/home/apnex/taceng/mission-kit/docs/evals/runs/context-lab/2026-10-20-052459-c2", "CORPUS-SOURCES:", ["OBSERVATIONS"]],
+		["/home/apnex/taceng/mission-kit/docs/evals/runs/context-lab/2026-10-20-102650-m2-separation", "CORPUS-SOURCES:", ["OBSERVATIONS"]],
+	];
+	for (const [dir, marker, expectedHeadings] of recordedRuns) {
+		if (!fs.existsSync(path.join(dir, "run.json"))) continue;
+		const r = JSON.parse(fs.readFileSync(path.join(dir, "run.json"), "utf8")) as RunRecord;
+		const scMap = new Map(r.snapshot.scenarios.map((s) => [s.id, s]));
+		for (const cName of r.cells) {
+			const c = JSON.parse(fs.readFileSync(path.join(dir, "cells", `${cName}.json`), "utf8")) as CellRecord;
+			const sc = scMap.get(c.scenario)!;
+			const props = sc.properties.filter((p) => p.answerHeading !== undefined);
+			const ids = props.map((p) => p.answerHeading!);
+			const text = c.scoredFile?.content ?? c.final ?? "";
+			const split = splitAnswers(text, ids, marker, { expectedHeadings, answerTermination: "question-or-expected" });
+			for (const p of props) {
+				assert.equal(split.get(p.answerHeading!), c.answers[p.id], `${path.basename(dir)} ${cName} ${p.id}`);
+				const ex = extractAnswer(text, text, p.answerHeading!, ids, marker, at, { expectedHeadings, answerTermination: "question-or-expected" });
+				assert.equal(ex.answer, c.answers[p.id], `${path.basename(dir)} ${cName} ${p.id} extractAnswer`);
+				assert.equal(ex.extraction.findings.includes("ended-at-unrequested-heading"), false, `${path.basename(dir)} ${cName} ${p.id} unexpected flag`);
+			}
+		}
 	}
 });

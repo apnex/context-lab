@@ -185,6 +185,17 @@ export interface Scenario {
 	answerSource?: "scored-file" | "final";
 	/** Optional UTF-8 byte ceiling applied to the scored response text (after self-explanation stripping, before answer splitting and blinding). */
 	maxResponseBytes?: number;
+	/**
+	 * Headings in the response that are part of the scenario's design (such as `OBSERVATIONS`) and
+	 * not answers: they end the answer before them without firing `ended-at-unrequested-heading` (B24).
+	 */
+	expectedHeadings?: string[];
+	/**
+	 * Whether an answer under `answerHeading` ends at any heading (`"any-heading"`, default) or only
+	 * at another requested `answerHeading` or one of `expectedHeadings` (`"question-or-expected"`, so
+	 * subheadings inside an answer stay part of it; B27).
+	 */
+	answerTermination?: "any-heading" | "question-or-expected";
 	/** Anything a reader of the pack needs to know; never shown to an agent or judge. */
 	notes?: string;
 	/** The scenario's own phases, overriding the experiment's; the first phase's task is the scenario's task. */

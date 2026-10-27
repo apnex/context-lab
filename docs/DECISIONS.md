@@ -58,6 +58,7 @@ They are not copied here; this register starts at the vision.
 | 0036 | 2026-10-20 | Answer extraction is recorded per answer property, with overlapping findings, in cell records; absent answers carry their findings, records made before it read as unknown, and the result lists present answers extraction flagged. | director | ratified | - |
 | 0037 | 2026-10-20 | `context-lab preview` renders a run's reader invocations and judge prompts without contacting a runtime or reading a credential, through the preparation and prompt functions a run uses. | director | ratified | - |
 | 0038 | 2026-10-27 | Answer extraction ignores `#` lines inside CommonMark fenced code blocks (` ``` ` or `~~~`) and records `endedAt` and `ended-at-unrequested-heading` when an empty matched question section is followed by an unrequested subheading (`B26`). | director | ratified | amends 0036 |
+| 0039 | 2026-10-27 | A scenario may declare `expectedHeadings` (non-answer headings such as `OBSERVATIONS` that end the preceding answer without firing `ended-at-unrequested-heading`, `B24`) and `answerTermination: "question-or-expected"` (keeping internal subheadings inside an answer up to the next requested or expected heading, `B27`). | director | ratified | amends 0036, 0038 |
 
 ---
 
@@ -608,3 +609,16 @@ Under `0036`, an empty matched heading followed directly by a subheading left `e
 
 **Source.**\
 `[V, director selection 2026-10-27 ("continue"); docs/BACKLOG.md B26; incoming/agp-direct-peer-extraction-contract-request.md; incoming/agp-extraction-provenance-correction.md]`
+
+### 0039
+
+**Ruling.**\
+`Scenario` gains two optional fields (`packages/core/src/pack-schema.ts`, validated in `pack-checker.ts` and passed by `answersOf` in `run-conductor.ts` to `extractAnswer` and `splitAnswers`):
+- `expectedHeadings?: string[]`: non-answer headings the scenario's task asks for (such as `["OBSERVATIONS"]`), matched without regard to case on the heading or its first token; they end the answer before them without firing `ended-at-unrequested-heading` (`B24`).
+- `answerTermination?: "any-heading" | "question-or-expected"` (`"any-heading"` by default): under `"question-or-expected"`, `foldInternalHeadings` (`packages/core/src/answer-parser.ts`) folds any section whose heading is neither a requested `answerHeading` nor one of `expectedHeadings` into the requested answer section before it, keeping internal subheadings (`####` in zorg's `census` and mission-kit's `c0`/`c2`, or `## Decision` in AGP's direct-peer answers) inside the answer (`B27`).
+
+**Evidence.**\
+`packages/core/test/answer-parser.test.ts` verifies both fields on synthetic responses and re-extracts all 254 recorded answers across zorg's `2026-10-17-021542-census` (20/20) and mission-kit's `2026-10-17-082606-c0` (110/110), `2026-10-17-095808-c2` (16/16), `2026-10-17-100515-c2` (40/40), `2026-10-20-052459-c2` (32/32), and `2026-10-20-102650-m2-separation` (36/36) with 100% byte-identical parity and zero false `ended-at-unrequested-heading` flags; all 353 core tests pass.
+
+**Source.**\
+`[V, director selection 2026-10-27 ("continue"); docs/BACKLOG.md B24, B27]`

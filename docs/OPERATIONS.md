@@ -157,6 +157,8 @@ Fields of a scenario file (no unknown fields are permitted):
 - `scoredFile` *(optional, relative path)*: file inside `{WORKSPACE}` read as the scored artifact (required if any property declares `answerHeading`, unless `answerSource` is `"final"`).
 - `answerSource` *(optional, `"scored-file"` | `"final"`)*: where `answerHeading` sections are split from (`"scored-file"` by default; set `"final"` to split them directly from the phase's `Outcome.final` message without requiring `scoredFile`; headings of any level from `#` to `######` match, as `answerHeading` describes).
 - `maxResponseBytes` *(optional, positive integer)*: scenario-level UTF-8 byte ceiling overriding `experiment.maxResponseBytes`.
+- `expectedHeadings` *(optional, string[])*: non-answer headings the scenario expects in the response (for example `["OBSERVATIONS"]`), matched without regard to case on the heading or its first token; they end the preceding answer without firing `ended-at-unrequested-heading`.
+- `answerTermination` *(optional, `"any-heading"` | `"question-or-expected"`)*: whether an answer under `answerHeading` ends at any heading outside a fence (`"any-heading"`, default) or only at another requested `answerHeading` or one of `expectedHeadings` (`"question-or-expected"`, keeping internal subheadings such as `## Decision` or `#### Component: ...` inside the answer).
 - `phases` *(optional, array)*: multi-phase episode definition overriding `experiment.phases`:
   - Phase 0 (the first phase): `{ "id": "<slug>", "session": "new" }` - must have `session: "new"` and **must not** declare `task`, `after`, `note`, or `withhold` (its task is the scenario's top-level `task`).
   - Subsequent phases (`i >= 1`):
@@ -445,7 +447,7 @@ For each property with an `answerHeading` whose phase ran validly, `cells/<cell>
 | `answerBytes` | UTF-8 bytes of the answer taken, or `null` |
 | `matchedBeforeBound`, `cutBytes` | Matched sections in the text before the bound, and the UTF-8 bytes of the answer the bound removed |
 | `endedAt` | The heading that ended the answer (or, when every matched section was empty, the heading that followed the matched empty section), whether it names a requested answer, and the UTF-8 bytes under it and any further headings up to the next requested one; `null` when no heading matched or the matched section ran to the end |
-| `findings` | Any of `no-heading`, `empty-section`, `duplicate-heading`, `heading-beyond-bound`, `cut-by-bound`, `ended-at-unrequested-heading`; they can overlap, so a heading cut away by the bound shows both `no-heading` and `heading-beyond-bound` |
+| `findings` | Any of `no-heading`, `empty-section`, `duplicate-heading`, `heading-beyond-bound`, `cut-by-bound`, `ended-at-unrequested-heading` (omitted when the heading that ended the answer is listed in `scenario.expectedHeadings`); they can overlap, so a heading cut away by the bound shows both `no-heading` and `heading-beyond-bound` |
 
 - The text read is `phaseOutcomes.<phase>.final` (`final`) or `.scored` (`scored-file`), after self-explanation stripping and the bound. The text before the bound is the same text before truncation. The unstripped response is `attempts[attempt - 1].phases[].outcome.final` for the phase, or the scored file in that phase's snapshot.
 - With duplicate headings, the first non-empty matched section is taken; `selected` says which, and the others stay in the text read and the raw response.
