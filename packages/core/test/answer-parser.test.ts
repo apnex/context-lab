@@ -140,14 +140,17 @@ test("expectedHeadings ends an answer without firing ended-at-unrequested-headin
 	assert.deepEqual([q2.extraction.endedAt, q2.extraction.findings], [{ heading: "Observations", requested: false, bytes: 14 }, []]);
 	assert.deepEqual(Object.fromEntries(splitAnswers(subText, ["Q1", "Q2"], undefined, opts)), { Q1: q1.answer, Q2: q2.answer });
 
-	// 3. When sibling zorg and mission-kit recorded runs are present on disk, re-extracting every recorded cell with question-or-expected + expectedHeadings ["OBSERVATIONS", "census-zorg.Y1"] reproduces 100% of recorded answers with 0 false OBSERVATIONS flags.
+	// 3. When sibling zorg and mission-kit recorded runs are present on disk, re-extracting every recorded cell with question-or-expected + expectedHeadings ["OBSERVATIONS", "census-zorg.Y1"] reproduces 100% of recorded answers (all 818 answers across 133 cells in 9 runs) with 0 false OBSERVATIONS flags.
 	const recordedRuns: [string, string, string[]][] = [
 		["/home/apnex/taceng/zorg/evals/runs/context-lab/2026-10-17-021542-census", "WHY:", ["OBSERVATIONS", "census-zorg.Y1"]],
+		["/home/apnex/taceng/mission-kit/docs/evals/runs/context-lab/2026-10-11-102022-explain", "CORPUS-SOURCES:", ["OBSERVATIONS"]],
+		["/home/apnex/taceng/mission-kit/docs/evals/runs/context-lab/2026-10-14-110208-explain", "CORPUS-SOURCES:", ["OBSERVATIONS"]],
 		["/home/apnex/taceng/mission-kit/docs/evals/runs/context-lab/2026-10-17-082606-c0", "CORPUS-SOURCES:", ["OBSERVATIONS"]],
 		["/home/apnex/taceng/mission-kit/docs/evals/runs/context-lab/2026-10-17-095808-c2", "CORPUS-SOURCES:", ["OBSERVATIONS"]],
 		["/home/apnex/taceng/mission-kit/docs/evals/runs/context-lab/2026-10-17-100515-c2", "CORPUS-SOURCES:", ["OBSERVATIONS"]],
 		["/home/apnex/taceng/mission-kit/docs/evals/runs/context-lab/2026-10-20-052459-c2", "CORPUS-SOURCES:", ["OBSERVATIONS"]],
 		["/home/apnex/taceng/mission-kit/docs/evals/runs/context-lab/2026-10-20-102650-m2-separation", "CORPUS-SOURCES:", ["OBSERVATIONS"]],
+		["/home/apnex/taceng/mission-kit/docs/evals/runs/context-lab/2026-10-26-005243-absorb16", "CORPUS-SOURCES:", ["OBSERVATIONS"]],
 	];
 	for (const [dir, marker, expectedHeadings] of recordedRuns) {
 		if (!fs.existsSync(path.join(dir, "run.json"))) continue;
