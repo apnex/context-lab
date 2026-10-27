@@ -60,12 +60,39 @@ export function boundUtf8(text: string, limitBytes: number): { text: string; bou
 
 interface Section { heading: string; body: string }
 
-/** The sections of a text under Markdown headings (`#` to `######`); text before the first heading belongs to none. */
+/**
+ * The sections of a text under Markdown headings (`#` to `######`); text before the first heading
+ * belongs to none. Lines inside a CommonMark fenced code block (` ``` ` or `~~~`, up to three
+ * leading spaces, closed only by a line of the same character at least as long) are code, not
+ * headings (B26, B27).
+ */
 function sectionsOf(text: string): Section[] {
-	return text.split(/^#{1,6}\s+/m).slice(1).map((p) => {
-		const nl = p.indexOf("\n");
-		return { heading: (nl < 0 ? p : p.slice(0, nl)).trim(), body: nl < 0 ? "" : p.slice(nl + 1) };
-	});
+	const secs: Section[] = [];
+	let cur: { heading: string; lines: string[] } | null = null;
+	let fence: { char: string; len: number } | null = null;
+	for (const line of text.split("\n")) {
+		if (fence !== null) {
+			cur?.lines.push(line);
+			const m = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(line);
+			if (m !== null && m[1]![0] === fence.char && m[1]!.length >= fence.len) fence = null;
+			continue;
+		}
+		const fm = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+		if (fm !== null && (fm[1]![0] !== "`" || !fm[2]!.includes("`"))) {
+			fence = { char: fm[1]![0]!, len: fm[1]!.length };
+			cur?.lines.push(line);
+			continue;
+		}
+		const hm = /^#{1,6}\s+(.*)$/.exec(line);
+		if (hm !== null) {
+			if (cur !== null) secs.push({ heading: cur.heading, body: cur.lines.join("\n") });
+			cur = { heading: hm[1]!.trim(), lines: [] };
+		} else {
+			cur?.lines.push(line);
+		}
+	}
+	if (cur !== null) secs.push({ heading: cur.heading, body: cur.lines.join("\n") });
+	return secs;
 }
 
 /** Which of `ids` a heading names: exact, then `prefix.id`, then the id as the heading's first token (`Q01: ...`, `suite.Q01 - ...`). */
@@ -153,14 +180,20 @@ export function extractAnswer(
 	const before = bounded ? pick(sectionsOf(beforeBound), id, marker) : got;
 	const cutBytes = bounded ? Math.max(0, bytesOf(before.answer ?? "") - bytesOf(got.answer ?? "")) : 0;
 	let endedAt: AnswerExtraction["endedAt"] = null;
-	if (got.selected !== null) {
-		const at = got.matched[got.selected - 1]! + 1;
-		if (at < secs.length) {
+	if (got.matched.length > 0) {
+		const endOf = (mIdx: number): { heading: string; requested: boolean; bytes: number } | null => {
+			const at = mIdx + 1;
+			if (at >= secs.length) return null;
 			const next = secs[at]!;
 			const requestedNext = headingId(next.heading, requested) !== undefined;
 			let bytes = 0;
 			if (!requestedNext) for (let i = at; i < secs.length && headingId(secs[i]!.heading, requested) === undefined; i++) bytes += bytesOf(secs[i]!.body.trim());
-			endedAt = { heading: next.heading, requested: requestedNext, bytes };
+			return { heading: next.heading, requested: requestedNext, bytes };
+		};
+		if (got.selected !== null) {
+			endedAt = endOf(got.matched[got.selected - 1]!);
+		} else {
+			endedAt = got.matched.map(endOf).find((e) => e !== null && !e.requested && e.bytes > 0) ?? endOf(got.matched[got.matched.length - 1]!);
 		}
 	}
 	const findings: ExtractionFinding[] = [];

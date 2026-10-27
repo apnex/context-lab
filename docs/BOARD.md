@@ -25,10 +25,13 @@ Order on the higher: a mandate breach ranks with S2 and a signal with S4; ties g
 <!-- BEGIN GENERATED: ledger. Run tools/check-board.mjs --write; do not edit by hand. -->
 | Row | Impact | Principle | Planned in | Finding |
 |---|---|---|---|---|
+| `B27` | S2 | A8 signal | held | Widening answer headings to every level changed existing packs' extraction, and nothing compared it with their recorded answers. |
 | `B25` | S3 | A8 signal | held | No rule flags a scenario its guidance does not move. |
 | `B8` | S4 | A5 signal | held | Local delivery differs from fetching over a network. |
 | `B9` | S4 | A14 signal | held | Findings travelling between projects has no mechanism beyond records a project chooses to share. |
 | `B10` | S4 | A10 signal | held | No loop files context-lab's own failures as its defects. |
+| `B28` | S4 | A14 signal | held | No rule flags a member that guidance given as an instruction does not move. |
+| `B29` | S4 | A12 signal | held | A scenario that names the guidance it exercises gets no hydration row unless a property names it too. |
 | `B6` | S5 | A3 signal | held | Only two runtimes have adapters. |
 | `B17` | S5 | A11 signal | held | Each invocation keeps its runtime's whole data folder, tool output included. |
 | `B24` | S5 | A1 signal | held | `ended-at-unrequested-heading` fires on a section a scenario asks for. |
@@ -77,10 +80,13 @@ It carries mission-kit's adherence suite and one comprehension suite as single-p
 <!-- BEGIN GENERATED: held. Run tools/check-board.mjs --write; do not edit by hand. -->
 | Row | Impact | Principle | Finding | Revival trigger |
 |---|---|---|---|---|
+| `B27` | S2 | A8 signal | Widening answer headings to every level changed existing packs' extraction, and nothing compared it with their recorded answers. | zorg's next census run, mission-kit's next `c0`, `c2` or `explain` run, or AGP's extraction contract decided, whichever comes first |
 | `B25` | S3 | A8 signal | No rule flags a scenario its guidance does not move. | mission-kit's `B94` is selected, or another project tests a change on a scenario its guidance does not move |
 | `B8` | S4 | A5 signal | Local delivery differs from fetching over a network. | a project's decision turns on networked behaviour |
 | `B9` | S4 | A14 signal | Findings travelling between projects has no mechanism beyond records a project chooses to share. | two projects use context-lab |
 | `B10` | S4 | A10 signal | No loop files context-lab's own failures as its defects. | the first run on the core |
+| `B28` | S4 | A14 signal | No rule flags a member that guidance given as an instruction does not move. | `B25` is built, or a project's diagnostic misses such a member |
+| `B29` | S4 | A12 signal | A scenario that names the guidance it exercises gets no hydration row unless a property names it too. | the next run whose scenarios declare `exercises:` tags and whose properties name no guidance |
 | `B6` | S5 | A3 signal | Only two runtimes have adapters. | a project needs a third runtime |
 | `B17` | S5 | A11 signal | Each invocation keeps its runtime's whole data folder, tool output included. | free space on the working disk falls below 10 GB |
 | `B24` | S5 | A1 signal | `ended-at-unrequested-heading` fires on a section a scenario asks for. | a project's acceptance reads `extractionFlags` and a designed section obscures a real loss |

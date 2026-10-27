@@ -80,9 +80,18 @@ test("extractAnswer reports each extraction finding, overlapping where they over
 	// No heading.
 	const none = ex("Just prose, no headings.");
 	assert.deepEqual([none.answer, none.extraction.findings, none.extraction.matched, none.extraction.selected], [null, ["no-heading"], 0, null]);
-	// A matched section that is empty; the self-explanation marker empties it too.
+	// A matched section that is empty; the self-explanation marker empties it too, and endedAt names the heading that followed it (B26).
 	const empty = ex("### Q1\nMARK: S15\n### Q2\nb\n");
-	assert.deepEqual([empty.answer, empty.extraction.findings, empty.extraction.emptyMatched, empty.extraction.endedAt], ["", ["empty-section"], 1, null]);
+	assert.deepEqual([empty.answer, empty.extraction.findings, empty.extraction.emptyMatched, empty.extraction.endedAt], ["", ["empty-section"], 1, { heading: "Q2", requested: true, bytes: 0 }]);
+	const emptyAtEnd = ex("### Q1\nMARK: S15\n");
+	assert.deepEqual([emptyAtEnd.answer, emptyAtEnd.extraction.findings, emptyAtEnd.extraction.endedAt], ["", ["empty-section"], null]);
+	// An empty question heading followed directly by an unrequested subheading reports endedAt and ended-at-unrequested-heading alongside empty-section (B26).
+	const immedSub = ex("# Q1\n## Decision\nUse the router.\n### Support\nLine two.\n# Q2\nb\n");
+	assert.deepEqual([immedSub.answer, immedSub.extraction.endedAt, immedSub.extraction.findings], ["", { heading: "Decision", requested: false, bytes: 24 }, ["empty-section", "ended-at-unrequested-heading"]]);
+	// Headings inside fenced code blocks (backticks or tildes) do not end an answer (B26, B27).
+	const fenced = ex("### Q1\nBefore.\n```sh\n# shell comment\n### Q2\necho hi\n```\n~~~md\n# Q2\n~~~\nAfter.\n### Q2\nReal two.\n");
+	assert.equal(fenced.answer, "Before.\n```sh\n# shell comment\n### Q2\necho hi\n```\n~~~md\n# Q2\n~~~\nAfter.");
+	assert.deepEqual([fenced.extraction.endedAt, fenced.extraction.findings], [{ heading: "Q2", requested: true, bytes: 0 }, []]);
 	// Duplicate headings: the first non-empty is taken, and its place recorded.
 	const dup = ex("### Q1\n\n### Q1\nsecond\n### Q1\nthird\n");
 	assert.deepEqual([dup.answer, dup.extraction.findings, dup.extraction.matched, dup.extraction.selected], ["second", ["duplicate-heading"], 3, 2]);
@@ -102,7 +111,7 @@ test("extractAnswer reports each extraction finding, overlapping where they over
 	assert.deepEqual([clean.extraction.endedAt, clean.extraction.findings, clean.extraction.answerBytes], [{ heading: "Q2", requested: true, bytes: 0 }, [], 3]);
 	assert.deepEqual([clean.extraction.heading, clean.extraction.source, clean.extraction.phase, clean.extraction.attempt, clean.extraction.bounded], ["Q1", "final", "work", 1, false]);
 	// The same answer as splitAnswers, on every text above.
-	for (const [text, id] of [["Just prose.", "Q1"], ["### Q1\nMARK: S15\n### Q2\nb\n", "Q1"], ["### Q1\n\n### Q1\nsecond\n", "Q1"], ["### Q1\nans\n## Evidence\nmore\n", "Q1"], ["# suite.Q2 - Title\nb", "Q2"]] as const) {
+	for (const [text, id] of [["Just prose.", "Q1"], ["### Q1\nMARK: S15\n### Q2\nb\n", "Q1"], ["### Q1\n\n### Q1\nsecond\n", "Q1"], ["### Q1\nans\n## Evidence\nmore\n", "Q1"], ["# suite.Q2 - Title\nb", "Q2"], ["# Q1\n## Decision\nUse the router.\n# Q2\nb\n", "Q1"], ["### Q1\nBefore.\n```sh\n# shell comment\n### Q2\n```\nAfter.\n### Q2\nReal two.\n", "Q1"]] as const) {
 		assert.equal(extractAnswer(text, text, id, ["Q1", "Q2"], "MARK:", at).answer, splitAnswers(text, [id], "MARK:").get(id), text);
 	}
 });

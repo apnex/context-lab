@@ -57,6 +57,7 @@ They are not copied here; this register starts at the vision.
 | 0035 | 2026-10-20 | No path or prompt given to an agent, probe or judge names the run, the experiment, an arm or a variant: the comprehension judge prompt's opening line drops the records folder, each run's work folder is named `run-` and six random characters, variant and probe folders are named by a hash of their label, and a variant's manifest is written beside its folder. | director | ratified | amends 0016 |
 | 0036 | 2026-10-20 | Answer extraction is recorded per answer property, with overlapping findings, in cell records; absent answers carry their findings, records made before it read as unknown, and the result lists present answers extraction flagged. | director | ratified | - |
 | 0037 | 2026-10-20 | `context-lab preview` renders a run's reader invocations and judge prompts without contacting a runtime or reading a credential, through the preparation and prompt functions a run uses. | director | ratified | - |
+| 0038 | 2026-10-27 | Answer extraction ignores `#` lines inside CommonMark fenced code blocks (` ``` ` or `~~~`) and records `endedAt` and `ended-at-unrequested-heading` when an empty matched question section is followed by an unrequested subheading (`B26`). | director | ratified | amends 0036 |
 
 ---
 
@@ -593,3 +594,17 @@ A preview of mission-kit's `explain` suite with the operator's real adapters wro
 
 **Source.**\
 `[V, director selection 2026-10-20 ("continue"); AGP request incoming/agp-browser-scale-compatibility-request.md section 2]`
+
+### 0038
+
+**Ruling.**\
+`sectionsOf` (`packages/core/src/answer-parser.ts`) tracks CommonMark fenced code blocks (` ``` ` or `~~~`, up to three leading spaces, closed only by a fence of the same character at least as long) so `#` lines inside fenced blocks are kept inside the answer rather than treated as Markdown section headings; and `extractAnswer` computes `endedAt` whenever `got.matched.length > 0` (including when `got.selected === null`), so a question heading followed directly by an unrequested subheading (`# Q01` then `## Decision`) records `endedAt` and `findings: ["empty-section", "ended-at-unrequested-heading"]` (`B26`).
+
+**Why.**\
+Under `0036`, an empty matched heading followed directly by a subheading left `endedAt` `null` and reported only `empty-section`, and a heading line inside a fenced code block ended the answer before it, with no finding at all when that line named a requested heading (`B26`, `B27`).
+
+**Evidence.**\
+`packages/core/test/answer-parser.test.ts` asserts that `# Q1\n## Decision\nUse the router.\n### Support\nLine two.\n# Q2\nb\n` records `endedAt: { heading: "Decision", requested: false, bytes: 24 }` and `findings: ["empty-section", "ended-at-unrequested-heading"]`, that `#` and `### Q2` lines inside ` ``` ` and `~~~` fences remain inside `Q1`'s extracted answer across both `extractAnswer` and `splitAnswers`, and that all 352 core tests pass.
+
+**Source.**\
+`[V, director selection 2026-10-27 ("continue"); docs/BACKLOG.md B26; incoming/agp-direct-peer-extraction-contract-request.md; incoming/agp-extraction-provenance-correction.md]`
