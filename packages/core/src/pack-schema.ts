@@ -252,6 +252,53 @@ export interface Comparison {
 	tolerance?: number;
 }
 
+export interface ExecutionLimits {
+	/** Wall-clock time limit per reader phase invocation in seconds (default 1200). */
+	readerTimeLimitSeconds?: number;
+	/** Wall-clock time limit per judge invocation attempt in seconds (default 900). */
+	judgeTimeLimitSeconds?: number;
+	/** Wall-clock time limit per isolation-probe invocation attempt in seconds (default 300). */
+	probeTimeLimitSeconds?: number;
+	/** Maximum attempts per isolation-probe question (1, 2 or 3; default 3). */
+	maxProbeAttempts?: 1 | 2 | 3;
+	/** Maximum attempts per judge job (1, 2 or 3; default 3). */
+	maxJudgeAttempts?: 1 | 2 | 3;
+	/** Pre-dispatch UTF-8 byte ceiling on evaluator-controlled reader input (prompt + wrapper + delivered instructions and folderFiles). */
+	maxReaderInputBytes?: number;
+	/** Pre-dispatch UTF-8 byte ceiling on evaluator-controlled judge input (prompt + wrapper). */
+	maxJudgeInputBytes?: number;
+	/** Pre-dispatch UTF-8 byte ceiling on evaluator-controlled isolation-probe input (prompt + wrapper + delivered instructions and folderFiles). */
+	maxProbeInputBytes?: number;
+	/** Post-generation UTF-8 byte eligibility ceiling on raw judge reply (`Outcome.final`). */
+	maxJudgeReplyBytes?: number;
+	/** Post-generation UTF-8 byte eligibility ceiling on raw isolation-probe reply (`Outcome.final`). */
+	maxProbeReplyBytes?: number;
+	/** Maximum UTF-8 bytes of child stdout captured per runtime invocation before SIGKILL and overflow marking. */
+	maxStdoutBytes?: number;
+	/** Maximum total spawned runtime invocations across the run (probes + judgeProbes + readers + judges). */
+	maxTotalInvocations?: number;
+}
+
+export type LimitOrigin = "experiment" | "override" | "default";
+
+export interface EffectiveLimits {
+	readerTimeLimitSeconds: number;
+	judgeTimeLimitSeconds: number;
+	probeTimeLimitSeconds: number;
+	maxAttemptsPerCell: 1 | 2;
+	maxProbeAttempts: 1 | 2 | 3;
+	maxJudgeAttempts: 1 | 2 | 3;
+	maxResponseBytes: number | null;
+	maxReaderInputBytes: number | null;
+	maxJudgeInputBytes: number | null;
+	maxProbeInputBytes: number | null;
+	maxJudgeReplyBytes: number | null;
+	maxProbeReplyBytes: number | null;
+	maxStdoutBytes: number | null;
+	maxTotalInvocations: number | null;
+	origins: Record<keyof Omit<EffectiveLimits, "origins">, LimitOrigin>;
+}
+
 export interface Experiment {
 	id: string;
 	declaredStatus: Status;
@@ -263,6 +310,8 @@ export interface Experiment {
 	maxAttemptsPerCell?: 1 | 2;
 	/** Optional UTF-8 byte ceiling applied to each phase's scored response text (after self-explanation stripping, before answer splitting and blinding). */
 	maxResponseBytes?: number;
+	/** Optional per-role time, input-byte, reply-byte, stdout-capture, attempt and total-invocation limits (0040, B30). */
+	limits?: ExecutionLimits;
 	phases: Phase[];
 	/** Instructions every agent in the experiment receives before its task. */
 	instructions?: string;
@@ -334,4 +383,78 @@ export function phaseOfSlot(scenario: Scenario, phases: ScenarioPhase[], slot: s
 /** The rotation rule (Delta-2): for run index r from 0, pair index k, member index j. */
 export function rotate(pair: TrapPair, r: number, k: number, j: number): { position: string; version: string } {
 	return { position: pair.positions[(r + k) % pair.positions.length]!, version: pair.versions[(j + r) % pair.versions.length]!.id };
+}
+
+export interface LimitOverrides {
+	readerTimeLimitSeconds?: number;
+	judgeTimeLimitSeconds?: number;
+	probeTimeLimitSeconds?: number;
+	maxAttemptsPerCell?: 1 | 2;
+	maxProbeAttempts?: 1 | 2 | 3;
+	maxJudgeAttempts?: 1 | 2 | 3;
+	maxResponseBytes?: number;
+	maxReaderInputBytes?: number;
+	maxJudgeInputBytes?: number;
+	maxProbeInputBytes?: number;
+	maxJudgeReplyBytes?: number;
+	maxProbeReplyBytes?: number;
+	maxStdoutBytes?: number;
+	maxTotalInvocations?: number;
+}
+
+/** Resolves the complete effective execution limits for an experiment, recording each setting's origin ("override", "experiment", or "default"). */
+export function resolveEffectiveLimits(experiment: Experiment, over: LimitOverrides = {}): EffectiveLimits {
+	const lim = experiment.limits ?? {};
+	const pick = <T>(ov: T | undefined, ex: T | undefined, def: T): { val: T; origin: LimitOrigin } => {
+		if (ov !== undefined && ov !== ex) return { val: ov, origin: "override" };
+		if (ex !== undefined) return { val: ex, origin: "experiment" };
+		if (ov !== undefined) return { val: ov, origin: "override" };
+		return { val: def, origin: "default" };
+	};
+	const rTime = pick(over.readerTimeLimitSeconds, lim.readerTimeLimitSeconds, 1200);
+	const jTime = pick(over.judgeTimeLimitSeconds, lim.judgeTimeLimitSeconds, 900);
+	const pTime = pick(over.probeTimeLimitSeconds, lim.probeTimeLimitSeconds, 300);
+	const cAtt = pick(over.maxAttemptsPerCell, experiment.maxAttemptsPerCell, 2 as 1 | 2);
+	const pAtt = pick(over.maxProbeAttempts, lim.maxProbeAttempts, 3 as 1 | 2 | 3);
+	const jAtt = pick(over.maxJudgeAttempts, lim.maxJudgeAttempts, 3 as 1 | 2 | 3);
+	const respB = pick<number | null>(over.maxResponseBytes, experiment.maxResponseBytes, null);
+	const rInB = pick<number | null>(over.maxReaderInputBytes, lim.maxReaderInputBytes, null);
+	const jInB = pick<number | null>(over.maxJudgeInputBytes, lim.maxJudgeInputBytes, null);
+	const pInB = pick<number | null>(over.maxProbeInputBytes, lim.maxProbeInputBytes, null);
+	const jRepB = pick<number | null>(over.maxJudgeReplyBytes, lim.maxJudgeReplyBytes, null);
+	const pRepB = pick<number | null>(over.maxProbeReplyBytes, lim.maxProbeReplyBytes, null);
+	const stdB = pick<number | null>(over.maxStdoutBytes, lim.maxStdoutBytes, null);
+	const totInv = pick<number | null>(over.maxTotalInvocations, lim.maxTotalInvocations, null);
+	return {
+		readerTimeLimitSeconds: rTime.val,
+		judgeTimeLimitSeconds: jTime.val,
+		probeTimeLimitSeconds: pTime.val,
+		maxAttemptsPerCell: cAtt.val,
+		maxProbeAttempts: pAtt.val,
+		maxJudgeAttempts: jAtt.val,
+		maxResponseBytes: respB.val,
+		maxReaderInputBytes: rInB.val,
+		maxJudgeInputBytes: jInB.val,
+		maxProbeInputBytes: pInB.val,
+		maxJudgeReplyBytes: jRepB.val,
+		maxProbeReplyBytes: pRepB.val,
+		maxStdoutBytes: stdB.val,
+		maxTotalInvocations: totInv.val,
+		origins: {
+			readerTimeLimitSeconds: rTime.origin,
+			judgeTimeLimitSeconds: jTime.origin,
+			probeTimeLimitSeconds: pTime.origin,
+			maxAttemptsPerCell: cAtt.origin,
+			maxProbeAttempts: pAtt.origin,
+			maxJudgeAttempts: jAtt.origin,
+			maxResponseBytes: respB.origin,
+			maxReaderInputBytes: rInB.origin,
+			maxJudgeInputBytes: jInB.origin,
+			maxProbeInputBytes: pInB.origin,
+			maxJudgeReplyBytes: jRepB.origin,
+			maxProbeReplyBytes: pRepB.origin,
+			maxStdoutBytes: stdB.origin,
+			maxTotalInvocations: totInv.origin,
+		},
+	};
 }

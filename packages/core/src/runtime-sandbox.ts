@@ -28,6 +28,8 @@ export interface SandboxSpec {
 	env: Record<string, string>;
 	stdin: string | null;
 	timeLimitSeconds: number;
+	/** Optional UTF-8 byte cap on retained stdout lines; when exceeded, stops capturing partial trailing data, sends SIGKILL to bwrap, and resolves after child close (0040, B30). */
+	maxStdoutBytes?: number;
 }
 
 export interface SandboxResult {
@@ -35,6 +37,8 @@ export interface SandboxResult {
 	exit: number | null;
 	signal: string | null;
 	timedOut: boolean;
+	stdoutTruncated?: boolean;
+	capturedStdoutBytes?: number;
 	seconds: number;
 	stderr: string;
 }
@@ -69,16 +73,49 @@ export function runSandboxed(spec: SandboxSpec): Promise<SandboxResult> {
 		let pending = "";
 		let stderr = "";
 		let timedOut = false;
+		let stdoutTruncated = false;
+		let capturedStdoutBytes = 0;
+		const maxStdout = spec.maxStdoutBytes;
+		const pushLine = (at: number, l: string): boolean => {
+			const trimmed = l.trim();
+			if (!trimmed) return true;
+			const lineBytes = Buffer.byteLength(l, "utf8") + 1;
+			if (maxStdout !== undefined && capturedStdoutBytes + lineBytes > maxStdout) {
+				stdoutTruncated = true;
+				child.kill("SIGKILL");
+				return false;
+			}
+			capturedStdoutBytes += lineBytes;
+			lines.push({ at, text: l });
+			return true;
+		};
 		const timer = setTimeout(() => {
 			timedOut = true;
 			child.kill("SIGKILL");
 		}, spec.timeLimitSeconds * 1000);
 		child.stdout?.on("data", (d: Buffer) => {
+			if (stdoutTruncated) return;
 			const at = Date.now() - started;
-			pending += d.toString();
+			if (maxStdout !== undefined && capturedStdoutBytes + Buffer.byteLength(pending, "utf8") + d.length > maxStdout && !d.includes(0x0a)) {
+				stdoutTruncated = true;
+				pending = "";
+				child.kill("SIGKILL");
+				return;
+			}
+			pending += d.toString("utf8");
 			const parts = pending.split("\n");
 			pending = parts.pop() ?? "";
-			for (const p of parts) if (p.trim()) lines.push({ at, text: p });
+			for (const p of parts) {
+				if (!pushLine(at, p)) {
+					pending = "";
+					break;
+				}
+			}
+			if (!stdoutTruncated && maxStdout !== undefined && capturedStdoutBytes + Buffer.byteLength(pending, "utf8") > maxStdout) {
+				stdoutTruncated = true;
+				pending = "";
+				child.kill("SIGKILL");
+			}
 		});
 		child.stderr?.on("data", (d: Buffer) => { stderr = (stderr + d.toString()).slice(-4000); });
 		if (spec.stdin !== null && child.stdin) {
@@ -87,8 +124,16 @@ export function runSandboxed(spec: SandboxSpec): Promise<SandboxResult> {
 		}
 		const finish = (exit: number | null, signal: string | null): void => {
 			clearTimeout(timer);
-			if (pending.trim()) lines.push({ at: Date.now() - started, text: pending });
-			resolve({ lines, exit: timedOut ? null : exit, signal: timedOut ? "SIGKILL" : signal, timedOut, seconds: (Date.now() - started) / 1000, stderr });
+			if (!stdoutTruncated && pending.trim()) pushLine(Date.now() - started, pending);
+			resolve({
+				lines,
+				exit: timedOut || stdoutTruncated ? null : exit,
+				signal: timedOut || stdoutTruncated ? "SIGKILL" : signal,
+				timedOut,
+				...(maxStdout !== undefined || stdoutTruncated ? { stdoutTruncated, capturedStdoutBytes } : {}),
+				seconds: (Date.now() - started) / 1000,
+				stderr,
+			});
 		};
 		child.on("error", (e) => { stderr += String(e); finish(-1, null); });
 		child.on("close", (code, signal) => finish(code, signal));

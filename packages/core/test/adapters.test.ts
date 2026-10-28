@@ -473,3 +473,49 @@ test("opencode: prepare redacts a key or header written literally in the operato
 	assert.deepEqual([opts.apiKey, opts.headers.Authorization, opts.baseURL], ["<credential redacted>", "<header redacted>", "http://x.invalid/v1"]);
 	assert.ok(pv.notRendered.some((n) => /written literally in the operator's provider block/.test(n)));
 });
+
+test("B30: opencode and codex adapters enforce pre-dispatch maxInputBytes refusal, InvocationBudget reservation, and maxStdoutBytes prefix cut under bwrap", async () => {
+	const eOc = setup(), eCx = setup();
+	const budget = new (await import("../src/index.js")).InvocationBudget(3);
+	const oc = adapterFor("opencode", eOc, { stream: path.join(STREAMS, "opencode-success.recorded.jsonl") });
+	const cx = adapterFor("codex", eCx, { stream: path.join(STREAMS, "codex-success.recorded.jsonl") });
+
+	// 1. Pre-dispatch input-byte gate refuses before spawning bwrap and does not consume a budget slot.
+	await assert.rejects(
+		() => oc.invoke(invocation(eOc, "opencode", { work: path.join(eOc.dir, "w-refused"), maxInputBytes: 10, budget, role: "reader" })),
+		/exceeds maxInputBytes/,
+	);
+	assert.equal(budget.dispatchedTotal(), 0);
+	assert.equal(budget.summary().refusedPreDispatch.length, 1);
+	assert.equal(budget.summary().refusedPreDispatch[0]!.reason, "input-bytes");
+
+	// 2. Normal dispatch within maxInputBytes reserves an invocationId and records controlledInputBytes.
+	const okOut = await oc.invoke(invocation(eOc, "opencode", { work: path.join(eOc.dir, "w-ok"), maxInputBytes: 5000, budget, role: "reader" }));
+	assert.equal(okOut.invocationId, 1);
+	assert.equal(typeof okOut.controlledInputBytes, "number");
+	assert.ok(okOut.controlledInputBytes! > 50);
+
+	// 3. maxStdoutBytes cuts the stream at a complete line boundary, kills bwrap, and marks stdoutTruncated + usageComplete: false + error.cause: "overflow".
+	const truncOc = await oc.invoke(invocation(eOc, "opencode", { work: path.join(eOc.dir, "w-trunc-oc"), maxStdoutBytes: 250, budget, role: "reader" }));
+	assert.equal(truncOc.stdoutTruncated, true);
+	assert.ok((truncOc.capturedStdoutBytes ?? 0) <= 250);
+	assert.equal(truncOc.usageComplete, false);
+	assert.equal(truncOc.error?.cause, "overflow");
+	assert.equal(truncOc.stop.reason, "error");
+	assert.equal(truncOc.invocationId, 2);
+
+	const truncCx = await cx.invoke(invocation(eCx, "codex", { work: path.join(eCx.dir, "w-trunc-cx"), maxStdoutBytes: 250, budget, role: "judge", tools: "off" }));
+	assert.equal(truncCx.stdoutTruncated, true);
+	assert.ok((truncCx.capturedStdoutBytes ?? 0) <= 250);
+	assert.equal(truncCx.usageComplete, false);
+	assert.equal(truncCx.error?.cause, "overflow");
+	assert.equal(truncCx.invocationId, 3);
+
+	// 4. Next invocation hits maxTotalInvocations (3) and throws BudgetExhausted before dispatch.
+	await assert.rejects(
+		() => cx.invoke(invocation(eCx, "codex", { work: path.join(eCx.dir, "w-exhaust"), budget, role: "judge", tools: "off" })),
+		/maxTotalInvocations \(3\) reached/,
+	);
+	assert.equal(budget.dispatchedTotal(), 3);
+	assert.equal(budget.summary().exhausted, true);
+});

@@ -100,12 +100,17 @@ export function parseCodex(lines: Line[], ctx: ParseContext): Outcome {
 		}
 	}
 	const all = [...tools.values()];
-	const reason = ctx.timedOut ? "timeout" : error !== null || (ctx.exit !== 0 && ctx.exit !== null) ? "error" : "completed";
+	if (ctx.stdoutTruncated) {
+		error ??= { cause: "overflow", name: "StdoutLimitExceeded", message: `captured stdout exceeded maxStdoutBytes (${ctx.capturedStdoutBytes ?? 0} bytes retained)` };
+		trace.push({ at: Math.round(ctx.seconds * 1000), kind: "error", cause: "overflow", name: "StdoutLimitExceeded" });
+	}
+	const reason = ctx.timedOut ? "timeout" : ctx.stdoutTruncated || error !== null || (ctx.exit !== 0 && ctx.exit !== null) ? "error" : "completed";
+	const usageComplete = !ctx.stdoutTruncated && !ctx.timedOut && !openModel && !all.some((t) => t.status === "running");
 	return {
 		final,
 		exit: ctx.exit,
 		signal: ctx.signal,
-		stop: { reason, inFlight: all.some((t) => t.status === "running") ? "tool" : openModel ? "model" : "none" },
+		stop: { reason, inFlight: all.some((t) => t.status === "running") ? "tool" : openModel ? "model" : ctx.stdoutTruncated ? "unknown" : "none" },
 		cost: { seconds: ctx.seconds, inputTokens: sawTokens ? input : null, cachedInputTokens: sawTokens ? cached : null, outputTokens: sawTokens ? output : null, toolCalls: all.length },
 		tools: all,
 		filtered: false,
@@ -113,5 +118,8 @@ export function parseCodex(lines: Line[], ctx: ParseContext): Outcome {
 		session,
 		trace,
 		events: ctx.events,
+		...(ctx.stdoutTruncated !== undefined ? { stdoutTruncated: ctx.stdoutTruncated } : {}),
+		...(ctx.capturedStdoutBytes !== undefined ? { capturedStdoutBytes: ctx.capturedStdoutBytes } : {}),
+		...(ctx.stdoutTruncated !== undefined ? { usageComplete } : {}),
 	};
 }

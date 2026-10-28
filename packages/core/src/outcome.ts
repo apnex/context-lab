@@ -40,6 +40,16 @@ export interface Outcome {
 	session: string | null;
 	trace: TraceEvent[];
 	events: string;
+	/** Set to true when child stdout exceeded maxStdoutBytes and was cut at a line boundary with SIGKILL (0040, B30). */
+	stdoutTruncated?: boolean;
+	/** Number of UTF-8 bytes of child stdout retained before the invocation completed or was cut. */
+	capturedStdoutBytes?: number;
+	/** False when stdoutTruncated or timedOut interrupted the event stream before completion, so token/tool usage is a lower bound rather than complete. */
+	usageComplete?: boolean;
+	/** Monotonic invocation ID reserved from the run's InvocationBudget before dispatch. */
+	invocationId?: number;
+	/** Measured UTF-8 bytes of evaluator-controlled prepared input (prompt + wrapper + delivered instructions and folderFiles). */
+	controlledInputBytes?: number;
 }
 
 /** One line of a runtime's event stream, with when it arrived. */
@@ -55,6 +65,8 @@ export interface ParseContext {
 	exit: number | null;
 	signal: string | null;
 	timedOut: boolean;
+	stdoutTruncated?: boolean;
+	capturedStdoutBytes?: number;
 	seconds: number;
 	events: string;
 }

@@ -70,6 +70,7 @@ It carries mission-kit's adherence suite and one comprehension suite as single-p
 | M4.2 | Characterise content filters and rate limits per provider (`B7`, closed) | `B7` | M1.1 |
 | M4.3 | Arm-guess blinding test reported per property, and a repeat of a recorded experiment (`B5`, closed; B12 closed in M2.3) | `B5` | M1.1 |
 | M4.4 | Raise opencode reply token cap for large judge batches (`B14`, closed) and bind `node` on `PATH` inside the runtime sandbox (`B15`, closed) | `B14`, `B15` | M1.1 |
+| M4.5 | Public fixed-answer calibration (`context-lab calibrate`), per-role execution controls (`Experiment.limits`, `InvocationBudget`, `maxStdoutBytes`), preview invocation inventory, and complete probe-attempt attribution (`ProbeAnswer.history[]`) (`B30`, closed) | `B30` | M1.1 |
 
 ---
 

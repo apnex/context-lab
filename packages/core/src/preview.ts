@@ -25,13 +25,13 @@ import { runStatus } from "./experiment-register.js";
 import { EMPTY_ARM, judgeInvocation, judgePrompt, planJudgeJobs } from "./judge-panel.js";
 import type { Outcome } from "./outcome.js";
 import { checkPack } from "./pack-checker.js";
-import { phasesOf, propertiesOf, type Member, type Scenario } from "./pack-schema.js";
-import { answersOf, deliveredOf, phaseText, type CellRecord } from "./run-conductor.js";
+import { phasesOf, propertiesOf, resolveEffectiveLimits, type EffectiveLimits, type LimitOverrides, type Member, type Scenario } from "./pack-schema.js";
+import { CALIBRATION_SYNTHETIC_MEMBER, answersOf, deliveredOf, phaseText, type CellRecord } from "./run-conductor.js";
 import { resolveSuite } from "./selector.js";
 import { buildVariant, variantDir, type BuiltVariant } from "./variant-builder.js";
 import { createWorkspace } from "./workspace-builder.js";
 
-export interface PreviewOptions {
+export interface PreviewOptions extends LimitOverrides {
 	adapters: Record<string, Adapter>;
 	/** A new folder for the preview: its work folder, PREVIEW.json and PREVIEW.md. */
 	out: string;
@@ -45,6 +45,30 @@ export interface PreviewOptions {
 	judgeTimeLimitSeconds?: number;
 	/** The seed judge jobs are shuffled with; a run uses its run id. */
 	seed?: string;
+}
+
+export interface PreviewInventory {
+	runsPerCell: number;
+	maxAttemptsPerCell: 1 | 2;
+	maxProbeAttempts: 1 | 2 | 3;
+	maxJudgeAttempts: 1 | 2 | 3;
+	readerProbes: { questions: number; firstAttempt: number; maxAttempts: number };
+	judgeProbes: { questions: number; firstAttempt: number; maxAttempts: number };
+	readers: { cells: number; phasesPerCell: number; firstAttempt: number; maxAttempts: number };
+	judges: { jobs: number; firstAttempt: number; maxAttempts: number };
+	assuranceTotal: { firstAttempt: number; maxAttempts: number };
+	calibration: {
+		judgeProbeQuestions: number;
+		judgeJobs: number;
+		firstAttempt: number;
+		maxAttempts: number;
+		byAttemptCap: {
+			probe1_judge1: number;
+			probe1_judge3: number;
+			probe2_judge3: number;
+			probe3_judge3: number;
+		};
+	};
 }
 
 export interface PreviewReader {
@@ -91,6 +115,10 @@ export interface Preview {
 	suite: string | null;
 	/** What a run of the experiment would be labelled now, and its registered hash. */
 	status: { status: string; reason: string; hash: string | null };
+	/** Complete resolved execution limits and the origin ("experiment" | "override" | "default") of each setting (0040, B30). */
+	effectiveLimits: EffectiveLimits;
+	/** Planned first-attempt and conditional maximum runtime-invocation counts by role for both assurance and fixed-answer calibration (0040, B30). */
+	inventory: PreviewInventory;
 	variants: Record<string, { source: string; revision: string; dir: string } | { failed: string }>;
 	arms: Record<string, { composed: boolean; reason?: string }>;
 	seed: string;
@@ -150,6 +178,23 @@ export async function previewRun(packDir: string, target: string, opts: PreviewO
 	const work = path.join(path.resolve(opts.out), "work");
 	fs.mkdirSync(work, { recursive: true });
 	const seed = opts.seed ?? "preview";
+	const readerTimeOverride = opts.readerTimeLimitSeconds ?? opts.timeLimitSeconds;
+	const effectiveLimits = resolveEffectiveLimits(exp.experiment, {
+		...(readerTimeOverride !== undefined ? { readerTimeLimitSeconds: readerTimeOverride } : {}),
+		...(opts.judgeTimeLimitSeconds !== undefined ? { judgeTimeLimitSeconds: opts.judgeTimeLimitSeconds } : {}),
+		...(opts.probeTimeLimitSeconds !== undefined ? { probeTimeLimitSeconds: opts.probeTimeLimitSeconds } : {}),
+		...(opts.maxAttemptsPerCell !== undefined ? { maxAttemptsPerCell: opts.maxAttemptsPerCell } : {}),
+		...(opts.maxProbeAttempts !== undefined ? { maxProbeAttempts: opts.maxProbeAttempts } : {}),
+		...(opts.maxJudgeAttempts !== undefined ? { maxJudgeAttempts: opts.maxJudgeAttempts } : {}),
+		...(opts.maxResponseBytes !== undefined ? { maxResponseBytes: opts.maxResponseBytes } : {}),
+		...(opts.maxReaderInputBytes !== undefined ? { maxReaderInputBytes: opts.maxReaderInputBytes } : {}),
+		...(opts.maxJudgeInputBytes !== undefined ? { maxJudgeInputBytes: opts.maxJudgeInputBytes } : {}),
+		...(opts.maxProbeInputBytes !== undefined ? { maxProbeInputBytes: opts.maxProbeInputBytes } : {}),
+		...(opts.maxJudgeReplyBytes !== undefined ? { maxJudgeReplyBytes: opts.maxJudgeReplyBytes } : {}),
+		...(opts.maxProbeReplyBytes !== undefined ? { maxProbeReplyBytes: opts.maxProbeReplyBytes } : {}),
+		...(opts.maxStdoutBytes !== undefined ? { maxStdoutBytes: opts.maxStdoutBytes } : {}),
+		...(opts.maxTotalInvocations !== undefined ? { maxTotalInvocations: opts.maxTotalInvocations } : {}),
+	});
 
 	// Variants and arms, as a run builds and composes them.
 	const built = new Map<string, BuiltVariant>();
@@ -201,12 +246,12 @@ export async function previewRun(packDir: string, target: string, opts: PreviewO
 				continueFrom = { session: `<session of phase ${prev.phase}, generated at run time>`, work: prev.invocation, workspace: prev.workspace };
 				generated.push(continueFrom.session);
 			}
-			const r = tryPrepare(adapter, readerInvocation(arm, member, adapter, prompt, workspace, inv, opts.timeLimitSeconds ?? 1200, continueFrom));
+			const r = tryPrepare(adapter, readerInvocation(arm, member, adapter, prompt, workspace, inv, effectiveLimits.readerTimeLimitSeconds, continueFrom));
 			readers.push({ cell, scenario: scenario.id, arm: arm.arm, member: member.id, phase: ph.id, session: ph.session, ...r, prompt, promptBytes: bytes(prompt), generated });
 			ran.push({ phase: ph.id, workspace, invocation: inv });
 		}
 		// The sample response as this cell's reply in every phase, cut and extracted as a run does.
-		const maxBytes = scenario.maxResponseBytes ?? exp.experiment.maxResponseBytes;
+		const maxBytes = scenario.maxResponseBytes ?? effectiveLimits.maxResponseBytes ?? undefined;
 		const phaseOutcomes: NonNullable<CellRecord["phaseOutcomes"]> = {};
 		const beforeBound: Record<string, { final: string; scored: string | null }> = {};
 		for (const ph of phases) {
@@ -258,7 +303,7 @@ export async function previewRun(packDir: string, target: string, opts: PreviewO
 			fs.mkdirSync(path.join(work, "judging", "invocations"), { recursive: true });
 			const inv = fs.mkdtempSync(path.join(work, "judging", "invocations", "j-"));
 			fs.rmdirSync(inv);
-			const r = tryPrepare(adapter, judgeInvocation(job.judge, adapter, text, ws.dir, inv, opts.judgeTimeLimitSeconds ?? 900));
+			const r = tryPrepare(adapter, judgeInvocation(job.judge, adapter, text, ws.dir, inv, effectiveLimits.judgeTimeLimitSeconds));
 			return { attempt, prompt: text, bytes: bytes(text), local: Object.fromEntries([...local].map(([k, u]) => [k, u.id])), ...r };
 		};
 		judgeRows.push({
@@ -269,9 +314,72 @@ export async function previewRun(packDir: string, target: string, opts: PreviewO
 		});
 	}
 
+	// Inventory calculation across the selected scenarios, arms, population and judges (0040, B30).
+	const runsPerCell = exp.experiment.runsPerCell;
+	let readerProbeQuestions = 0;
+	for (const arm of composed.values()) {
+		const armLeaks = loaded.pack.isolation.leakProbes.filter((l) => l.arms.includes(arm.arm)).length;
+		readerProbeQuestions += population.length * (1 + armLeaks);
+	}
+	const judgeProbeQuestions = judges.length * (1 + loaded.pack.isolation.leakProbes.length);
+	const phasesPerCell = scenarios.length > 0 ? phasesOf(scenarios[0]!, exp.experiment).length : 1;
+	const totalCells = scenarios.length * composed.size * population.length * runsPerCell;
+	const readerFirst = scenarios.reduce((sum, s) => sum + phasesOf(s, exp.experiment).length * composed.size * population.length * runsPerCell, 0);
+	const readerMax = readerFirst * effectiveLimits.maxAttemptsPerCell;
+	// Full assurance judge jobs scale with runsPerCell (each cell run produces the same unit count as run 1).
+	const allRunCells: CellRecord[] = [];
+	for (let r = 1; r <= runsPerCell; r++) {
+		for (const c of cells) allRunCells.push({ ...c, cell: c.cell.replace(/\.1$/, `.${r}`), run: r });
+	}
+	const fullBlinded = blind(loaded, scenarioMap, allRunCells, families, seed, () => new Date(), { paths: [work, path.resolve(opts.out), loaded.dir], literals: canaries });
+	const fullJudgeJobs = planJudgeJobs({ experiment: exp.experiment, scenarios: scenarioMap, units: fullBlinded.units, judges, seed }).length;
+	const judgeFirst = fullJudgeJobs;
+	const judgeMax = fullJudgeJobs * effectiveLimits.maxJudgeAttempts;
+	const rProbeMax = readerProbeQuestions * effectiveLimits.maxProbeAttempts;
+	const jProbeMax = judgeProbeQuestions * effectiveLimits.maxProbeAttempts;
+
+	// Calibration inventory: 1 synthetic cell per scenario, judged by all selected judges.
+	const defaultArmId = exp.experiment.default !== undefined
+		? (armIds.find((a) => a !== exp.experiment.default) ?? armIds[0]!)
+		: armIds[0]!;
+	const calCells: CellRecord[] = cells
+		.filter((c) => c.arm === defaultArmId)
+		.slice(0, scenarios.length)
+		.map((c) => ({ ...c, cell: `${c.scenario}.${defaultArmId}.${CALIBRATION_SYNTHETIC_MEMBER.id}.1`, member: CALIBRATION_SYNTHETIC_MEMBER.id }));
+	const calFamilies = new Map([...families, [CALIBRATION_SYNTHETIC_MEMBER.id, CALIBRATION_SYNTHETIC_MEMBER.family]]);
+	const calBlinded = blind(loaded, scenarioMap, calCells, calFamilies, seed, () => new Date(), { paths: [work, path.resolve(opts.out), loaded.dir], literals: canaries });
+	const calJudgeJobs = planJudgeJobs({ experiment: exp.experiment, scenarios: scenarioMap, units: calBlinded.units, judges, seed }).length;
+	const inventory: PreviewInventory = {
+		runsPerCell,
+		maxAttemptsPerCell: effectiveLimits.maxAttemptsPerCell,
+		maxProbeAttempts: effectiveLimits.maxProbeAttempts,
+		maxJudgeAttempts: effectiveLimits.maxJudgeAttempts,
+		readerProbes: { questions: readerProbeQuestions, firstAttempt: readerProbeQuestions, maxAttempts: rProbeMax },
+		judgeProbes: { questions: judgeProbeQuestions, firstAttempt: judgeProbeQuestions, maxAttempts: jProbeMax },
+		readers: { cells: totalCells, phasesPerCell, firstAttempt: readerFirst, maxAttempts: readerMax },
+		judges: { jobs: fullJudgeJobs, firstAttempt: judgeFirst, maxAttempts: judgeMax },
+		assuranceTotal: {
+			firstAttempt: readerProbeQuestions + judgeProbeQuestions + readerFirst + judgeFirst,
+			maxAttempts: rProbeMax + jProbeMax + readerMax + judgeMax,
+		},
+		calibration: {
+			judgeProbeQuestions,
+			judgeJobs: calJudgeJobs,
+			firstAttempt: judgeProbeQuestions + calJudgeJobs,
+			maxAttempts: jProbeMax + calJudgeJobs * effectiveLimits.maxJudgeAttempts,
+			byAttemptCap: {
+				probe1_judge1: judgeProbeQuestions * 1 + calJudgeJobs * 1,
+				probe1_judge3: judgeProbeQuestions * 1 + calJudgeJobs * 3,
+				probe2_judge3: judgeProbeQuestions * 2 + calJudgeJobs * 3,
+				probe3_judge3: judgeProbeQuestions * 3 + calJudgeJobs * 3,
+			},
+		},
+	};
+
 	const preview: Preview = {
 		pack: loaded.pack.id, experiment: experimentId, suite: suite?.id ?? null,
 		status: { status: status.status, reason: status.reason, hash: status.record?.hash ?? null },
+		effectiveLimits, inventory,
 		variants, arms, seed, response: { given: opts.response !== undefined, bytes: bytes(response) },
 		readers, answers: answerRows, judges: judgeRows,
 		generated: [
@@ -299,6 +407,8 @@ export function previewMarkdown(p: Preview): string {
 		`- Readers: ${p.readers.length} invocation(s), ${p.readers.filter((r) => r.prepared === null).length} not rendered.`,
 		`- Answers extracted from the ${p.response.given ? "given" : "placeholder"} response (${p.response.bytes} bytes): ${p.answers.length}, ${p.answers.filter((a) => a.extraction.findings.length > 0).length} with findings.`,
 		`- Judge jobs: ${p.judges.length}, each with its first prompt${p.judges.some((j) => j.retry) ? " and, where it holds more than one unit, a retry" : ""}.`,
+		`- Assurance invocation inventory: ${p.inventory.assuranceTotal.firstAttempt} first-attempt (${p.inventory.readerProbes.firstAttempt} reader probes + ${p.inventory.judgeProbes.firstAttempt} judge probes + ${p.inventory.readers.firstAttempt} readers + ${p.inventory.judges.firstAttempt} judges), up to ${p.inventory.assuranceTotal.maxAttempts} max-attempt.`,
+		`- Calibration invocation inventory: ${p.inventory.calibration.firstAttempt} first-attempt (${p.inventory.calibration.judgeProbeQuestions} judge probes + ${p.inventory.calibration.judgeJobs} judge jobs), up to ${p.inventory.calibration.maxAttempts} max-attempt.`,
 		...(p.unsupported.length ? [`- Not rendered for: ${p.unsupported.map((u) => `${u.member} (${u.reason})`).join(", ")}.`] : []),
 		"", "## Generated at run time", "", ...p.generated.map((g) => `- ${g}`), "",
 	];

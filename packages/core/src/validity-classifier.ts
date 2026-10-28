@@ -99,6 +99,7 @@ export function classify(o: Outcome, forbidden: Forbidden, timeouts = 1): Validi
 			? { valid: false, cause: "infrastructure", detail: "stopped at its time limit with a model call or a tool open, which the trace cannot tell apart; a first timeout counts against the provider" }
 			: { valid: false, cause: "behaviour", detail: "stopped at its time limit again on a re-run" };
 	}
+	if (o.stdoutTruncated) return { valid: false, cause: "behaviour", detail: `the agent's stdout exceeded maxStdoutBytes (${o.capturedStdoutBytes ?? 0} bytes retained) and was cut` };
 	if (o.error?.cause === "overflow") return { valid: false, cause: "behaviour", detail: "the agent's context overflowed" };
 	if (o.stop.reason === "timeout") return { valid: false, cause: "behaviour", detail: `stopped at its time limit while ${o.stop.inFlight === "tool" ? "a tool ran" : "working"}` };
 	if (o.error !== null) return { valid: false, cause: "infrastructure", detail: `the runtime reported an error: ${o.error.message.slice(0, 200)}` };

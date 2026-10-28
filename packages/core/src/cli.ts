@@ -11,8 +11,10 @@
 //                                                  derive an A/A rule's thresholds from an A/A run, and record them
 //   context-lab compare <pack> <comparison> <base-run-dir> [--head DIR] [--runs K] [--nine DIR] [--nine-head DIR] [--out FILE]
 //                                                  compare the rule's base and head arms; the head's run is the base's if not given
-//   context-lab run    <pack> <suite> [--runs N] [--parallel P] [--work DIR]
-//                                                  run a suite on the driven runtimes, to a tallied result
+//   context-lab run    <pack> <suite|experiment> [--runs N] [--parallel P] [--work DIR]
+//                                                  run a suite or experiment on the driven runtimes, to a tallied result
+//   context-lab calibrate <pack> <suite|experiment> --response <file> [--arm ARM] [--out DIR] [--parallel P] [--work DIR]
+//                                                  run fixed-answer judge calibration with zero reader invocations
 //   context-lab resume <pack> <run-dir> [--parallel P] [--work DIR]
 //                                                  resume a run that stopped during execution
 //   context-lab pick   <pack> <run-dir> [--mode calibration|preference] [--count N] [--with ARM] [--without ARM]
@@ -22,10 +24,10 @@
 //                                                  run a review prompt across model families and optionally cross-verify
 
 import fs from "node:fs";
-import { assertIdenticalArms, checkPack, codexAdapter, compare, conductRun, deriveThresholds, entryView, opencodeAdapter, pickRun, readTable, readThresholds, recordExperiment, recordExposure, recordThresholds, previewRun, resolveSuite, resumeRun, runReview, runStatus, unrecordedResults, writeRunCandidates, type LoadedPack } from "./index.js";
+import { assertIdenticalArms, calibrateRun, checkPack, codexAdapter, compare, conductRun, deriveThresholds, entryView, opencodeAdapter, pickRun, readTable, readThresholds, recordExperiment, recordExposure, recordThresholds, previewRun, resolveSuite, resumeRun, runReview, runStatus, unrecordedResults, writeRunCandidates, type LoadedPack } from "./index.js";
 
 const [cmd, packDir, arg, arg2] = process.argv.slice(2);
-const usage = "usage: context-lab check|record|status|suite|entries|expose|thresholds|compare|run|resume|pick|candidates|review|preview <pack> [experiment|suite|scenario|comparison|run-dir] [change|run-dir] [--runs N] [--parallel P] [--work DIR] [--revision REV] [--prompt FILE] [--files PATH,...] [--out DIR] [--members ID,...] [--verify] [--response FILE]";
+const usage = "usage: context-lab check|record|status|suite|entries|expose|thresholds|compare|run|calibrate|resume|pick|candidates|review|preview <pack> [experiment|suite|scenario|comparison|run-dir] [change|run-dir] [--runs N] [--parallel P] [--work DIR] [--revision REV] [--prompt FILE] [--files PATH,...] [--out DIR] [--members ID,...] [--verify] [--response FILE] [--arm ARM]";
 import { runFlags } from "./cli-flags.js";
 const flag = (n: string): string | undefined => { const i = process.argv.indexOf(n); return i > 0 ? process.argv[i + 1] : undefined; };
 const comparisonOf = (l: LoadedPack, id: string) => { const c = (l.pack.comparisons ?? []).find((x) => x.id === id); if (!c) { console.error(`no comparison ${id} in pack ${l.pack.id}`); process.exit(2); } return c; };
@@ -81,16 +83,37 @@ switch (cmd) {
 	}
 	case "entries": { console.log(JSON.stringify(Object.fromEntries(entryView(await load())), null, 2)); break; }
 	case "run": {
-		const { dir, record } = await conductRun(packDir ?? "", { suite: need(arg), adapters: { opencode: opencodeAdapter(), codex: codexAdapter() }, ...runFlags(process.argv) });
+		const l = await load();
+		const target = need(arg);
+		const isSuite = l.pack.suites.some((s) => s.id === target);
+		const { dir, record } = await conductRun(packDir ?? "", {
+			...(isSuite ? { suite: target } : { experiment: target }),
+			adapters: { opencode: opencodeAdapter(), codex: codexAdapter() },
+			...runFlags(process.argv),
+		});
 		console.log(`run ${record.run}: ${record.status} (${record.statusReason}); ${record.cells.length} cell(s); probes ${record.probes.filter((p) => p.pass).length}/${record.probes.length} passed; record at ${dir}`);
+		break;
+	}
+	case "calibrate": {
+		const l = await load();
+		const target = need(arg);
+		const isSuite = l.pack.suites.some((s) => s.id === target);
+		const flags = runFlags(process.argv);
+		const responseFile = need(flags.response);
+		const { dir, record } = await calibrateRun(packDir ?? "", {
+			...(isSuite ? { suite: target } : { experiment: target }),
+			responseFile,
+			adapters: { opencode: opencodeAdapter(), codex: codexAdapter() },
+			...flags,
+		});
+		console.log(`calibrate ${record.run}: ${record.status} (${record.statusReason}); ${record.cells.length} synthetic cell(s); judgeProbes ${record.judgeProbes.filter((p) => p.pass).length}/${record.judgeProbes.length} passed; invocations ${record.invocationSummary?.dispatchedTotal ?? 0}; record at ${dir}`);
 		break;
 	}
 	case "resume": {
 		const flags = runFlags(process.argv);
 		const { dir, record } = await resumeRun(packDir ?? "", need(arg), {
 			adapters: { opencode: opencodeAdapter(), codex: codexAdapter() },
-			...(flags.parallel !== undefined ? { parallel: flags.parallel } : {}),
-			...(flags.work !== undefined ? { work: flags.work } : {}),
+			...flags,
 		});
 		console.log(`resumed ${record.run}: ${record.status} (${record.statusReason}); ${record.cells.length} cell(s); probes ${record.probes.filter((p) => p.pass).length}/${record.probes.length} passed; record at ${dir}`);
 		break;
@@ -109,9 +132,11 @@ switch (cmd) {
 		break;
 	}
 	case "preview": {
-		const outDir = need(flag("--out"));
-		const responseFile = flag("--response"), members = flag("--members"), revision = flag("--revision");
+		const flags = runFlags(process.argv);
+		const outDir = need(flags.out);
+		const responseFile = flags.response, members = flag("--members"), revision = flags.revision;
 		const p = await previewRun(packDir ?? "", need(arg), {
+			...flags,
 			adapters: { opencode: opencodeAdapter(), codex: codexAdapter() }, out: outDir,
 			...(responseFile !== undefined ? { response: fs.readFileSync(responseFile, "utf8") } : {}),
 			...(members !== undefined ? { members: members.split(",").filter(Boolean) } : {}),

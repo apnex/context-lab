@@ -29,12 +29,14 @@ function scripted(runtime: string, answer: Answer = () => outcome("The rootstock
 	return {
 		runtime, rulesFiles: ["AGENTS.md"], modes: ["inline"], network: "detected", filesystem: "open", continue: false, compaction: { onDemand: false, instructionsAfterCompaction: "unknown" }, refuse: () => null, calls,
 		async invoke(inv) {
+			const invocationId = inv.budget ? inv.budget.reserve(inv.role ?? (inv.tools === "on" ? "reader" : "judge"), inv.work) : undefined;
 			calls.push(inv);
-			if (inv.prompt === CANARY_QUESTION) return outcome(inv.arm.canaries.join("\n") || "NONE");
-			if (inv.tools === "off" && isJudgePrompt(inv.prompt)) return outcome(judgeReply(inv.prompt));
-			if (inv.tools === "off") return outcome("I do not know.");
+			const withId = (o: Outcome): Outcome => (invocationId !== undefined ? { ...o, invocationId } : o);
+			if (inv.prompt === CANARY_QUESTION) return withId(outcome(inv.arm.canaries.join("\n") || "NONE"));
+			if (inv.tools === "off" && isJudgePrompt(inv.prompt)) return withId(outcome(judgeReply(inv.prompt)));
+			if (inv.tools === "off") return withId(outcome("I do not know."));
 			fs.writeFileSync(path.join(inv.workspace, "NOTE.txt"), "grafted\n");
-			return answer(inv, calls.filter((c) => c.tools === "on").length);
+			return withId(answer(inv, calls.filter((c) => c.tools === "on").length));
 		},
 	};
 }
@@ -658,5 +660,137 @@ test("maxResponseBytes truncates oversized responses before answer splitting and
 		() => resumeRun(dir, rd, { adapters: { opencode: oc, codex: cx }, work: path.join(scratch(), "other-work") }),
 		/recorded working folder/,
 	);
+});
+
+test("B30: calibrateRun scores a fixed response across all judge families with zero reader invocations, and Experiment.limits + maxTotalInvocations + preview inventory work end to end", async () => {
+	const { calibrateRun, previewRun, runFlags } = await import("../src/index.js");
+	const dir = copyPack();
+	// Configure 3 judge families (f1, f2, f3) and an comprehension scenario with 2 properties.
+	editJson(path.join(dir, "pack.json"), (j) => {
+		j.population = [
+			{ id: "p1", family: "f1", runtime: "opencode", model: "test/m1" },
+			{ id: "p2", family: "f2", runtime: "codex", model: "m2" },
+			{ id: "p3", family: "f3", runtime: "opencode", model: "test/m3" },
+		];
+		j.suites = j.suites.filter((s: { id: string; experiment: string }) => s.experiment === "orchard" && s.id !== "pruning");
+	});
+	editJson(path.join(dir, "experiments", "orchard.json"), (j) => {
+		j.runsPerCell = 3;
+		j.maxAttemptsPerCell = 1;
+		j.maxResponseBytes = 32768;
+		j.scenarios = ["scenarios/graft.json"];
+		j.factors = { arms: ["bare", "almanac"], population: ["p1", "p2", "p3"] };
+		j.judging = { judges: ["p1", "p2", "p3"], outcomesPerPrompt: 1 };
+		j.limits = {
+			readerTimeLimitSeconds: 600,
+			judgeTimeLimitSeconds: 300,
+			probeTimeLimitSeconds: 120,
+			maxProbeAttempts: 2,
+			maxJudgeAttempts: 3,
+			maxReaderInputBytes: 65536,
+			maxJudgeInputBytes: 65536,
+			maxProbeInputBytes: 16384,
+			maxJudgeReplyBytes: 16384,
+			maxProbeReplyBytes: 4096,
+			maxStdoutBytes: 1048576,
+		};
+	});
+	editJson(path.join(dir, "scenarios", "graft.json"), (j) => {
+		j.answerSource = "final";
+		delete j.scoredFile;
+		j.properties = [
+			{ id: "Q1", type: "comprehension", decidedBy: "judge", key: "quince", scale: [0, 2], answerHeading: "Q1", question: "Rootstock?", judgedWith: ["delivered"] },
+			{ id: "Q2", type: "comprehension", decidedBy: "judge", key: "pear", scale: [0, 2], answerHeading: "Q2", question: "Scion?", judgedWith: ["delivered"] },
+		];
+	});
+	commitAll(dir);
+	const checked = await checkPack(dir);
+	if (!checked.ok) throw new Error(checked.defects.map((d) => d.message).join("; "));
+	recordExperiment(checked.loaded, "orchard");
+	commitAll(dir);
+
+	// 1. Preview exposes effectiveLimits and exact assurance + calibration inventories.
+	const previewOut = path.join(scratch(), "preview-b30");
+	const oc = scripted("opencode"), cx = scripted("codex");
+	oc.prepare = (inv) => ({
+		runtime: "opencode", command: ["stub"], env: {}, stdin: null, cwd: inv.workspace,
+		mounts: { install: "stub", writable: [inv.work], readOnly: [] },
+		prompt: { text: inv.prompt, delivery: inv.mode, wrapper: null, bytes: Buffer.byteLength(inv.prompt, "utf8") },
+		controlledInputBytes: Buffer.byteLength(inv.prompt, "utf8"), files: [], notRendered: [], outsideControl: [],
+	});
+	cx.prepare = (inv) => ({
+		runtime: "codex", command: ["stub"], env: {}, stdin: null, cwd: inv.workspace,
+		mounts: { install: "stub", writable: [inv.work], readOnly: [] },
+		prompt: { text: inv.prompt, delivery: inv.mode, wrapper: null, bytes: Buffer.byteLength(inv.prompt, "utf8") },
+		controlledInputBytes: Buffer.byteLength(inv.prompt, "utf8"), files: [], notRendered: [], outsideControl: [],
+	});
+	const pv = await previewRun(dir, "orchard", { adapters: { opencode: oc, codex: cx }, out: previewOut });
+	assert.equal(pv.effectiveLimits.probeTimeLimitSeconds, 120);
+	assert.equal(pv.effectiveLimits.maxProbeAttempts, 2);
+	assert.equal(pv.effectiveLimits.origins.probeTimeLimitSeconds, "experiment");
+	assert.equal(pv.inventory.judgeProbes.questions, 6); // 3 judges * (1 canary + 1 leak)
+	assert.equal(pv.inventory.calibration.judgeJobs, 6); // 2 answer units * 3 judge families (outcomesPerPrompt: 1)
+	assert.equal(pv.inventory.calibration.firstAttempt, 12);
+	assert.equal(pv.inventory.calibration.maxAttempts, 6 * 2 + 6 * 3);
+
+	// 2. calibrateRun runs zero reader calls and zero reader probes, and all 3 families judge every unit.
+	const respFile = path.join(scratch(), "fixed-answers.md");
+	fs.writeFileSync(respFile, "### Q1\nThe rootstock is quince.\n\n### Q2\nThe scion is pear.\n");
+	const calOut = path.join(scratch(), "cal-record");
+	const ocCal = scripted("opencode"), cxCal = scripted("codex");
+	const { record: calRec } = await calibrateRun(dir, {
+		experiment: "orchard",
+		responseFile: respFile,
+		out: calOut,
+		adapters: { opencode: ocCal, codex: cxCal },
+		work: path.join(scratch(), "cal-work"),
+		parallel: 2,
+	});
+	assert.equal(calRec.mode, "calibrate");
+	assert.equal(calRec.status, "exploration");
+	assert.equal(calRec.probes.length, 0, "calibrateRun must not run reader probes");
+	assert.equal(calRec.judgeProbes.length, 3);
+	assert.equal(ocCal.calls.filter((c) => c.tools === "on").length + cxCal.calls.filter((c) => c.tools === "on").length, 0, "calibrateRun must make zero reader calls");
+	assert.equal(calRec.invocationSummary?.dispatchedByRole.reader, 0);
+	assert.equal(calRec.invocationSummary?.dispatchedByRole.readerProbe, 0);
+	const calVotes = JSON.parse(fs.readFileSync(path.join(calOut, "judging", "votes.json"), "utf8")) as { unit: string; property: string; judge: string; family: string; value: number | null }[];
+	assert.equal(calVotes.length, 6, "all 3 judge families must cast a vote on each of the 2 answer units");
+	assert.deepEqual([...new Set(calVotes.map((v) => v.family))].sort(), ["f1", "f2", "f3"]);
+	const calCell = JSON.parse(fs.readFileSync(path.join(calOut, "cells", `${calRec.cells[0]}.json`), "utf8")) as CellRecord;
+	assert.equal(calCell.syntheticCalibration, true);
+	assert.equal(calCell.fixedResponse?.bytes, Buffer.byteLength(fs.readFileSync(respFile, "utf8")));
+
+	// 3. Overriding a registered limit downgrades status from result to exploration, and maxTotalInvocations marks an exhausted run incomplete.
+	const { record: expRec } = await conductRun(dir, {
+		experiment: "orchard",
+		runsPerCell: 1,
+		maxTotalInvocations: 10, // Only enough for probes, not all cells + judges
+		adapters: { opencode: scripted("opencode"), codex: scripted("codex") },
+		work: path.join(scratch(), "lim-work"),
+		records: path.join(scratch(), "lim-records"),
+		parallel: 1,
+	});
+	assert.equal(expRec.status, "exploration");
+	assert.equal(expRec.effectiveLimits?.origins.maxTotalInvocations, "override");
+	assert.equal(expRec.end, "incomplete");
+	assert.ok((expRec.missingWork?.cells.length ?? 0) > 0 || (expRec.missingWork?.judgeJobs.length ?? 0) > 0);
+
+	// 4. CLI flags parse all new execution control flags.
+	const flags = runFlags([
+		"node", "cli.js", "calibrate", dir, "orchard",
+		"--response", respFile, "--arm", "almanac", "--out", calOut,
+		"--reader-timeout", "500", "--judge-timeout", "250", "--probe-timeout", "90",
+		"--max-probe-attempts", "2", "--max-judge-attempts", "1",
+		"--max-reader-input-bytes", "40000", "--max-judge-input-bytes", "30000", "--max-probe-input-bytes", "8000",
+		"--max-judge-reply-bytes", "8192", "--max-probe-reply-bytes", "2048",
+		"--max-stdout-bytes", "524288", "--max-total-invocations", "66",
+	]);
+	assert.equal(flags.readerTimeLimitSeconds, 500);
+	assert.equal(flags.judgeTimeLimitSeconds, 250);
+	assert.equal(flags.probeTimeLimitSeconds, 90);
+	assert.equal(flags.maxProbeAttempts, 2);
+	assert.equal(flags.maxJudgeAttempts, 1);
+	assert.equal(flags.maxStdoutBytes, 524288);
+	assert.equal(flags.maxTotalInvocations, 66);
 });
 

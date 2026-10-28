@@ -19,6 +19,82 @@ import { runSandboxed, type SandboxResult, type SandboxSpec } from "./runtime-sa
 
 export type DeliveryMode = "inline" | "attachment" | "stdin" | "file-pointer";
 
+export type InvocationRole = "readerProbe" | "judgeProbe" | "reader" | "judge";
+
+export interface InvocationRefusalRecord {
+	role: InvocationRole;
+	work: string;
+	reason: "input-bytes" | "budget-exhausted" | "adapter-refused";
+	message: string;
+	controlledInputBytes?: number;
+	maxInputBytes?: number;
+}
+
+export interface InvocationSummary {
+	maxTotalInvocations: number | null;
+	dispatchedTotal: number;
+	dispatchedByRole: Record<InvocationRole, number>;
+	refusedPreDispatch: InvocationRefusalRecord[];
+	exhausted: boolean;
+}
+
+/** Shared pre-dispatch invocation counter and ceiling for a run (0040, B30). */
+export class InvocationBudget {
+	private nextId = 1;
+	private readonly byRole: Record<InvocationRole, number> = { readerProbe: 0, judgeProbe: 0, reader: 0, judge: 0 };
+	private readonly refusals: InvocationRefusalRecord[] = [];
+	private hitCeiling = false;
+
+	constructor(public readonly maxTotalInvocations: number | null = null, seed?: InvocationSummary) {
+		if (seed) {
+			this.nextId = seed.dispatchedTotal + 1;
+			this.byRole.readerProbe = seed.dispatchedByRole.readerProbe ?? 0;
+			this.byRole.judgeProbe = seed.dispatchedByRole.judgeProbe ?? 0;
+			this.byRole.reader = seed.dispatchedByRole.reader ?? 0;
+			this.byRole.judge = seed.dispatchedByRole.judge ?? 0;
+			this.refusals.push(...(seed.refusedPreDispatch ?? []));
+			this.hitCeiling = seed.exhausted ?? false;
+		}
+	}
+
+	reserve(role: InvocationRole, work: string): number {
+		const total = this.dispatchedTotal();
+		if (this.maxTotalInvocations !== null && total >= this.maxTotalInvocations) {
+			this.hitCeiling = true;
+			const msg = `maxTotalInvocations (${this.maxTotalInvocations}) reached before dispatching ${role} at ${work}`;
+			this.refusals.push({ role, work, reason: "budget-exhausted", message: msg });
+			throw new BudgetExhausted(msg);
+		}
+		this.byRole[role] += 1;
+		return this.nextId++;
+	}
+
+	recordRefusal(rec: InvocationRefusalRecord): void {
+		this.refusals.push(rec);
+		if (rec.reason === "budget-exhausted") this.hitCeiling = true;
+	}
+
+	dispatchedTotal(): number {
+		return this.byRole.readerProbe + this.byRole.judgeProbe + this.byRole.reader + this.byRole.judge;
+	}
+
+	isExhausted(): boolean {
+		return this.hitCeiling || (this.maxTotalInvocations !== null && this.dispatchedTotal() >= this.maxTotalInvocations);
+	}
+
+	summary(): InvocationSummary {
+		return {
+			maxTotalInvocations: this.maxTotalInvocations,
+			dispatchedTotal: this.dispatchedTotal(),
+			dispatchedByRole: { ...this.byRole },
+			refusedPreDispatch: [...this.refusals],
+			exhausted: this.hitCeiling,
+		};
+	}
+}
+
+export class BudgetExhausted extends Error {}
+
 export interface Invocation {
 	arm: ComposedArm;
 	workspace: string;
@@ -29,6 +105,14 @@ export interface Invocation {
 	/** When true (requires tools: "on"), permits local socket creation in runtimes whose workspace sandbox blocks it (Codex). */
 	sockets?: boolean;
 	timeLimitSeconds: number;
+	/** Optional pre-dispatch UTF-8 byte ceiling on evaluator-controlled input (prompt + wrapper + delivered instructions and folderFiles). */
+	maxInputBytes?: number;
+	/** Optional UTF-8 byte ceiling on child stdout captured per runtime invocation before SIGKILL and overflow marking. */
+	maxStdoutBytes?: number;
+	/** Optional role for InvocationBudget accounting. */
+	role?: InvocationRole;
+	/** Optional shared InvocationBudget that reserves an invocationId before spawning the runtime. */
+	budget?: InvocationBudget;
 	/** An empty folder for this invocation alone: configuration, home, events. */
 	work: string;
 	/** Continue an earlier invocation's session: its id, its folder, and its workspace, which this invocation must share. */
@@ -95,6 +179,8 @@ export interface PreparedInvocation {
 	mounts: { install: string; writable: string[]; readOnly: string[] };
 	/** The prompt, how it is delivered, and the fixed text sent beside it, if any. */
 	prompt: { text: string; delivery: DeliveryMode; wrapper: string | null; bytes: number };
+	/** Total UTF-8 bytes of evaluator-controlled prepared input (prompt + wrapper + delivered instructions and folderFiles). */
+	controlledInputBytes?: number;
 	files: PreparedFile[];
 	/** What a live invocation adds that this rendering does not: copies of credentials and caches, a continued session. */
 	notRendered: string[];
@@ -103,6 +189,41 @@ export interface PreparedInvocation {
 }
 
 const fileOf = (p: string, role: string): PreparedFile => { const text = fs.readFileSync(p, "utf8"); return { path: p, role, bytes: Buffer.byteLength(text, "utf8"), text }; };
+
+/**
+ * Computes the UTF-8 byte count of all evaluator-controlled input prepared for an invocation:
+ * the prompt text, any adapter attachment wrapper, all delivered instruction files (as written
+ * into the invocation's configuration or instruction directory), and when tools are on, any
+ * arm-delivered workspace folderFiles (`inv.arm.folderFiles`). Excludes runtime base prompts,
+ * tool schemas, and provider framing (`outsideControl`).
+ */
+export function measureControlledInputBytes(inv: Invocation, instructionBytes: number, wrapper: string | null): number {
+	const promptBytes = Buffer.byteLength(inv.prompt, "utf8");
+	const wrapperBytes = wrapper ? Buffer.byteLength(wrapper, "utf8") : 0;
+	let folderFileBytes = 0;
+	if (inv.tools === "on") {
+		for (const f of inv.arm.folderFiles) {
+			if (fs.existsSync(f.path)) folderFileBytes += fs.statSync(f.path).size;
+		}
+	}
+	return promptBytes + wrapperBytes + instructionBytes + folderFileBytes;
+}
+
+function enforcePreDispatchGates(inv: Invocation, controlledInputBytes: number): number | undefined {
+	if (inv.maxInputBytes !== undefined && controlledInputBytes > inv.maxInputBytes) {
+		const msg = `controlled input (${controlledInputBytes} bytes) exceeds maxInputBytes (${inv.maxInputBytes} bytes)`;
+		inv.budget?.recordRefusal({
+			role: inv.role ?? "reader",
+			work: inv.work,
+			reason: "input-bytes",
+			message: msg,
+			controlledInputBytes,
+			maxInputBytes: inv.maxInputBytes,
+		});
+		throw new Refused(msg);
+	}
+	return inv.budget ? inv.budget.reserve(inv.role ?? "reader", inv.work) : undefined;
+}
 
 function readVersion(binary: string): string | null {
 	try {
@@ -266,6 +387,14 @@ export function opencodeAdapter(opts: OpencodeOptions = {}): Adapter {
 		},
 		async invoke(inv) {
 			const b = build(inv, true);
+			let invocationId: number | undefined;
+			try {
+				invocationId = enforcePreDispatchGates(inv, b.controlledInputBytes);
+			} catch (err) {
+				fs.rmSync(path.join(inv.work, "cache"), { recursive: true, force: true });
+				fs.rmSync(b.home, { recursive: true, force: true });
+				throw err;
+			}
 			const r = await runSandboxed(b.spec);
 			// opencode installs packages into its configuration folder and the home's npm cache on every
 			// invocation, and the cache copy is about 150 MB: none is part of any record, so all go as
@@ -275,7 +404,10 @@ export function opencodeAdapter(opts: OpencodeOptions = {}): Adapter {
 			for (const f of fs.readdirSync(path.join(b.xdg, "opencode"))) if (f !== "opencode.json") fs.rmSync(path.join(b.xdg, "opencode", f), { recursive: true, force: true });
 			removeLogins(path.join(inv.work, "data"));
 			const events = writeEvents(inv, r, b.secrets);
-			return scrubOutcome(parseOpencode(r.lines, { workspace: inv.workspace, home: b.home, exit: r.exit, signal: r.signal, timedOut: r.timedOut, seconds: r.seconds, events }), b.secrets);
+			const out = scrubOutcome(parseOpencode(r.lines, { workspace: inv.workspace, home: b.home, exit: r.exit, signal: r.signal, timedOut: r.timedOut, ...(r.stdoutTruncated !== undefined ? { stdoutTruncated: r.stdoutTruncated } : {}), ...(r.capturedStdoutBytes !== undefined ? { capturedStdoutBytes: r.capturedStdoutBytes } : {}), seconds: r.seconds, events }), b.secrets);
+			return invocationId !== undefined || inv.maxInputBytes !== undefined
+				? { ...out, ...(invocationId !== undefined ? { invocationId } : {}), controlledInputBytes: b.controlledInputBytes }
+				: out;
 		},
 		prepare(inv) {
 			const b = build(inv, false);
@@ -286,6 +418,7 @@ export function opencodeAdapter(opts: OpencodeOptions = {}): Adapter {
 				runtime: "opencode", command: b.spec.command, env: b.shownEnv, stdin: b.spec.stdin, cwd: b.spec.cwd,
 				mounts: { install: b.spec.install, writable: b.spec.writable, readOnly: b.spec.readOnly },
 				prompt: { text: inv.prompt, delivery: inv.mode, wrapper: inv.mode === "attachment" ? ATTACHMENT_WRAPPER : null, bytes: Buffer.byteLength(inv.prompt, "utf8") },
+				controlledInputBytes: b.controlledInputBytes,
 				files,
 				notRendered: [
 					"the operator's opencode cache, copied into cache/opencode before a live invocation: packages and model metadata, no prompt text",
@@ -339,8 +472,10 @@ export function opencodeAdapter(opts: OpencodeOptions = {}): Adapter {
 		// opencode caps every reply at 32,000 tokens, or at this, whichever is lower than the model's own
 		// limit.output; the cap is declared by the member in the pack, never read from the operator's shell.
 		if (inv.member.settings?.["outputTokenMax"] !== undefined) runEnv["OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX"] = shownEnv["OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX"] = String(inv.member.settings["outputTokenMax"]);
-		const spec: SandboxSpec = { install: binary, writable: [inv.work, inv.workspace], readOnly: onRequest, home, cwd: inv.workspace, command: [binary, ...args], env: runEnv, stdin: null, timeLimitSeconds: inv.timeLimitSeconds };
-		return { spec, home, xdg, secrets, shownEnv, instructions, credentialVars: p.credentialVars, redacted: JSON.stringify(redactProvider(p.block)) !== JSON.stringify(p.block) };
+		const instructionBytes = instructions.reduce((sum, f) => sum + fs.statSync(f.path).size, 0);
+		const controlledInputBytes = measureControlledInputBytes(inv, instructionBytes, inv.mode === "attachment" ? ATTACHMENT_WRAPPER : null);
+		const spec: SandboxSpec = { install: binary, writable: [inv.work, inv.workspace], readOnly: onRequest, home, cwd: inv.workspace, command: [binary, ...args], env: runEnv, stdin: null, timeLimitSeconds: inv.timeLimitSeconds, ...(inv.maxStdoutBytes !== undefined ? { maxStdoutBytes: inv.maxStdoutBytes } : {}) };
+		return { spec, home, xdg, secrets, shownEnv, instructions, controlledInputBytes, credentialVars: p.credentialVars, redacted: JSON.stringify(redactProvider(p.block)) !== JSON.stringify(p.block) };
 	}
 	return adapter;
 }
@@ -418,13 +553,24 @@ export function codexAdapter(opts: CodexOptions = {}): Adapter {
 		},
 		async invoke(inv) {
 			const b = build(inv, true);
+			let invocationId: number | undefined;
+			try {
+				invocationId = enforcePreDispatchGates(inv, b.controlledInputBytes);
+			} catch (err) {
+				fs.rmSync(path.join(b.codexHome, "auth.json"), { force: true });
+				fs.rmSync(b.home, { recursive: true, force: true });
+				throw err;
+			}
 			const r = await runSandboxed(b.spec);
 			// The login copy and Codex's own databases are removed, so no run record carries them.
 			fs.rmSync(path.join(b.codexHome, "auth.json"), { force: true });
 			fs.rmSync(b.home, { recursive: true, force: true });
 			for (const f of fs.readdirSync(b.codexHome)) if (/\.sqlite(-shm|-wal)?$/.test(f)) fs.rmSync(path.join(b.codexHome, f), { force: true });
 			const events = writeEvents(inv, r, b.secrets);
-			return scrubOutcome(parseCodex(r.lines, { workspace: b.workspace, home: b.home, exit: r.exit, signal: r.signal, timedOut: r.timedOut, seconds: r.seconds, events }), b.secrets);
+			const out = scrubOutcome(parseCodex(r.lines, { workspace: b.workspace, home: b.home, exit: r.exit, signal: r.signal, timedOut: r.timedOut, ...(r.stdoutTruncated !== undefined ? { stdoutTruncated: r.stdoutTruncated } : {}), ...(r.capturedStdoutBytes !== undefined ? { capturedStdoutBytes: r.capturedStdoutBytes } : {}), seconds: r.seconds, events }), b.secrets);
+			return invocationId !== undefined || inv.maxInputBytes !== undefined
+				? { ...out, ...(invocationId !== undefined ? { invocationId } : {}), controlledInputBytes: b.controlledInputBytes }
+				: out;
 		},
 		prepare(inv) {
 			const b = build(inv, false);
@@ -432,6 +578,7 @@ export function codexAdapter(opts: CodexOptions = {}): Adapter {
 				runtime: "codex", command: b.spec.command, env: b.spec.env, stdin: b.spec.stdin, cwd: b.spec.cwd,
 				mounts: { install: b.spec.install, writable: b.spec.writable, readOnly: b.spec.readOnly },
 				prompt: { text: inv.prompt, delivery: inv.mode, wrapper: null, bytes: Buffer.byteLength(inv.prompt, "utf8") },
+				controlledInputBytes: b.controlledInputBytes,
 				files: [
 					fileOf(path.join(b.codexHome, "config.toml"), "Codex configuration: approval, sandbox, features off, and the instruction files as developer_instructions"),
 					{ path: path.join(b.codexHome, "auth.json"), role: "the operator's Codex login, copied before a live invocation; a credential, not rendered", bytes: null, text: null },
@@ -487,11 +634,12 @@ export function codexAdapter(opts: CodexOptions = {}): Adapter {
 			? ["exec", "resume", ...common, inv.continueFrom.session, inv.prompt]
 			: ["exec", ...common, "-C", workspace, inv.mode === "stdin" ? "-" : inv.prompt];
 		const secrets = live ? authSecrets(auth) : [];
+		const controlledInputBytes = measureControlledInputBytes(inv, Buffer.byteLength(dev, "utf8"), null);
 		const spec: SandboxSpec = {
 			install: vendor, writable: inv.tools === "off" ? [inv.work] : [inv.work, inv.workspace], readOnly: inv.tools === "off" ? [] : inv.arm.onRequest.map((o) => o.path), home, cwd: workspace,
-			command: [binary, ...args], env: { PATH: sandboxPath(), PWD: workspace, HOME: home, CODEX_HOME: codexHome }, stdin: inv.mode === "stdin" ? inv.prompt : null, timeLimitSeconds: inv.timeLimitSeconds,
+			command: [binary, ...args], env: { PATH: sandboxPath(), PWD: workspace, HOME: home, CODEX_HOME: codexHome }, stdin: inv.mode === "stdin" ? inv.prompt : null, timeLimitSeconds: inv.timeLimitSeconds, ...(inv.maxStdoutBytes !== undefined ? { maxStdoutBytes: inv.maxStdoutBytes } : {}),
 		};
-		return { spec, home, codexHome, workspace, secrets };
+		return { spec, home, codexHome, workspace, secrets, controlledInputBytes };
 	}
 	return adapter;
 }
@@ -543,7 +691,10 @@ export function externalAdapter(opts: ExternalOptions = {}): Adapter {
 		},
 		async invoke(inv) {
 			const { instr } = prepare(inv, adapter);
-			copyInstructions(inv.arm, instr);
+			const instructions = copyInstructions(inv.arm, instr);
+			const instructionBytes = instructions.reduce((sum, f) => sum + fs.statSync(f.path).size, 0);
+			const controlledInputBytes = measureControlledInputBytes(inv, instructionBytes, null);
+			const invocationId = enforcePreDispatchGates(inv, controlledInputBytes);
 			fs.writeFileSync(path.join(inv.work, "prompt.md"), inv.prompt);
 			fs.writeFileSync(path.join(inv.work, "on-request.txt"), inv.arm.onRequest.map((o) => o.path + "\n").join(""));
 			fs.writeFileSync(path.join(inv.work, "workspace.txt"), inv.workspace + "\n");
@@ -560,6 +711,7 @@ export function externalAdapter(opts: ExternalOptions = {}): Adapter {
 				stop: { reason: got ? "completed" : "timeout", inFlight: "none" },
 				cost: { seconds: (Date.now() - started) / 1000, inputTokens: null, cachedInputTokens: null, outputTokens: null, toolCalls: 0 },
 				tools: [], filtered: false, error: null, session: null, trace: [], events,
+				...(invocationId !== undefined || inv.maxInputBytes !== undefined ? { ...(invocationId !== undefined ? { invocationId } : {}), controlledInputBytes } : {}),
 			};
 		},
 	};

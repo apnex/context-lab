@@ -123,3 +123,45 @@ test("leak patterns are matched without regard to case", async () => {
 	const r = await probeArm(loaded, bare, member, scripted(() => outcome("ELEVEN, I believe.")), opts());
 	assert.equal(r.pass, false);
 });
+
+test("B30: probeArm retains per-attempt history, enforces maxAttempts, maxReplyBytes, stdoutTruncated ineligibility, and sticky violation across retries", async () => {
+	const { loaded, bare } = await setup();
+	// 1. Sticky leak violation: attempt 1 leaks AND uses a tool (or exceeds maxReplyBytes), attempt 2 returns a clean short reply -> probe still fails with leak!
+	const tool = { name: "command_execution", input: "cat file", status: "completed" as const, paths: [], addresses: [] };
+	let step = 0;
+	const leakyThenClean = scripted((inv) => {
+		if (!inv.prompt.includes("heron count")) return outcome("NONE");
+		step++;
+		if (step === 1) return outcome("It counts eleven stones.", { tools: [tool] });
+		return outcome("I do not know.");
+	});
+	const rSticky = await probeArm(loaded, bare, member, leakyThenClean, { ...opts(), maxAttempts: 2 });
+	assert.equal(rSticky.pass, false);
+	const heronAns = rSticky.answers.find((a) => a.probe === "heron")!;
+	assert.equal(heronAns.finding, "leak");
+	assert.equal(heronAns.history?.length, 1, "a detected leak stops retrying immediately and stays sticky");
+	assert.equal(heronAns.history![0]!.finding, "leak");
+	assert.equal(heronAns.history![0]!.eligible, false);
+	assert.equal(heronAns.history![0]!.ineligibleReason, "tool-call");
+
+	// 2. maxReplyBytes rejects an oversized clean reply on attempt 1, then accepts an in-bound reply on attempt 2; history records both.
+	let sizeTries = 0;
+	const sizeAdapter = scripted((inv) => {
+		if (!inv.prompt.includes("heron count")) return outcome("NONE");
+		sizeTries++;
+		return sizeTries === 1 ? outcome("I do not know. ".repeat(30)) : outcome("I do not know.");
+	});
+	const rSize = await probeArm(loaded, bare, member, sizeAdapter, { ...opts(), maxAttempts: 2, maxReplyBytes: 50 });
+	assert.equal(rSize.pass, true);
+	const heronSize = rSize.answers.find((a) => a.probe === "heron")!;
+	assert.equal(heronSize.attempts, 2);
+	assert.equal(heronSize.history?.length, 2);
+	assert.equal(heronSize.history![0]!.ineligibleReason, "reply-bytes-exceeded");
+	assert.equal(heronSize.history![1]!.eligible, true);
+
+	// 3. stdoutTruncated attempt is ineligible ("stdout-overflow") and usageComplete: false.
+	const rOverflow = await probeArm(loaded, bare, member, scripted(() => outcome("NONE", { stdoutTruncated: true, capturedStdoutBytes: 100, usageComplete: false })), { ...opts(), maxAttempts: 1 });
+	assert.equal(rOverflow.pass, false);
+	assert.equal(rOverflow.answers[0]!.history![0]!.ineligibleReason, "stdout-overflow");
+	assert.equal(rOverflow.answers[0]!.history![0]!.usageComplete, false);
+});

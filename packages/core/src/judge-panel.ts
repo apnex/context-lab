@@ -18,7 +18,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import type { Adapter, DeliveryMode, Invocation } from "./adapters.js";
+import { BudgetExhausted, Refused, type Adapter, type DeliveryMode, type Invocation, type InvocationBudget } from "./adapters.js";
 import type { ComposedArm } from "./arm-composer.js";
 import { shuffle, type Unit } from "./blinder.js";
 import type { Outcome } from "./outcome.js";
@@ -40,25 +40,34 @@ export interface Vote {
 
 export interface JudgeReplyRecord {
 	attempt: number;
+	invocationId?: number | null;
 	prompt: string;
+	promptBytes?: number;
+	controlledInputBytes?: number | null;
 	local: Record<string, string>;
 	work?: string;
+	dispatched?: boolean;
+	refusalReason?: "input-bytes" | "budget-exhausted" | "adapter-refused" | null;
 	eligible: boolean;
 	ineligibleReason: string | null;
 	final: string;
+	replyBytes?: number;
 	tools: number;
 	error: string | null;
 	outcome: Outcome | null;
 }
 
-/** Whether a judge invocation is eligible to cast votes: zero tools, clean exit (0), completed stop, not filtered, no error, and non-empty reply. */
-export function judgeEligible(out: Outcome): { eligible: boolean; reason: string | null } {
+/** Whether a judge invocation is eligible to cast votes: zero tools, clean exit (0), completed stop, not filtered, not stdoutTruncated, no error, non-empty reply, and within maxReplyBytes. */
+export function judgeEligible(out: Outcome, maxReplyBytes?: number): { eligible: boolean; reason: string | null } {
 	if (out.tools.length > 0) return { eligible: false, reason: `used ${out.tools.length} tool(s)` };
 	if (out.filtered || out.error?.cause === "filter") return { eligible: false, reason: "blocked by content filter" };
+	if (out.stdoutTruncated) return { eligible: false, reason: `stdout exceeded maxStdoutBytes (${out.capturedStdoutBytes ?? 0} bytes retained)` };
 	if (out.error !== null) return { eligible: false, reason: `error (${out.error.cause}): ${out.error.message.slice(0, 200)}` };
 	if (out.stop.reason !== "completed") return { eligible: false, reason: `stop reason ${out.stop.reason}` };
 	if (out.exit !== 0) return { eligible: false, reason: `exit ${String(out.exit)}` };
 	if (out.final.trim() === "") return { eligible: false, reason: "empty reply" };
+	const replyBytes = Buffer.byteLength(out.final, "utf8");
+	if (maxReplyBytes !== undefined && replyBytes > maxReplyBytes) return { eligible: false, reason: `reply (${replyBytes} bytes) exceeds maxJudgeReplyBytes (${maxReplyBytes} bytes)` };
 	return { eligible: true, reason: null };
 }
 
@@ -193,6 +202,16 @@ export interface PanelOptions {
 	seed: string;
 	timeLimitSeconds: number;
 	parallel: number;
+	/** Maximum attempts per judge job (1, 2 or 3; default 3). */
+	maxAttempts?: 1 | 2 | 3;
+	/** Pre-dispatch UTF-8 byte ceiling on evaluator-controlled judge input. */
+	maxInputBytes?: number;
+	/** Post-generation UTF-8 byte eligibility ceiling on raw judge reply (`Outcome.final`). */
+	maxReplyBytes?: number;
+	/** Maximum UTF-8 bytes of child stdout captured per judge invocation. */
+	maxStdoutBytes?: number;
+	/** Shared run invocation budget. */
+	budget?: InvocationBudget;
 }
 
 async function pool<T>(items: T[], n: number, fn: (t: T) => Promise<void>): Promise<void> {
@@ -240,16 +259,18 @@ export const judgeInvocation = (judge: Member, adapter: Pick<Adapter, "modes">, 
 );
 
 export async function judgeAll(o: PanelOptions): Promise<Vote[]> {
+	const maxAttempts = o.maxAttempts ?? 3;
 	const jobs = planJudgeJobs(o);
 	const votes: Vote[] = [];
 	fs.mkdirSync(path.join(o.recordsDir, "judging"), { recursive: true });
 	await pool(jobs, o.parallel, async (job) => {
 		const record: { prompt: string; replies: JudgeReplyRecord[]; failure?: string } = { prompt: "", replies: [] };
 		let got: Vote[] = [];
+		let sawTool = false;
 		try {
 			const adapter = o.adapters[job.judge.runtime];
 			if (!adapter) throw new Error(`no adapter for judge runtime ${job.judge.runtime}`);
-			for (let attempt = 1; attempt <= 3; attempt++) {
+			for (let attempt = 1; attempt <= maxAttempts; attempt++) {
 				const pending = job.units.filter((u) => !got.some((v) => v.unit === u.id));
 				if (!pending.length) break;
 				const { text, local } = judgePrompt(o.experiment, job, pending, o.guessOptions);
@@ -258,38 +279,87 @@ export async function judgeAll(o: PanelOptions): Promise<Vote[]> {
 				fs.mkdirSync(path.join(o.work, "judging", "invocations"), { recursive: true });
 				const inv = fs.mkdtempSync(path.join(o.work, "judging", "invocations", "j-"));
 				fs.rmdirSync(inv);
-				const invocation = judgeInvocation(job.judge, adapter, text, ws.dir, inv, o.timeLimitSeconds);
+				const invocation: Invocation = {
+					...judgeInvocation(job.judge, adapter, text, ws.dir, inv, o.timeLimitSeconds),
+					...(o.maxInputBytes !== undefined ? { maxInputBytes: o.maxInputBytes } : {}),
+					...(o.maxStdoutBytes !== undefined ? { maxStdoutBytes: o.maxStdoutBytes } : {}),
+					...(o.budget !== undefined ? { budget: o.budget } : {}),
+					role: "judge",
+				};
 				const localMap = Object.fromEntries([...local.entries()].map(([k, u]) => [k, u.id]));
 				const entry: JudgeReplyRecord = {
-					attempt, prompt: text, local: localMap, work: inv,
-					eligible: false, ineligibleReason: "invocation did not complete",
-					final: "", tools: 0, error: null, outcome: null,
+					attempt,
+					invocationId: null,
+					prompt: text,
+					promptBytes: Buffer.byteLength(text, "utf8"),
+					controlledInputBytes: null,
+					local: localMap,
+					work: inv,
+					dispatched: false,
+					refusalReason: null,
+					eligible: false,
+					ineligibleReason: "invocation did not complete",
+					final: "",
+					replyBytes: 0,
+					tools: 0,
+					error: null,
+					outcome: null,
 				};
 				record.replies.push(entry);
-				const out = await adapter.invoke(invocation);
-				const elig = judgeEligible(out);
+				let out: Outcome;
+				try {
+					out = await adapter.invoke(invocation);
+				} catch (err) {
+					const isBudget = err instanceof BudgetExhausted;
+					const isInput = err instanceof Refused && /exceeds maxInputBytes/.test(err.message);
+					entry.refusalReason = isBudget ? "budget-exhausted" : isInput ? "input-bytes" : "adapter-refused";
+					const msg = err instanceof Error ? err.message : String(err);
+					entry.ineligibleReason = `refused before dispatch (${entry.refusalReason}): ${msg}`;
+					entry.error = msg;
+					record.failure = entry.ineligibleReason;
+					// Pre-dispatch refusal (oversized input or exhausted invocation ceiling) never retries unchanged input.
+					break;
+				}
+				entry.dispatched = true;
+				entry.invocationId = out.invocationId ?? null;
+				entry.controlledInputBytes = out.controlledInputBytes ?? null;
+				const elig = judgeEligible(out, o.maxReplyBytes);
 				entry.eligible = elig.eligible;
 				entry.ineligibleReason = elig.reason;
 				entry.final = out.final;
+				entry.replyBytes = Buffer.byteLength(out.final, "utf8");
 				entry.tools = out.tools.length;
 				entry.error = out.error?.message ?? null;
 				entry.outcome = out;
-				if (!elig.eligible) continue;
+				if (out.tools.length > 0) {
+					sawTool = true;
+					record.failure = `used ${out.tools.length} tool(s) during judge attempt ${attempt}`;
+					// Sticky violation rule (0040, B30): a tool call by a tools-off judge invalidates the job.
+					got = [];
+					break;
+				}
+				if (!elig.eligible) {
+					if (o.budget?.isExhausted()) break;
+					continue;
+				}
 				const reply = job.answers ? parseAnswerReply(out.final) : parseOutcomeReply(out.final);
 				got = [...got, ...validate(reply, local, job.scenario, job.judge, job.name, job.answers ? [] : o.guessOptions, attempt)];
+				if (o.budget?.isExhausted()) break;
 			}
 		} catch (e) {
 			record.failure = String(e).slice(0, 1000);
 			const lastReply = record.replies[record.replies.length - 1];
-			if (lastReply && lastReply.outcome === null) {
+			if (lastReply && lastReply.outcome === null && !lastReply.refusalReason) {
 				lastReply.ineligibleReason = `invocation threw: ${record.failure}`;
 				lastReply.error = record.failure;
 			}
 		}
+		if (sawTool) got = [];
 		fs.writeFileSync(path.join(o.recordsDir, "judging", `${job.name}.json`), JSON.stringify(record, null, 2) + "\n");
 		votes.push(...got);
+		const exhaustedReason = maxAttempts === 1 ? "no valid vote after one prompt" : maxAttempts === 2 ? "no valid vote after two prompts" : "no valid vote after three prompts";
 		for (const u of job.units) for (const pid of u.properties) {
-			if (!got.some((v) => v.unit === u.id && v.property === pid)) votes.push({ unit: u.id, property: pid, judge: job.judge.id, family: job.judge.family, value: null, reason: record.failure ?? "no valid vote after three prompts", guess: null, prompt: job.name, attempt: null });
+			if (!got.some((v) => v.unit === u.id && v.property === pid)) votes.push({ unit: u.id, property: pid, judge: job.judge.id, family: job.judge.family, value: null, reason: record.failure ?? exhaustedReason, guess: null, prompt: job.name, attempt: null });
 		}
 	});
 	return votes.sort((a, b) => `${a.unit}.${a.property}.${a.judge}`.localeCompare(`${b.unit}.${b.property}.${b.judge}`));

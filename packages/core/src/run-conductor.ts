@@ -9,12 +9,13 @@
 // Variants and workspaces live in a working folder of the operator's, outside the pack and its
 // records, because agents must never see either; the run record holds what was recorded about them.
 
+import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Adapter } from "./adapters.js";
+import { InvocationBudget, type Adapter, type InvocationSummary } from "./adapters.js";
 import { composeArm, type ComposedArm } from "./arm-composer.js";
 import { checkPack, selectScenarios } from "./pack-checker.js";
 import { measure, type CodeScore } from "./code-measurer.js";
@@ -22,7 +23,7 @@ import { runStatus, contentHash, type Record as RegisterRecord } from "./experim
 import { probeArm, type ProbeResult } from "./isolation-prober.js";
 import { boundUtf8, extractAnswer, stripSelfExplanation, type AnswerExtraction, type ResponseBoundRecord } from "./answer-parser.js";
 import type { Outcome } from "./outcome.js";
-import type { DeliveryKind, Experiment, LoadedPack, Member, Scenario, Status } from "./pack-schema.js";
+import { resolveEffectiveLimits, type DeliveryKind, type EffectiveLimits, type Experiment, type LimitOverrides, type LoadedPack, type Member, type Scenario, type Status } from "./pack-schema.js";
 import { runPhase } from "./phase-driver.js";
 import { buildVariant, makeReadOnly, makeWritable, opaqueName, variantDir, variantManifestFile, VARIANT_MANIFEST, type BuiltVariant, type VariantManifest } from "./variant-builder.js";
 import { classify, forbiddenPathsNamed, RERUN, type Validity } from "./validity-classifier.js";
@@ -44,7 +45,7 @@ const EMPTY_OUTCOME: Outcome = { final: "", exit: null, signal: null, stop: { re
 export const STATES = ["validated", "recorded", "built", "probed", "executed", "measured", "blinded", "judged", "tallied"] as const;
 export type State = (typeof STATES)[number] | "picked" | "candidates-written";
 
-export interface RunOptions {
+export interface RunOptions extends LimitOverrides {
 	experiment?: string;
 	suite?: string;
 	adapters: Record<string, Adapter>;
@@ -57,10 +58,40 @@ export interface RunOptions {
 	runsPerCell?: number;
 	/** Maximum attempts per cell when an infrastructure or isolation failure triggers a re-run (1 for no retries, 2 by default). */
 	maxAttemptsPerCell?: 1 | 2;
+	/** Legacy alias for readerTimeLimitSeconds. */
 	timeLimitSeconds?: number;
 	judgeTimeLimitSeconds?: number;
 	parallel?: number;
 	now?: () => Date;
+}
+
+export interface CalibrateOptions extends LimitOverrides {
+	experiment?: string;
+	suite?: string;
+	/** Path to the fixed-answer markdown file to score across the experiment's judge panel. */
+	responseFile: string;
+	/** Optional arm ID whose delivered files should be attached when scenario.judgedWith includes "delivered" (defaults to first guided arm or first arm). */
+	arm?: string;
+	/** Explicit output directory for the calibration run record (must not already exist). */
+	out?: string;
+	adapters: Record<string, Adapter>;
+	work?: string;
+	records?: string;
+	revision?: string;
+	/** Legacy alias for readerTimeLimitSeconds. */
+	timeLimitSeconds?: number;
+	judgeTimeLimitSeconds?: number;
+	parallel?: number;
+	now?: () => Date;
+}
+
+export interface FixedResponseProvenance {
+	path: string;
+	sha256: string;
+	bytes: number;
+	arm: string;
+	syntheticMember: string;
+	syntheticFamily: string;
 }
 
 export interface Attempt {
@@ -111,14 +142,21 @@ export interface CellRecord {
 	phaseOutcomes?: Record<string, { final: string; diff: string; note: string | null; startDiff: string; scored: string | null; traps: string[]; responseBound?: ResponseBoundRecord }>;
 	/** If maxResponseBytes was configured, the UTF-8 byte bound accounting for the last phase's scored response text. */
 	responseBound?: ResponseBoundRecord;
+	/** Set to true when this cell record was synthesized from a fixed calibration response file rather than a live reader invocation (0040, B30). */
+	syntheticCalibration?: boolean;
+	fixedResponse?: FixedResponseProvenance;
 }
 
 export type PhaseState = "valid" | "ended" | "incomplete";
 
-export type RunEnd = "completed" | "failed";
+export type RunEnd = "completed" | "failed" | "incomplete";
 
 export interface RunRecord {
 	run: string;
+	/** Execution mode: "run" for normal cold-reader experiments, or "calibrate" for fixed-answer judge calibration with zero reader calls (0040, B30). */
+	mode?: "run" | "calibrate";
+	/** Provenance of the fixed-answer markdown file when mode === "calibrate". */
+	fixedResponse?: FixedResponseProvenance;
 	pack: string;
 	experiment: string;
 	suite: string | null;
@@ -134,11 +172,17 @@ export interface RunRecord {
 	cells: string[];
 	/** Cells for which at least one attempt was dispatched (recorded before runEpisode starts). */
 	dispatchedCells?: string[];
+	/** Cells or judge jobs left un-run when maxTotalInvocations was exhausted. */
+	missingWork?: { cells: string[]; judgeJobs: string[] };
 	/** Working folder path where variants, ledgers, workspaces and invocations for this run live. */
 	work?: string;
 	runsPerCell: number;
 	maxAttemptsPerCell?: 1 | 2;
 	timeLimitSeconds: number;
+	/** Complete resolved execution limits and the origin ("experiment" | "override" | "default") of each setting (0040, B30). */
+	effectiveLimits?: EffectiveLimits;
+	/** Public runtime-invocation accounting summary by role and pre-dispatch refusals (0040, B30). */
+	invocationSummary?: InvocationSummary;
 	population: string[];
 	runtimes: Record<string, string | null>;
 	/** Per member, agent or judge: how its requests reached its model, as its adapter reports (Adapter.route). */
@@ -246,15 +290,35 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 	if (opts.maxAttemptsPerCell !== undefined && opts.maxAttemptsPerCell !== 1 && opts.maxAttemptsPerCell !== 2) {
 		throw new Error(`maxAttemptsPerCell must be 1 or 2, got ${String(opts.maxAttemptsPerCell)}`);
 	}
-	const maxAttemptsPerCell: 1 | 2 = opts.maxAttemptsPerCell ?? exp.experiment.maxAttemptsPerCell ?? 2;
+	const readerTimeOverride = opts.readerTimeLimitSeconds ?? opts.timeLimitSeconds;
+	const effectiveLimits = resolveEffectiveLimits(exp.experiment, {
+		...(readerTimeOverride !== undefined ? { readerTimeLimitSeconds: readerTimeOverride } : {}),
+		...(opts.judgeTimeLimitSeconds !== undefined ? { judgeTimeLimitSeconds: opts.judgeTimeLimitSeconds } : {}),
+		...(opts.probeTimeLimitSeconds !== undefined ? { probeTimeLimitSeconds: opts.probeTimeLimitSeconds } : {}),
+		...(opts.maxAttemptsPerCell !== undefined ? { maxAttemptsPerCell: opts.maxAttemptsPerCell } : {}),
+		...(opts.maxProbeAttempts !== undefined ? { maxProbeAttempts: opts.maxProbeAttempts } : {}),
+		...(opts.maxJudgeAttempts !== undefined ? { maxJudgeAttempts: opts.maxJudgeAttempts } : {}),
+		...(opts.maxResponseBytes !== undefined ? { maxResponseBytes: opts.maxResponseBytes } : {}),
+		...(opts.maxReaderInputBytes !== undefined ? { maxReaderInputBytes: opts.maxReaderInputBytes } : {}),
+		...(opts.maxJudgeInputBytes !== undefined ? { maxJudgeInputBytes: opts.maxJudgeInputBytes } : {}),
+		...(opts.maxProbeInputBytes !== undefined ? { maxProbeInputBytes: opts.maxProbeInputBytes } : {}),
+		...(opts.maxJudgeReplyBytes !== undefined ? { maxJudgeReplyBytes: opts.maxJudgeReplyBytes } : {}),
+		...(opts.maxProbeReplyBytes !== undefined ? { maxProbeReplyBytes: opts.maxProbeReplyBytes } : {}),
+		...(opts.maxStdoutBytes !== undefined ? { maxStdoutBytes: opts.maxStdoutBytes } : {}),
+		...(opts.maxTotalInvocations !== undefined ? { maxTotalInvocations: opts.maxTotalInvocations } : {}),
+	});
+	const maxAttemptsPerCell: 1 | 2 = effectiveLimits.maxAttemptsPerCell;
 	let statusValue = status.status, statusReason = status.reason;
 	if (runsPerCell !== exp.experiment.runsPerCell && statusValue === "result") {
 		statusValue = "exploration";
 		statusReason = `runs per cell overridden to ${runsPerCell}, from the recorded ${exp.experiment.runsPerCell}`;
 	}
-	if (opts.maxAttemptsPerCell !== undefined && opts.maxAttemptsPerCell !== (exp.experiment.maxAttemptsPerCell ?? 2) && statusValue === "result") {
+	const overriddenKeys = (Object.entries(effectiveLimits.origins) as [keyof Omit<EffectiveLimits, "origins">, string][])
+		.filter(([, origin]) => origin === "override")
+		.map(([k]) => k);
+	if (overriddenKeys.length > 0 && statusValue === "result") {
 		statusValue = "exploration";
-		statusReason = `maxAttemptsPerCell overridden to ${opts.maxAttemptsPerCell}, from the recorded ${exp.experiment.maxAttemptsPerCell ?? 2}`;
+		statusReason = `execution limits overridden (${overriddenKeys.join(", ")}) from the recorded experiment declaration`;
 	}
 	enter("recorded");
 
@@ -269,12 +333,14 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 	// The work folder holds every path an agent or judge is given, so its name carries no run id,
 	// which ends with the experiment's (B21); run.json records where it is.
 	const work = fs.mkdtempSync(path.join(workRoot, "run-"));
-	const timeLimitSeconds = opts.timeLimitSeconds ?? 1200;
+	const timeLimitSeconds = effectiveLimits.readerTimeLimitSeconds;
+	const budget = new InvocationBudget(effectiveLimits.maxTotalInvocations);
 	const armIds0 = exp.experiment.factors.arms;
 	const record: RunRecord = {
-		run: runId, pack: loaded.pack.id, experiment: experimentId, suite: suiteId, scenarios: scenarioIds,
+		run: runId, mode: "run", pack: loaded.pack.id, experiment: experimentId, suite: suiteId, scenarios: scenarioIds,
 		status: statusValue, statusReason, register: status.record, method: methodVersion(), states,
 		variants: {}, arms: {}, probes: [], cells: [], dispatchedCells: [], work, runsPerCell, maxAttemptsPerCell, timeLimitSeconds,
+		effectiveLimits, invocationSummary: budget.summary(),
 		population: exp.experiment.factors.population, runtimes: {}, judges: [], judgeProbes: [],
 		snapshot: {
 			scenarios, arms: armIds0, population: loaded.pack.population,
@@ -286,7 +352,10 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 	};
 	// The record is written at every state and as each cell ends, so a run that stops part way
 	// leaves everything it did.
-	const save = (): void => write(path.join(recordsDir, "run.json"), record);
+	const save = (): void => {
+		record.invocationSummary = budget.summary();
+		write(path.join(recordsDir, "run.json"), record);
+	};
 	save();
 	const built = new Map<string, BuiltVariant>();
 	try {
@@ -324,7 +393,16 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 	for (const m of members) record.routes[m.id] = adapterOf(m).route?.(m) ?? null;
 	const probes: ProbeResult[] = record.probes;
 	await pool([...composed.values()].flatMap((arm) => members.map((m) => ({ arm, m }))), opts.parallel ?? 4, async ({ arm, m }) => {
-		probes.push(await probeArm(loaded, arm, m, adapterOf(m), { base: path.join(work, "probes", opaqueName("p", `${arm.arm}.${m.id}`)), timeLimitSeconds: opts.timeLimitSeconds ?? 300 }));
+		probes.push(await probeArm(loaded, arm, m, adapterOf(m), {
+			base: path.join(work, "probes", opaqueName("p", `${arm.arm}.${m.id}`)),
+			timeLimitSeconds: effectiveLimits.probeTimeLimitSeconds,
+			maxAttempts: effectiveLimits.maxProbeAttempts,
+			...(effectiveLimits.maxProbeInputBytes !== null ? { maxInputBytes: effectiveLimits.maxProbeInputBytes } : {}),
+			...(effectiveLimits.maxProbeReplyBytes !== null ? { maxReplyBytes: effectiveLimits.maxProbeReplyBytes } : {}),
+			...(effectiveLimits.maxStdoutBytes !== null ? { maxStdoutBytes: effectiveLimits.maxStdoutBytes } : {}),
+			budget,
+			role: "readerProbe",
+		}));
 	});
 	probes.sort((a, b) => `${a.arm}.${a.member}`.localeCompare(`${b.arm}.${b.member}`));
 	// Judges are probed as agents are, with nothing given and every leak probe asked.
@@ -333,7 +411,17 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 	record.routes ??= {};
 	for (const j of judgeMembers) record.routes[j.id] ??= adapterOf(j).route?.(j) ?? null;
 	await pool(judgeMembers, opts.parallel ?? 4, async (j) => {
-		record.judgeProbes.push(await probeArm(loaded, EMPTY_ARM, j, adapterOf(j), { base: path.join(work, "probes", opaqueName("p", `judge.${j.id}`)), timeLimitSeconds: opts.timeLimitSeconds ?? 300, allLeaks: true }));
+		record.judgeProbes.push(await probeArm(loaded, EMPTY_ARM, j, adapterOf(j), {
+			base: path.join(work, "probes", opaqueName("p", `judge.${j.id}`)),
+			timeLimitSeconds: effectiveLimits.probeTimeLimitSeconds,
+			allLeaks: true,
+			maxAttempts: effectiveLimits.maxProbeAttempts,
+			...(effectiveLimits.maxProbeInputBytes !== null ? { maxInputBytes: effectiveLimits.maxProbeInputBytes } : {}),
+			...(effectiveLimits.maxProbeReplyBytes !== null ? { maxReplyBytes: effectiveLimits.maxProbeReplyBytes } : {}),
+			...(effectiveLimits.maxStdoutBytes !== null ? { maxStdoutBytes: effectiveLimits.maxStdoutBytes } : {}),
+			budget,
+			role: "judgeProbe",
+		}));
 	});
 	record.judgeProbes.sort((a, b) => a.member.localeCompare(b.member));
 	const judges = judgeMembers.filter((j) => record.judgeProbes.some((p) => p.member === j.id && p.pass));
@@ -357,8 +445,13 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 		for (let run = 1; run <= runsPerCell; run++) cells.push({ scenario, arm, member, run });
 	}
 	const cellRecords: CellRecord[] = [];
+	const missingCells: string[] = [];
 	await pool(cells, opts.parallel ?? 4, async (c) => {
 		const cell = `${c.scenario.id}.${c.arm.arm}.${c.member.id}.${c.run}`;
+		if (budget.isExhausted()) {
+			missingCells.push(cell);
+			return;
+		}
 		const phases = phasesOf(c.scenario, exp.experiment);
 		const attempts: Attempt[] = [];
 		let timeouts = 0;
@@ -371,6 +464,7 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 		// of its variants; and, per phase, its own workspace and invocation folder.
 		const given = [...c.arm.instructions.map((f) => f.path), ...c.arm.folderFiles.map((f) => f.path), ...c.arm.onRequest.map((o) => o.path)];
 		for (let attempt = 1; ; attempt++) {
+			if (budget.isExhausted()) break;
 			let a: Attempt;
 			const unreachable: string[] = [];
 			record.dispatchedCells = [...new Set([...(record.dispatchedCells ?? []), cell])].sort();
@@ -378,7 +472,11 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 			try {
 				const ep = await runEpisode({
 					loaded, experiment: exp.experiment, scenario: c.scenario, arm: c.arm, member: c.member, memberIndex: members.indexOf(c.member), run: c.run,
-					adapter, work, key: `${cell}.${attempt}`, timeLimitSeconds, timeouts,
+					adapter, work, key: `${cell}.${attempt}`, timeLimitSeconds,
+					...(effectiveLimits.maxReaderInputBytes !== null ? { maxInputBytes: effectiveLimits.maxReaderInputBytes } : {}),
+					...(effectiveLimits.maxStdoutBytes !== null ? { maxStdoutBytes: effectiveLimits.maxStdoutBytes } : {}),
+					budget,
+					timeouts,
 					classify: (outcome, ws, inv, t) => {
 						const allow = [ws, inv, ...given];
 						if (sandboxed) unreachable.push(...forbiddenPathsNamed(outcome, { ...forbiddenBase, allow }));
@@ -400,8 +498,12 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 				lastPhases = [];
 			}
 			attempts.push(a);
-			const maxAttempts = opts.maxAttemptsPerCell ?? exp.experiment.maxAttemptsPerCell ?? 2;
-			if (a.validity.valid || !RERUN[a.validity.cause] || attempt >= maxAttempts) break;
+			const maxAttempts = effectiveLimits.maxAttemptsPerCell;
+			if (a.validity.valid || !RERUN[a.validity.cause] || attempt >= maxAttempts || budget.isExhausted()) break;
+		}
+		if (attempts.length === 0) {
+			missingCells.push(cell);
+			return;
 		}
 		const last = attempts[attempts.length - 1]!;
 		const marker = loaded.pack.masks.selfExplanationMarker;
@@ -415,7 +517,7 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 		const propertyPhases: NonNullable<CellRecord["propertyPhases"]> = {};
 		for (const pr of propertiesOf(c.scenario)) { const ph = propertyPhase(c.scenario, phases, pr.id, traps); propertyPhases[pr.id] = { phase: ph, state: stateOf(ph) }; }
 		const phaseOutcomes: NonNullable<CellRecord["phaseOutcomes"]> = {};
-		const maxBytes = c.scenario.maxResponseBytes ?? exp.experiment.maxResponseBytes;
+		const maxBytes = c.scenario.maxResponseBytes ?? effectiveLimits.maxResponseBytes ?? undefined;
 		let lastBound: ResponseBoundRecord | undefined;
 		const beforeBound: Record<string, { final: string; scored: string | null }> = {};
 		for (const p of lastPhases) {
@@ -498,21 +600,36 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 
 	const votes = await judgeAll({
 		loaded, experiment: exp.experiment, scenarios: scenarioMap, units: blinded.units, judges, adapters: opts.adapters,
-		guessOptions: Object.keys(record.guessGroups), recordsDir, work, seed: record.seed, timeLimitSeconds: opts.judgeTimeLimitSeconds ?? 900, parallel: opts.parallel ?? 4,
+		guessOptions: Object.keys(record.guessGroups), recordsDir, work, seed: record.seed,
+		timeLimitSeconds: effectiveLimits.judgeTimeLimitSeconds, parallel: opts.parallel ?? 4,
+		maxAttempts: effectiveLimits.maxJudgeAttempts,
+		...(effectiveLimits.maxJudgeInputBytes !== null ? { maxInputBytes: effectiveLimits.maxJudgeInputBytes } : {}),
+		...(effectiveLimits.maxJudgeReplyBytes !== null ? { maxReplyBytes: effectiveLimits.maxJudgeReplyBytes } : {}),
+		...(effectiveLimits.maxStdoutBytes !== null ? { maxStdoutBytes: effectiveLimits.maxStdoutBytes } : {}),
+		budget,
 	});
 	write(path.join(recordsDir, "judging", "votes.json"), votes);
-	if (exp.experiment.judging?.chain !== undefined) {
+	if (exp.experiment.judging?.chain !== undefined && !budget.isExhausted()) {
 		await runJudgingChain({
 			loaded, chain: exp.experiment.judging.chain, units: blinded.units, judges, adapters: opts.adapters,
-			recordsDir, work, timeLimitSeconds: opts.judgeTimeLimitSeconds ?? 900,
+			recordsDir, work, timeLimitSeconds: effectiveLimits.judgeTimeLimitSeconds,
 		});
 	}
 	enter("judged");
 	save();
 
+	const missingJudgeJobs = [...new Set(votes.filter((v) => v.value === null && /maxTotalInvocations|budget-exhausted/.test(v.reason)).map((v) => v.prompt))].sort();
+	if (missingCells.length > 0 || missingJudgeJobs.length > 0 || budget.summary().exhausted) {
+		record.missingWork = { cells: missingCells.sort(), judgeJobs: missingJudgeJobs };
+	}
 	const result = tallyRun(recordsDir);
 	enter("tallied");
-	record.end = "completed";
+	if (record.missingWork !== undefined) {
+		record.end = "incomplete";
+		record.endReason = `maxTotalInvocations (${effectiveLimits.maxTotalInvocations}) exhausted; missing ${record.missingWork.cells.length} cell(s) and ${record.missingWork.judgeJobs.length} judge job(s)`;
+	} else {
+		record.end = "completed";
+	}
 	save();
 	void result;
 	} catch (e) {
@@ -526,7 +643,7 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 	return { dir: recordsDir, record };
 }
 
-export interface ResumeOptions {
+export interface ResumeOptions extends LimitOverrides {
 	adapters: Record<string, Adapter>;
 	/** The operator's working folder; ~/context-lab-work if not given. */
 	work?: string;
@@ -597,7 +714,34 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 	// The recorded folder's name under the given root; a record made before run.json kept its work
 	// folder used the run id.
 	const work = path.join(workRoot, record.work !== undefined ? path.basename(record.work) : record.run);
-	const maxAttemptsPerCell: 1 | 2 = record.maxAttemptsPerCell ?? exp.experiment.maxAttemptsPerCell ?? 2;
+	const baseEffective = record.effectiveLimits ?? resolveEffectiveLimits(exp.experiment, {
+		readerTimeLimitSeconds: record.timeLimitSeconds,
+		...(record.maxAttemptsPerCell !== undefined ? { maxAttemptsPerCell: record.maxAttemptsPerCell } : {}),
+	});
+	const readerTimeOverride = opts.readerTimeLimitSeconds ?? opts.timeLimitSeconds;
+	const checkNotOverridden = <T>(name: string, ov: T | undefined, rec: T): void => {
+		if (ov !== undefined && ov !== rec) {
+			throw new Error(`cannot override ${name} (${String(ov)} vs recorded ${String(rec)}) when resuming run ${record.run}`);
+		}
+	};
+	checkNotOverridden("readerTimeLimitSeconds", readerTimeOverride, baseEffective.readerTimeLimitSeconds);
+	checkNotOverridden("judgeTimeLimitSeconds", opts.judgeTimeLimitSeconds, baseEffective.judgeTimeLimitSeconds);
+	checkNotOverridden("probeTimeLimitSeconds", opts.probeTimeLimitSeconds, baseEffective.probeTimeLimitSeconds);
+	checkNotOverridden("maxAttemptsPerCell", opts.maxAttemptsPerCell, baseEffective.maxAttemptsPerCell);
+	checkNotOverridden("maxProbeAttempts", opts.maxProbeAttempts, baseEffective.maxProbeAttempts);
+	checkNotOverridden("maxJudgeAttempts", opts.maxJudgeAttempts, baseEffective.maxJudgeAttempts);
+	checkNotOverridden("maxResponseBytes", opts.maxResponseBytes, baseEffective.maxResponseBytes ?? undefined);
+	checkNotOverridden("maxReaderInputBytes", opts.maxReaderInputBytes, baseEffective.maxReaderInputBytes ?? undefined);
+	checkNotOverridden("maxJudgeInputBytes", opts.maxJudgeInputBytes, baseEffective.maxJudgeInputBytes ?? undefined);
+	checkNotOverridden("maxProbeInputBytes", opts.maxProbeInputBytes, baseEffective.maxProbeInputBytes ?? undefined);
+	checkNotOverridden("maxJudgeReplyBytes", opts.maxJudgeReplyBytes, baseEffective.maxJudgeReplyBytes ?? undefined);
+	checkNotOverridden("maxProbeReplyBytes", opts.maxProbeReplyBytes, baseEffective.maxProbeReplyBytes ?? undefined);
+	checkNotOverridden("maxStdoutBytes", opts.maxStdoutBytes, baseEffective.maxStdoutBytes ?? undefined);
+	checkNotOverridden("maxTotalInvocations", opts.maxTotalInvocations, baseEffective.maxTotalInvocations ?? undefined);
+	const effectiveLimits = baseEffective;
+	record.effectiveLimits ??= effectiveLimits;
+	const budget = new InvocationBudget(effectiveLimits.maxTotalInvocations, record.invocationSummary);
+	const maxAttemptsPerCell: 1 | 2 = effectiveLimits.maxAttemptsPerCell;
 	if (maxAttemptsPerCell === 1 && record.work !== undefined && path.resolve(record.work) !== path.resolve(work)) {
 		throw new Error(`run ${record.run} recorded working folder ${record.work}, not ${work}, under maxAttemptsPerCell: 1`);
 	}
@@ -606,7 +750,10 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 	}
 	fs.mkdirSync(work, { recursive: true });
 	const built = new Map<string, BuiltVariant>();
-	const save = (): void => write(recordFile, record);
+	const save = (): void => {
+		record.invocationSummary = budget.summary();
+		write(recordFile, record);
+	};
 	const enter = (s: (typeof STATES)[number]): void => {
 		if (record.states.some((x) => x.state === s)) return;
 		const last = record.states[record.states.length - 1];
@@ -659,13 +806,13 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 			cellRecords.push(cr);
 			doneSet.add(cell);
 		}
-		const timeLimitSeconds = opts.timeLimitSeconds ?? record.timeLimitSeconds;
+		const timeLimitSeconds = effectiveLimits.readerTimeLimitSeconds;
 		const remaining = allCells.filter((c) => !doneSet.has(`${c.scenario.id}.${c.arm.arm}.${c.member.id}.${c.run}`));
 		if (afterExecuted && remaining.length > 0) {
 			throw new Error(`run ${record.run} is past executed, but ${remaining.length} expected cell(s) are missing from cells/`);
 		}
-		// Refuse to resume a single-attempt run if an unrecorded cell was already dispatched (in run.json.dispatchedCells, ledgers, snapshots, workspaces or invocations).
-		if (maxAttemptsPerCell === 1 && remaining.length > 0) {
+		// Refuse to resume a single-attempt run (or a run with a total-invocation ceiling) if an unrecorded cell was already dispatched.
+		if ((maxAttemptsPerCell === 1 || effectiveLimits.maxTotalInvocations !== null) && remaining.length > 0) {
 			const dispatchedSet = new Set(record.dispatchedCells ?? []);
 			const checkDirs = [path.join(work, "ledgers"), path.join(work, "snapshots"), path.join(work, "workspaces"), path.join(work, "invocations")];
 			for (const c of remaining) {
@@ -673,7 +820,7 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 				const prefix = `${cell}.`;
 				const hasPartial = dispatchedSet.has(cell) || checkDirs.some((dir) => fs.existsSync(dir) && fs.readdirSync(dir).some((e) => e.startsWith(prefix)));
 				if (hasPartial) {
-					throw new Error(`cell ${cell} has an unrecorded partial attempt on disk in ${work} under maxAttemptsPerCell: 1, so the run cannot be resumed without risking a second attempt`);
+					throw new Error(`cell ${cell} has an unrecorded partial attempt on disk in ${work} under maxAttemptsPerCell: ${maxAttemptsPerCell}${effectiveLimits.maxTotalInvocations !== null ? ` / maxTotalInvocations: ${effectiveLimits.maxTotalInvocations}` : ""}, so the run cannot be resumed without risking an uncounted or duplicate attempt`);
 				}
 			}
 		}
@@ -689,8 +836,13 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 			],
 			addresses: [...new Set([...loaded.pack.isolation.forbidden.addresses, ...loaded.pack.sources.flatMap((s) => s.addresses)])],
 		};
+		const missingCells: string[] = [];
 		await pool(remaining, opts.parallel ?? 4, async (c) => {
 			const cell = `${c.scenario.id}.${c.arm.arm}.${c.member.id}.${c.run}`;
+			if (budget.isExhausted()) {
+				missingCells.push(cell);
+				return;
+			}
 			const phases = phasesOf(c.scenario, exp.experiment);
 			const attempts: Attempt[] = [];
 			let timeouts = 0;
@@ -700,6 +852,7 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 			const sandboxed = adapter.filesystem === "sandboxed";
 			const given = [...c.arm.instructions.map((f) => f.path), ...c.arm.folderFiles.map((f) => f.path), ...c.arm.onRequest.map((o) => o.path)];
 			for (let attempt = 1; ; attempt++) {
+				if (budget.isExhausted()) break;
 				let a: Attempt;
 				const unreachable: string[] = [];
 				record.dispatchedCells = [...new Set([...(record.dispatchedCells ?? []), cell])].sort();
@@ -707,7 +860,11 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 				try {
 					const ep = await runEpisode({
 						loaded, experiment: exp.experiment, scenario: c.scenario, arm: c.arm, member: c.member, memberIndex: members.indexOf(c.member), run: c.run,
-						adapter, work, key: `${cell}.${attempt}`, timeLimitSeconds, timeouts,
+						adapter, work, key: `${cell}.${attempt}`, timeLimitSeconds,
+						...(effectiveLimits.maxReaderInputBytes !== null ? { maxInputBytes: effectiveLimits.maxReaderInputBytes } : {}),
+						...(effectiveLimits.maxStdoutBytes !== null ? { maxStdoutBytes: effectiveLimits.maxStdoutBytes } : {}),
+						budget,
+						timeouts,
 						classify: (outcome, ws, inv, t) => {
 							const allow = [ws, inv, ...given];
 							if (sandboxed) unreachable.push(...forbiddenPathsNamed(outcome, { ...forbiddenBase, allow }));
@@ -728,7 +885,11 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 					lastPhases = [];
 				}
 				attempts.push(a);
-				if (a.validity.valid || !RERUN[a.validity.cause] || attempt >= maxAttemptsPerCell) break;
+				if (a.validity.valid || !RERUN[a.validity.cause] || attempt >= maxAttemptsPerCell || budget.isExhausted()) break;
+			}
+			if (attempts.length === 0) {
+				missingCells.push(cell);
+				return;
 			}
 			const last = attempts[attempts.length - 1]!;
 			const marker = loaded.pack.masks.selfExplanationMarker;
@@ -742,7 +903,7 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 			const propertyPhases: NonNullable<CellRecord["propertyPhases"]> = {};
 			for (const pr of propertiesOf(c.scenario)) { const ph = propertyPhase(c.scenario, phases, pr.id, traps); propertyPhases[pr.id] = { phase: ph, state: stateOf(ph) }; }
 			const phaseOutcomes: NonNullable<CellRecord["phaseOutcomes"]> = {};
-			const maxBytes = c.scenario.maxResponseBytes ?? exp.experiment.maxResponseBytes;
+			const maxBytes = c.scenario.maxResponseBytes ?? effectiveLimits.maxResponseBytes ?? undefined;
 			let lastBound: ResponseBoundRecord | undefined;
 			const beforeBound: Record<string, { final: string; scored: string | null }> = {};
 			for (const p of lastPhases) {
@@ -822,21 +983,38 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 
 		const votes = await judgeAll({
 			loaded, experiment: exp.experiment, scenarios: scenarioMap, units: blinded.units, judges, adapters: opts.adapters,
-			guessOptions: Object.keys(record.guessGroups), recordsDir: resolvedRecords, work, seed: record.seed, timeLimitSeconds: opts.judgeTimeLimitSeconds ?? 900, parallel: opts.parallel ?? 4,
+			guessOptions: Object.keys(record.guessGroups), recordsDir: resolvedRecords, work, seed: record.seed,
+			timeLimitSeconds: effectiveLimits.judgeTimeLimitSeconds, parallel: opts.parallel ?? 4,
+			maxAttempts: effectiveLimits.maxJudgeAttempts,
+			...(effectiveLimits.maxJudgeInputBytes !== null ? { maxInputBytes: effectiveLimits.maxJudgeInputBytes } : {}),
+			...(effectiveLimits.maxJudgeReplyBytes !== null ? { maxReplyBytes: effectiveLimits.maxJudgeReplyBytes } : {}),
+			...(effectiveLimits.maxStdoutBytes !== null ? { maxStdoutBytes: effectiveLimits.maxStdoutBytes } : {}),
+			budget,
 		});
 		write(path.join(resolvedRecords, "judging", "votes.json"), votes);
-		if (exp.experiment.judging?.chain !== undefined) {
+		if (exp.experiment.judging?.chain !== undefined && !budget.isExhausted()) {
 			await runJudgingChain({
 				loaded, chain: exp.experiment.judging.chain, units: blinded.units, judges, adapters: opts.adapters,
-				recordsDir: resolvedRecords, work, timeLimitSeconds: opts.judgeTimeLimitSeconds ?? 900,
+				recordsDir: resolvedRecords, work, timeLimitSeconds: effectiveLimits.judgeTimeLimitSeconds,
 			});
 		}
 		enter("judged");
 		save();
 
+		const missingJudgeJobs = [...new Set(votes.filter((v) => v.value === null && /maxTotalInvocations|budget-exhausted/.test(v.reason)).map((v) => v.prompt))].sort();
+		if (missingCells.length > 0 || missingJudgeJobs.length > 0 || budget.summary().exhausted) {
+			record.missingWork = { cells: missingCells.sort(), judgeJobs: missingJudgeJobs };
+		} else {
+			delete record.missingWork;
+		}
 		const result = tallyRun(resolvedRecords);
 		enter("tallied");
-		record.end = "completed";
+		if (record.missingWork !== undefined) {
+			record.end = "incomplete";
+			record.endReason = `maxTotalInvocations (${effectiveLimits.maxTotalInvocations}) exhausted; missing ${record.missingWork.cells.length} cell(s) and ${record.missingWork.judgeJobs.length} judge job(s)`;
+		} else {
+			record.end = "completed";
+		}
 		save();
 		void result;
 	} catch (e) {
@@ -848,6 +1026,380 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 		for (const v of built.values()) if (v.ok && fs.existsSync(v.dir)) makeWritable(v.dir);
 	}
 	return { dir: resolvedRecords, record };
+}
+
+export const CALIBRATION_SYNTHETIC_MEMBER: Member = {
+	id: "fixed-response",
+	family: "fixed-calibration",
+	runtime: "synthetic",
+	model: "fixed-response",
+};
+
+/**
+ * Runs fixed-answer judge calibration (0040, B30): validates the pack, builds variants and composes
+ * the selected arm so `judgedWith: ["delivered"]` attaches the exact reading material, runs only
+ * `judgeProbes` (zero reader probes and zero reader invocations), synthesizes one cell per selected
+ * scenario from `opts.responseFile` using a synthetic member whose family (`"fixed-calibration"`) is
+ * distinct from every judge family (so every judge family scores every unit), and runs the ordinary
+ * public extraction, measurement, blinding, comprehension judging and tally pipeline.
+ */
+export async function calibrateRun(packDir: string, opts: CalibrateOptions): Promise<{ dir: string; record: RunRecord }> {
+	const now = opts.now ?? ((): Date => new Date());
+	const states: RunRecord["states"] = [];
+	const enter = (s: (typeof STATES)[number]): void => {
+		const last = states[states.length - 1];
+		if (STATES.indexOf(s) !== (last ? STATES.indexOf(last.state as (typeof STATES)[number]) + 1 : 0)) throw new Error(`state ${s} out of order`);
+		states.push({ state: s, at: now().toISOString() });
+	};
+
+	const respPath = path.resolve(opts.responseFile);
+	if (!fs.existsSync(respPath) || !fs.statSync(respPath).isFile()) {
+		throw new Error(`calibration response file does not exist: ${respPath}`);
+	}
+	const rawResponse = fs.readFileSync(respPath, "utf8");
+	const responseBytes = Buffer.byteLength(rawResponse, "utf8");
+	const responseSha256 = createHash("sha256").update(rawResponse, "utf8").digest("hex");
+
+	const pre = await checkPack(packDir);
+	const target = opts.experiment ?? (pre.ok ? pre.loaded.pack.suites.find((x) => x.id === opts.suite)?.experiment : undefined);
+	const checked = await checkPack(packDir, { continueRuntimes: Object.fromEntries(Object.entries(opts.adapters).map(([k, a]) => [k, a.continue])), ...(target !== undefined ? { experiments: [target] } : {}) });
+	if (!checked.ok) throw new Error(`the pack fails its check: ${checked.defects.map((d) => `${d.check} ${d.where} ${d.message}`).join("; ")}`);
+	const loaded: LoadedPack = checked.loaded;
+	enter("validated");
+
+	let experimentId = opts.experiment;
+	let suiteId: string | null = null;
+	if (opts.suite !== undefined) {
+		const s = loaded.pack.suites.find((x) => x.id === opts.suite);
+		if (!s) throw new Error(`no suite ${opts.suite}`);
+		suiteId = s.id;
+		if (experimentId !== undefined && experimentId !== s.experiment) throw new Error(`suite ${s.id} runs ${s.experiment}, not ${experimentId}`);
+		experimentId = s.experiment;
+	}
+	if (experimentId === undefined) throw new Error("a calibration run names an experiment or a suite");
+	const exp = loaded.experiments.get(experimentId);
+	if (!exp) throw new Error(`no experiment ${experimentId}`);
+	const allScenarios = [...exp.scenarios.values()].map((x) => x.scenario);
+	const suite = loaded.pack.suites.find((x) => x.id === suiteId);
+	const scenarioIds = suite ? selectScenarios(allScenarios, suite.select) : allScenarios.map((s) => s.id);
+	const scenarios = scenarioIds.map((id) => exp.scenarios.get(id)!.scenario);
+	const status = runStatus(loaded, experimentId);
+	const startedAt = states[0]!.at;
+	if (status.record !== null && status.record.recordedAt >= startedAt) throw new Error("the experiment's record is not earlier than the run");
+
+	const readerTimeOverride = opts.readerTimeLimitSeconds ?? opts.timeLimitSeconds;
+	const effectiveLimits = resolveEffectiveLimits(exp.experiment, {
+		...(readerTimeOverride !== undefined ? { readerTimeLimitSeconds: readerTimeOverride } : {}),
+		...(opts.judgeTimeLimitSeconds !== undefined ? { judgeTimeLimitSeconds: opts.judgeTimeLimitSeconds } : {}),
+		...(opts.probeTimeLimitSeconds !== undefined ? { probeTimeLimitSeconds: opts.probeTimeLimitSeconds } : {}),
+		...(opts.maxAttemptsPerCell !== undefined ? { maxAttemptsPerCell: opts.maxAttemptsPerCell } : {}),
+		...(opts.maxProbeAttempts !== undefined ? { maxProbeAttempts: opts.maxProbeAttempts } : {}),
+		...(opts.maxJudgeAttempts !== undefined ? { maxJudgeAttempts: opts.maxJudgeAttempts } : {}),
+		...(opts.maxResponseBytes !== undefined ? { maxResponseBytes: opts.maxResponseBytes } : {}),
+		...(opts.maxReaderInputBytes !== undefined ? { maxReaderInputBytes: opts.maxReaderInputBytes } : {}),
+		...(opts.maxJudgeInputBytes !== undefined ? { maxJudgeInputBytes: opts.maxJudgeInputBytes } : {}),
+		...(opts.maxProbeInputBytes !== undefined ? { maxProbeInputBytes: opts.maxProbeInputBytes } : {}),
+		...(opts.maxJudgeReplyBytes !== undefined ? { maxJudgeReplyBytes: opts.maxJudgeReplyBytes } : {}),
+		...(opts.maxProbeReplyBytes !== undefined ? { maxProbeReplyBytes: opts.maxProbeReplyBytes } : {}),
+		...(opts.maxStdoutBytes !== undefined ? { maxStdoutBytes: opts.maxStdoutBytes } : {}),
+		...(opts.maxTotalInvocations !== undefined ? { maxTotalInvocations: opts.maxTotalInvocations } : {}),
+	});
+	// Fixed-answer calibration always records status "exploration" so a synthetic calibration run can never be mistaken for a cold-reader result.
+	const statusValue: Status = "exploration";
+	const statusReason = `fixed-answer calibration from ${path.basename(respPath)} (sha256:${responseSha256.slice(0, 12)})`;
+	enter("recorded");
+
+	const armIds0 = exp.experiment.factors.arms;
+	const defaultArm = exp.experiment.default !== undefined
+		? (armIds0.find((a) => a !== exp.experiment.default) ?? armIds0[0]!)
+		: (armIds0.find((a) => (loaded.pack.arms.find((x) => x.id === a)?.deliver.length ?? 0) > 0) ?? armIds0[0]!);
+	const selectedArmId = opts.arm ?? defaultArm;
+	if (!armIds0.includes(selectedArmId)) {
+		throw new Error(`arm ${selectedArmId} is not in experiment ${experimentId}'s arms (${armIds0.join(", ")})`);
+	}
+
+	const runId = `${startedAt.replace(/[:.]/g, "").replace("T", "-").slice(0, 17)}-calibrate-${experimentId}`;
+	const recordsRoot = path.resolve(opts.records ?? path.resolve(loaded.dir, loaded.pack.records.path));
+	const recordsDir = opts.out !== undefined ? path.resolve(opts.out) : path.join(recordsRoot, runId);
+	const workRoot = path.resolve(opts.work ?? path.join(os.homedir(), "context-lab-work"));
+	fs.mkdirSync(path.dirname(recordsDir), { recursive: true });
+	fs.mkdirSync(workRoot, { recursive: true });
+	fs.mkdirSync(recordsDir);
+	const work = fs.mkdtempSync(path.join(workRoot, "run-"));
+	const budget = new InvocationBudget(effectiveLimits.maxTotalInvocations);
+	const fixedProvenance: FixedResponseProvenance = {
+		path: respPath,
+		sha256: responseSha256,
+		bytes: responseBytes,
+		arm: selectedArmId,
+		syntheticMember: CALIBRATION_SYNTHETIC_MEMBER.id,
+		syntheticFamily: CALIBRATION_SYNTHETIC_MEMBER.family,
+	};
+	const record: RunRecord = {
+		run: runId,
+		mode: "calibrate",
+		fixedResponse: fixedProvenance,
+		pack: loaded.pack.id,
+		experiment: experimentId,
+		suite: suiteId,
+		scenarios: scenarioIds,
+		status: statusValue,
+		statusReason,
+		register: status.record,
+		method: methodVersion(),
+		states,
+		variants: {},
+		arms: {},
+		probes: [],
+		cells: [],
+		dispatchedCells: [],
+		work,
+		runsPerCell: 1,
+		maxAttemptsPerCell: 1,
+		timeLimitSeconds: effectiveLimits.readerTimeLimitSeconds,
+		effectiveLimits,
+		invocationSummary: budget.summary(),
+		population: [CALIBRATION_SYNTHETIC_MEMBER.id],
+		runtimes: {},
+		judges: [],
+		judgeProbes: [],
+		snapshot: {
+			scenarios,
+			arms: [selectedArmId],
+			population: [...loaded.pack.population, CALIBRATION_SYNTHETIC_MEMBER],
+			experiment: { ...(exp.experiment.variation !== undefined ? { variation: exp.experiment.variation } : {}), ...(exp.experiment.default !== undefined ? { default: exp.experiment.default } : {}), full: exp.experiment },
+			exposed: readExposures(loaded).filter((e) => scenarios.some((x) => x.id === e.scenario && x.heldOut === true)),
+			deliveries: { [selectedArmId]: (loaded.pack.arms.find((x) => x.id === selectedArmId)?.deliver ?? []).map((d) => ({ file: d.file, as: d.as })) },
+		},
+		guessGroups: exp.experiment.judging?.guessGroups ?? { [selectedArmId]: [selectedArmId] },
+		seed: runId,
+		end: null,
+	};
+	const save = (): void => {
+		record.invocationSummary = budget.summary();
+		write(path.join(recordsDir, "run.json"), record);
+	};
+	save();
+	const built = new Map<string, BuiltVariant>();
+	try {
+		const variantIds = [...new Set(loaded.pack.arms.filter((a) => a.id === selectedArmId).flatMap((a) => a.deliver.map((d) => d.variant)))];
+		for (const v of variantIds) {
+			const decl = loaded.pack.variants.find((x) => x.id === v)!;
+			const sourceDir = path.resolve(loaded.dir, loaded.pack.sources.find((s) => s.id === decl.source)!.path);
+			const rev = decl.revision ?? opts.revision ?? execFileSync("git", ["rev-parse", "HEAD"], { cwd: sourceDir, encoding: "utf8" }).trim();
+			const b = await buildVariant(loaded, v, rev, variantDir(work, v));
+			built.set(v, b);
+			record.variants[v] = b.ok ? b.manifest : { failed: b.reason };
+		}
+		const comp = composeArm(loaded, selectedArmId, built);
+		record.arms[selectedArmId] = comp.ok ? { composed: true } : { composed: false, reason: comp.reason };
+		if (!comp.ok) throw new Error(`could not compose calibration arm ${selectedArmId}: ${comp.reason}`);
+		const composedArm = comp.arm;
+		enter("built");
+		save();
+
+		// Zero reader probes in calibration mode; only judgeProbes run.
+		const judgeMembers: Member[] = (exp.experiment.judging?.judges ?? exp.experiment.factors.population).map((id) => loaded.pack.population.find((m) => m.id === id)!);
+		const adapterOf = (m: Member): Adapter => {
+			const a = opts.adapters[m.runtime];
+			if (!a) throw new Error(`no adapter for runtime ${m.runtime}`);
+			return a;
+		};
+		for (const j of judgeMembers) if (!(j.runtime in record.runtimes)) record.runtimes[j.runtime] = adapterOf(j).version?.() ?? null;
+		record.routes ??= {};
+		for (const j of judgeMembers) record.routes[j.id] ??= adapterOf(j).route?.(j) ?? null;
+		await pool(judgeMembers, opts.parallel ?? 4, async (j) => {
+			record.judgeProbes.push(await probeArm(loaded, EMPTY_ARM, j, adapterOf(j), {
+				base: path.join(work, "probes", opaqueName("p", `judge.${j.id}`)),
+				timeLimitSeconds: effectiveLimits.probeTimeLimitSeconds,
+				allLeaks: true,
+				maxAttempts: effectiveLimits.maxProbeAttempts,
+				...(effectiveLimits.maxProbeInputBytes !== null ? { maxInputBytes: effectiveLimits.maxProbeInputBytes } : {}),
+				...(effectiveLimits.maxProbeReplyBytes !== null ? { maxReplyBytes: effectiveLimits.maxProbeReplyBytes } : {}),
+				...(effectiveLimits.maxStdoutBytes !== null ? { maxStdoutBytes: effectiveLimits.maxStdoutBytes } : {}),
+				budget,
+				role: "judgeProbe",
+			}));
+		});
+		record.judgeProbes.sort((a, b) => a.member.localeCompare(b.member));
+		const judges = judgeMembers.filter((j) => record.judgeProbes.some((p) => p.member === j.id && p.pass));
+		record.judges = judges.map((j) => j.id);
+		enter("probed");
+		save();
+
+		// Synthesize one cell per scenario from the fixed-answer markdown file with zero reader invocations.
+		const cellRecords: CellRecord[] = [];
+		const marker = loaded.pack.masks.selfExplanationMarker;
+		const { deliveredFiles } = deliveredOf(composedArm);
+		for (const scenario of scenarios) {
+			const cell = `${scenario.id}.${selectedArmId}.${CALIBRATION_SYNTHETIC_MEMBER.id}.1`;
+			const phases = phasesOf(scenario, exp.experiment);
+			const lastPhase = phases[phases.length - 1]!;
+			const snapDir = path.join(work, "snapshots", `${cell}.1`, lastPhase.id);
+			fs.mkdirSync(snapDir, { recursive: true });
+			if (scenario.scoredFile !== undefined) {
+				const scoredTarget = path.resolve(snapDir, scenario.scoredFile);
+				fs.mkdirSync(path.dirname(scoredTarget), { recursive: true });
+				fs.writeFileSync(scoredTarget, rawResponse);
+			}
+			const syntheticOutcome: Outcome = {
+				final: rawResponse,
+				exit: 0,
+				signal: null,
+				stop: { reason: "completed", inFlight: "none" },
+				cost: { seconds: 0, inputTokens: null, cachedInputTokens: null, outputTokens: null, toolCalls: 0 },
+				tools: [],
+				filtered: false,
+				error: null,
+				session: null,
+				trace: [],
+				events: "",
+			};
+			const phaseRec: PhaseRecord = {
+				phase: lastPhase.id,
+				session: lastPhase.session,
+				after: null,
+				status: "run",
+				prompt: "",
+				note: null,
+				noteSource: null,
+				workspace: snapDir,
+				invocation: "",
+				copiedTree: null,
+				startTree: "",
+				startDiff: "",
+				endTree: "",
+				snapshot: snapDir,
+				endDiff: "",
+				outcome: syntheticOutcome,
+				validity: { valid: true },
+				diff: "",
+				traps: [],
+			};
+			const propertyPhases: NonNullable<CellRecord["propertyPhases"]> = {};
+			for (const pr of propertiesOf(scenario)) {
+				propertyPhases[pr.id] = { phase: lastPhase.id, state: "valid" };
+			}
+			const maxBytes = scenario.maxResponseBytes ?? effectiveLimits.maxResponseBytes ?? undefined;
+			const rawScored = scenario.scoredFile !== undefined ? rawResponse : null;
+			const { final, scored: scoredContent, responseBound, pre } = phaseText(scenario, maxBytes, marker, rawResponse, rawScored);
+			const beforeBound: Record<string, { final: string; scored: string | null }> = { [lastPhase.id]: pre };
+			const phaseOutcomes: NonNullable<CellRecord["phaseOutcomes"]> = {
+				[lastPhase.id]: {
+					final,
+					diff: "",
+					note: null,
+					startDiff: "",
+					scored: scoredContent,
+					traps: [],
+					...(responseBound !== undefined ? { responseBound } : {}),
+				},
+			};
+			const { answers, extraction } = answersOf(scenario, propertyPhases, phaseOutcomes, beforeBound, marker, 1);
+			const cr: CellRecord = {
+				cell,
+				scenario: scenario.id,
+				arm: selectedArmId,
+				member: CALIBRATION_SYNTHETIC_MEMBER.id,
+				run: 1,
+				attempts: [{ attempt: 1, validity: { valid: true }, outcome: syntheticOutcome, diff: "", workspace: snapDir, phases: [phaseRec] }],
+				valid: true,
+				final,
+				scoredFile: scenario.scoredFile !== undefined ? { path: scenario.scoredFile, content: rawResponse, matchesFinal: true } : null,
+				answers,
+				...(Object.keys(extraction).length ? { extraction } : {}),
+				diff: "",
+				codeScores: [],
+				traps: [],
+				propertyPhases,
+				phaseOutcomes,
+				restated: [],
+				...(deliveredFiles.length ? { deliveredFiles } : {}),
+				...(responseBound !== undefined ? { responseBound } : {}),
+				syntheticCalibration: true,
+				fixedResponse: fixedProvenance,
+			};
+			cellRecords.push(cr);
+			write(path.join(recordsDir, "cells", `${cell}.json`), cr);
+			record.cells = cellRecords.map((x) => x.cell).sort();
+			save();
+		}
+		enter("executed");
+
+		for (const cr of cellRecords) {
+			const scenario = scenarios.find((s) => s.id === cr.scenario)!;
+			const lastAttempt = cr.attempts[cr.attempts.length - 1]!;
+			for (const p of lastAttempt.phases ?? []) {
+				const props = propertiesOf(scenario).filter((x) => x.decidedBy === "code" && cr.propertyPhases?.[x.id]?.phase === p.phase && cr.propertyPhases[x.id]!.state === "valid");
+				if (!props.length || p.outcome === null) continue;
+				const sub: Scenario = { ...scenario, properties: props, trapPairs: [] };
+				const po = cr.phaseOutcomes?.[p.phase];
+				const maxBytes = scenario.maxResponseBytes ?? effectiveLimits.maxResponseBytes ?? undefined;
+				const rawScored = scenario.scoredFile !== undefined ? rawResponse : null;
+				const measuredFinal = maxBytes !== undefined ? boundUtf8(p.outcome.final, maxBytes).text : p.outcome.final;
+				const measuredScored = maxBytes !== undefined && rawScored !== null ? boundUtf8(rawScored, maxBytes).text : (po?.scored ?? null);
+				cr.codeScores.push(...await measure(loaded, sub, { final: measuredFinal, rawFinal: p.outcome.final, diff: "", scored: measuredScored, rawScored, snapshot: p.snapshot }, now));
+			}
+			write(path.join(recordsDir, "cells", `${cr.cell}.json`), cr);
+		}
+		enter("measured");
+		save();
+
+		await new Promise((r) => setTimeout(r, 2));
+		const scenarioMap = new Map(scenarios.map((x) => [x.id, x]));
+		const families = new Map(record.snapshot.population.map((m) => [m.id, m.family]));
+		const canaries = loaded.pack.variants.flatMap((v) => v.canaries);
+		const blinded = blind(loaded, scenarioMap, cellRecords, families, record.seed, now, { paths: [workRoot, recordsRoot, loaded.dir], literals: canaries });
+		write(path.join(recordsDir, "sealed", "units.json"), blinded);
+		enter("blinded");
+		save();
+
+		const votes = await judgeAll({
+			loaded,
+			experiment: exp.experiment,
+			scenarios: scenarioMap,
+			units: blinded.units,
+			judges,
+			adapters: opts.adapters,
+			guessOptions: Object.keys(record.guessGroups),
+			recordsDir,
+			work,
+			seed: record.seed,
+			timeLimitSeconds: effectiveLimits.judgeTimeLimitSeconds,
+			parallel: opts.parallel ?? 4,
+			maxAttempts: effectiveLimits.maxJudgeAttempts,
+			...(effectiveLimits.maxJudgeInputBytes !== null ? { maxInputBytes: effectiveLimits.maxJudgeInputBytes } : {}),
+			...(effectiveLimits.maxJudgeReplyBytes !== null ? { maxReplyBytes: effectiveLimits.maxJudgeReplyBytes } : {}),
+			...(effectiveLimits.maxStdoutBytes !== null ? { maxStdoutBytes: effectiveLimits.maxStdoutBytes } : {}),
+			budget,
+		});
+		write(path.join(recordsDir, "judging", "votes.json"), votes);
+		enter("judged");
+		save();
+
+		const missingJudgeJobs = [...new Set(votes.filter((v) => v.value === null && /maxTotalInvocations|budget-exhausted/.test(v.reason)).map((v) => v.prompt))].sort();
+		if (missingJudgeJobs.length > 0 || budget.summary().exhausted) {
+			record.missingWork = { cells: [], judgeJobs: missingJudgeJobs };
+		}
+		const result = tallyRun(recordsDir);
+		enter("tallied");
+		if (record.missingWork !== undefined) {
+			record.end = "incomplete";
+			record.endReason = `maxTotalInvocations (${effectiveLimits.maxTotalInvocations}) exhausted; missing ${record.missingWork.judgeJobs.length} judge job(s)`;
+		} else {
+			record.end = "completed";
+		}
+		save();
+		void result;
+	} catch (e) {
+		record.end = "failed";
+		record.endReason = String(e).slice(0, 1000);
+		save();
+		throw e;
+	} finally {
+		for (const v of built.values()) if (v.ok && fs.existsSync(v.dir)) makeWritable(v.dir);
+	}
+	return { dir: recordsDir, record };
 }
 
 /**

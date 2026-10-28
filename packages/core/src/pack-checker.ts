@@ -123,7 +123,24 @@ function packShape(raw: unknown, out: Defect[]): raw is Pack {
 
 function experimentShape(raw: unknown, where: string, out: Defect[]): raw is Experiment {
 	const before = out.length;
-	if (!shape(raw, where, { id: "string", declaredStatus: oneOf(STATUSES), scenarios: "string[]", factors: "object", runsPerCell: positiveInt, phases: "array" }, { maxAttemptsPerCell: (v: unknown) => v === 1 || v === 2, maxResponseBytes: positiveInt, instructions: "string", preamble: "string", judgeInstructions: "string", judging: "object", notes: "string", variation: "object", default: "string" }, out)) return false;
+	const oneTwoThree = (v: unknown): boolean => v === 1 || v === 2 || v === 3;
+	if (!shape(raw, where, { id: "string", declaredStatus: oneOf(STATUSES), scenarios: "string[]", factors: "object", runsPerCell: positiveInt, phases: "array" }, { maxAttemptsPerCell: (v: unknown) => v === 1 || v === 2, maxResponseBytes: positiveInt, limits: "object", instructions: "string", preamble: "string", judgeInstructions: "string", judging: "object", notes: "string", variation: "object", default: "string" }, out)) return false;
+	if (isObj(raw["limits"])) {
+		shape(raw["limits"], `${where}.limits`, {}, {
+			readerTimeLimitSeconds: positiveInt,
+			judgeTimeLimitSeconds: positiveInt,
+			probeTimeLimitSeconds: positiveInt,
+			maxProbeAttempts: oneTwoThree,
+			maxJudgeAttempts: oneTwoThree,
+			maxReaderInputBytes: positiveInt,
+			maxJudgeInputBytes: positiveInt,
+			maxProbeInputBytes: positiveInt,
+			maxJudgeReplyBytes: positiveInt,
+			maxProbeReplyBytes: positiveInt,
+			maxStdoutBytes: positiveInt,
+			maxTotalInvocations: positiveInt,
+		}, out);
+	}
 	if (isObj(raw["variation"])) shape(raw["variation"], `${where}.variation`, { difference: (v: unknown) => typeof v === "number" && v > 0 && v <= 1, scope: oneOf(["pooled", "property"]) }, {}, out);
 	if (isObj(raw["judging"])) {
 		shape(raw["judging"], `${where}.judging`, {}, { judges: "string[]", guessGroups: "object", outcomesPerPrompt: positiveInt, chain: "object" }, out);

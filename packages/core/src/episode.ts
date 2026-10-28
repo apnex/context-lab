@@ -25,7 +25,7 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import type { Adapter, Invocation } from "./adapters.js";
+import { BudgetExhausted, Refused, type Adapter, type Invocation, type InvocationBudget } from "./adapters.js";
 import type { ComposedArm } from "./arm-composer.js";
 import { runHook } from "./hook-runner.js";
 import type { Outcome } from "./outcome.js";
@@ -175,6 +175,12 @@ export interface EpisodeRun {
 	work: string;
 	key: string;
 	timeLimitSeconds: number;
+	/** Optional pre-dispatch UTF-8 byte ceiling on evaluator-controlled reader input. */
+	maxInputBytes?: number;
+	/** Optional UTF-8 byte ceiling on child stdout captured per reader invocation. */
+	maxStdoutBytes?: number;
+	/** Optional shared run invocation budget. */
+	budget?: InvocationBudget;
 	/** Open-step timeouts already counted in earlier attempts of this cell (0012). */
 	timeouts: number;
 	classify: (outcome: Outcome, workspace: string, invocation: string, timeouts: number) => Validity;
@@ -262,15 +268,31 @@ export async function runEpisode(r: EpisodeRun): Promise<EpisodeResult> {
 			}
 		}
 		rec.prompt = phasePrompt(r.experiment, r.scenario, ph, i === 0, r.arm, rec.workspace, rec.note, rec.traps);
-		const invocation = readerInvocation(r.arm, r.member, r.adapter, rec.prompt, rec.workspace, inv, r.timeLimitSeconds,
-			ph.session === "continue" ? { session: prev!.outcome?.session ?? "", work: prev!.invocation, workspace: prev!.workspace } : undefined);
+		const invocation: Invocation = {
+			...readerInvocation(r.arm, r.member, r.adapter, rec.prompt, rec.workspace, inv, r.timeLimitSeconds,
+				ph.session === "continue" ? { session: prev!.outcome?.session ?? "", work: prev!.invocation, workspace: prev!.workspace } : undefined),
+			...(r.maxInputBytes !== undefined ? { maxInputBytes: r.maxInputBytes } : {}),
+			...(r.maxStdoutBytes !== undefined ? { maxStdoutBytes: r.maxStdoutBytes } : {}),
+			...(r.budget !== undefined ? { budget: r.budget } : {}),
+			role: "reader",
+		};
 		const why = ph.session === "continue" && !prev!.outcome?.session ? "the phase it continues returned no session" : r.adapter.refuse(invocation);
 		if (why !== null) {
 			rec.status = "incomplete";
 			rec.reason = why;
 			continue;
 		}
-		const outcome = await r.adapter.invoke(invocation);
+		let outcome: Outcome;
+		try {
+			outcome = await r.adapter.invoke(invocation);
+		} catch (err) {
+			if (err instanceof Refused || err instanceof BudgetExhausted) {
+				rec.status = "incomplete";
+				rec.reason = err.message;
+				break;
+			}
+			throw err;
+		}
 		rec.outcome = outcome;
 		rec.status = "run";
 		if (outcome.stop.reason === "timeout" && outcome.stop.inFlight === "unknown") timeouts++;

@@ -20,11 +20,45 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import type { Adapter, Invocation } from "./adapters.js";
+import { BudgetExhausted, Refused, type Adapter, type Invocation, type InvocationBudget, type InvocationRole } from "./adapters.js";
 import type { ComposedArm } from "./arm-composer.js";
 import type { Outcome } from "./outcome.js";
 import type { LoadedPack, Member } from "./pack-schema.js";
 import { createWorkspace } from "./workspace-builder.js";
+
+export type ProbeFinding = "ok" | "missing-canary" | "foreign-canary" | "leak" | "unanswered";
+
+export type ProbeIneligibleReason =
+	| "not-dispatched"
+	| "filtered"
+	| "timeout"
+	| "stdout-overflow"
+	| "runtime-error"
+	| "tool-call"
+	| "empty-reply"
+	| "reply-bytes-exceeded";
+
+export interface ProbeAttemptRecord {
+	attempt: number;
+	invocationId: number | null;
+	prompt: string;
+	promptBytes: number;
+	controlledInputBytes: number | null;
+	work: string;
+	events: string | null;
+	dispatched: boolean;
+	refusalReason: "input-bytes" | "budget-exhausted" | "adapter-refused" | null;
+	refusalMessage: string | null;
+	answered: boolean;
+	eligible: boolean;
+	ineligibleReason: ProbeIneligibleReason | null;
+	final: string;
+	replyBytes: number;
+	finding: ProbeFinding;
+	toolCalls: number;
+	usageComplete: boolean;
+	outcome: Outcome | null;
+}
 
 export interface ProbeAnswer {
 	question: string;
@@ -32,11 +66,13 @@ export interface ProbeAnswer {
 	probe: string;
 	answered: boolean;
 	final: string;
-	finding: "ok" | "missing-canary" | "foreign-canary" | "leak" | "unanswered";
+	finding: ProbeFinding;
 	/** Tool calls in the attempt the finding is read from: the last one asked. */
 	toolCalls: number;
 	/** Invocations asked for this question, the first included: 1 to 3. */
 	attempts: number;
+	/** Complete per-attempt provenance for this probe question (0040, B30). */
+	history?: ProbeAttemptRecord[];
 }
 
 /**
@@ -59,7 +95,42 @@ export interface ProbeResult {
 
 export const CANARY_QUESTION = "Do not use any tools. One of the files in your instructions is named context-lab-canary.md. Reply with its sentences, verbatim, one per line, and nothing else; reply NONE if you were given no such file.";
 
-const answeredOf = (o: Outcome): boolean => !o.filtered && o.error === null && o.stop.reason === "completed" && o.final.trim() !== "" && o.tools.length === 0;
+const answeredOf = (o: Outcome, maxReplyBytes?: number): boolean =>
+	!o.filtered &&
+	!o.stdoutTruncated &&
+	o.error === null &&
+	o.stop.reason === "completed" &&
+	o.final.trim() !== "" &&
+	o.tools.length === 0 &&
+	(maxReplyBytes === undefined || Buffer.byteLength(o.final, "utf8") <= maxReplyBytes);
+
+function ineligibleReasonOf(o: Outcome, maxReplyBytes?: number): ProbeIneligibleReason | null {
+	if (o.filtered) return "filtered";
+	if (o.stdoutTruncated) return "stdout-overflow";
+	if (o.stop.reason === "timeout") return "timeout";
+	if (o.error !== null || o.stop.reason === "error") return "runtime-error";
+	if (o.tools.length > 0) return "tool-call";
+	if (o.final.trim() === "") return "empty-reply";
+	if (maxReplyBytes !== undefined && Buffer.byteLength(o.final, "utf8") > maxReplyBytes) return "reply-bytes-exceeded";
+	return null;
+}
+
+function violationInReply(kind: "canary" | "leak", text: string, arm: ComposedArm, leak?: RegExp): "foreign-canary" | "leak" | null {
+	if (!text) return null;
+	if (kind === "canary" && arm.negativeCanaries.some((c) => text.includes(c))) return "foreign-canary";
+	if (kind === "leak" && leak?.test(text)) return "leak";
+	return null;
+}
+
+function findingForAttempt(kind: "canary" | "leak", o: Outcome, eligible: boolean, arm: ComposedArm, leak?: RegExp): ProbeFinding {
+	// Even if a reply is ineligible on size, stdout overflow, or tool call, an observed foreign-canary
+	// or leak in its captured text is recorded immediately so a violation is never masked (0040, B30).
+	const violation = violationInReply(kind, o.final, arm, leak);
+	if (violation !== null) return violation;
+	if (!eligible) return "unanswered";
+	if (kind === "canary" && !arm.canaries.every((c) => o.final.includes(c))) return "missing-canary";
+	return "ok";
+}
 
 export interface ProbeOptions {
 	/** Where workspaces and invocation folders are made. */
@@ -67,9 +138,23 @@ export interface ProbeOptions {
 	timeLimitSeconds?: number;
 	/** Ask every leak probe, whatever arms it names: a judge is withheld everything. */
 	allLeaks?: boolean;
+	/** Maximum attempts per probe question (1, 2 or 3; default 3). */
+	maxAttempts?: 1 | 2 | 3;
+	/** Pre-dispatch UTF-8 byte ceiling on evaluator-controlled probe input. */
+	maxInputBytes?: number;
+	/** Post-generation UTF-8 byte eligibility ceiling on raw probe reply (`Outcome.final`). */
+	maxReplyBytes?: number;
+	/** Maximum UTF-8 bytes of child stdout captured per probe invocation. */
+	maxStdoutBytes?: number;
+	/** Shared run invocation budget. */
+	budget?: InvocationBudget;
+	/** Role recorded in InvocationBudget ("readerProbe" by default, or "judgeProbe" when allLeaks is true). */
+	role?: InvocationRole;
 }
 
 export async function probeArm(loaded: LoadedPack, arm: ComposedArm, member: Member, adapter: Adapter, opts: ProbeOptions): Promise<ProbeResult> {
+	const maxAttempts = opts.maxAttempts ?? 3;
+	const role: InvocationRole = opts.role ?? (opts.allLeaks ? "judgeProbe" : "readerProbe");
 	const questions: { kind: "canary" | "leak"; probe: string; text: string; leak?: RegExp }[] = [{ kind: "canary", probe: "canary", text: CANARY_QUESTION }];
 	for (const l of loaded.pack.isolation.leakProbes) {
 		if (opts.allLeaks === true || l.arms.includes(arm.arm)) questions.push({ kind: "leak", probe: l.id, text: `Do not use any tools. Answer in one line. ${l.question}`, leak: new RegExp(l.leak, "i") });
@@ -77,44 +162,121 @@ export async function probeArm(loaded: LoadedPack, arm: ComposedArm, member: Mem
 	const scenario = { id: "isolation-probe", tags: [], fixture: null, task: "", properties: [] };
 	const answers: ProbeAnswer[] = [];
 	for (const q of questions) {
-		const ws = createWorkspace(loaded, scenario, arm, { base: path.join(opts.base, "workspaces"), rulesFiles: adapter.rulesFiles });
-		fs.mkdirSync(path.join(opts.base, "work"), { recursive: true });
-		const work = fs.mkdtempSync(path.join(opts.base, "work", "p-"));
-		fs.rmdirSync(work);
-		const inv: Invocation = { arm, workspace: ws.dir, prompt: q.text, mode: adapter.modes[0]!, member, tools: "off", timeLimitSeconds: opts.timeLimitSeconds ?? 300, work };
-		let o = await adapter.invoke(inv);
-		let attempts = 1;
-		// Once an attempt has made a tool call, every later retry carries the retry prompt, even after a provider failure between.
-		let sawTool = o.tools.length > 0;
-		// A tools-off probe has no on-request folders mounted; if the first attempt had a tool call or
-		// an infrastructure/provider failure (such as a 429 rate limit), retry up to two more times in a
-		// fresh invocation before failing the probe (B19). The criterion is unchanged: the answer read
-		// is the last attempt's, and it counts only if that attempt made no tool call.
-		for (let retry = 1; retry <= 2 && (o.tools.length > 0 || (!answeredOf(o) && !o.filtered)); retry++) {
-			const wsRetry = createWorkspace(loaded, scenario, arm, { base: path.join(opts.base, "workspaces"), rulesFiles: adapter.rulesFiles });
-			const workRetry = fs.mkdtempSync(path.join(opts.base, "work", "p-"));
-			fs.rmdirSync(workRetry);
-			o = await adapter.invoke({ ...inv, workspace: wsRetry.dir, work: workRetry, ...(sawTool ? { prompt: probeRetryPrompt(q.text) } : {}) });
-			attempts++;
+		const history: ProbeAttemptRecord[] = [];
+		let sawTool = false;
+		for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+			const prompt = sawTool ? probeRetryPrompt(q.text) : q.text;
+			const promptBytes = Buffer.byteLength(prompt, "utf8");
+			const ws = createWorkspace(loaded, scenario, arm, { base: path.join(opts.base, "workspaces"), rulesFiles: adapter.rulesFiles });
+			fs.mkdirSync(path.join(opts.base, "work"), { recursive: true });
+			const work = fs.mkdtempSync(path.join(opts.base, "work", "p-"));
+			fs.rmdirSync(work);
+			const inv: Invocation = {
+				arm,
+				workspace: ws.dir,
+				prompt,
+				mode: adapter.modes[0]!,
+				member,
+				tools: "off",
+				timeLimitSeconds: opts.timeLimitSeconds ?? 300,
+				...(opts.maxInputBytes !== undefined ? { maxInputBytes: opts.maxInputBytes } : {}),
+				...(opts.maxStdoutBytes !== undefined ? { maxStdoutBytes: opts.maxStdoutBytes } : {}),
+				...(opts.budget !== undefined ? { budget: opts.budget } : {}),
+				role,
+				work,
+			};
+			let o: Outcome;
+			try {
+				o = await adapter.invoke(inv);
+			} catch (err) {
+				const isBudget = err instanceof BudgetExhausted;
+				const isInput = err instanceof Refused && /exceeds maxInputBytes/.test(err.message);
+				const refusalReason = isBudget ? "budget-exhausted" : isInput ? "input-bytes" : "adapter-refused";
+				const refusalMessage = err instanceof Error ? err.message : String(err);
+				history.push({
+					attempt,
+					invocationId: null,
+					prompt,
+					promptBytes,
+					controlledInputBytes: null,
+					work,
+					events: null,
+					dispatched: false,
+					refusalReason,
+					refusalMessage,
+					answered: false,
+					eligible: false,
+					ineligibleReason: "not-dispatched",
+					final: "",
+					replyBytes: 0,
+					finding: "unanswered",
+					toolCalls: 0,
+					usageComplete: false,
+					outcome: null,
+				});
+				// Pre-dispatch refusal (oversized input or exhausted invocation ceiling) never retries unchanged input.
+				break;
+			}
+			const eligible = answeredOf(o, opts.maxReplyBytes);
+			const inelig = eligible ? null : ineligibleReasonOf(o, opts.maxReplyBytes);
+			const finding = findingForAttempt(q.kind, o, eligible, arm, q.leak);
+			const usageComplete = o.usageComplete ?? (!o.stdoutTruncated && o.stop.reason !== "timeout");
+			history.push({
+				attempt,
+				invocationId: o.invocationId ?? null,
+				prompt,
+				promptBytes,
+				controlledInputBytes: o.controlledInputBytes ?? null,
+				work,
+				events: o.events,
+				dispatched: true,
+				refusalReason: null,
+				refusalMessage: null,
+				answered: eligible,
+				eligible,
+				ineligibleReason: inelig,
+				final: o.final,
+				replyBytes: Buffer.byteLength(o.final, "utf8"),
+				finding,
+				toolCalls: o.tools.length,
+				usageComplete,
+				outcome: o,
+			});
 			sawTool ||= o.tools.length > 0;
+			// Do not retry if we already got an eligible answer, if the reply was content-filtered, or if a violation was already observed.
+			if (eligible || o.filtered || finding === "foreign-canary" || finding === "leak") break;
+			if (opts.budget?.isExhausted()) break;
 		}
-		const answered = answeredOf(o);
-		let finding: ProbeAnswer["finding"] = answered ? "ok" : "unanswered";
-		if (answered && q.kind === "canary") {
-			if (!arm.canaries.every((c) => o.final.includes(c))) finding = "missing-canary";
-			else if (arm.negativeCanaries.some((c) => o.final.includes(c))) finding = "foreign-canary";
-		}
-		if (answered && q.kind === "leak" && q.leak?.test(o.final)) finding = "leak";
-		answers.push({ question: q.text, kind: q.kind, probe: q.probe, answered, final: o.final, finding, toolCalls: o.tools.length, attempts });
+		const last = history[history.length - 1]!;
+		// Sticky violation rule (0040, B30): if any attempt in history observed a foreign-canary or leak,
+		// preserve that violation as the question's finding even if a later attempt returned a clean or empty reply.
+		const stickyViolation = history.find((h) => h.finding === "foreign-canary" || h.finding === "leak")?.finding;
+		const finding = stickyViolation ?? last.finding;
+		answers.push({
+			question: q.text,
+			kind: q.kind,
+			probe: q.probe,
+			answered: last.answered,
+			final: last.final,
+			finding,
+			toolCalls: last.toolCalls,
+			attempts: history.length,
+			history,
+		});
 	}
 	const reasons: string[] = [];
-	// A tool call during a probe fails it outright: the probe runs with tools off, and an answer a
-	// tool reached could hide a leak as easily as fake a canary.
+	// A tool call during the final attempt (or any attempt that also observed a violation or left the question unanswered) fails it.
 	if (answers.some((a) => a.toolCalls > 0)) reasons.push("the agent made a tool call during a probe, with tools off");
 	for (const a of answers) {
 		if (a.finding === "missing-canary") reasons.push("the arm's canary was not quoted, so its instructions did not arrive");
 		if (a.finding === "foreign-canary") reasons.push("another variant's canary was quoted");
 		if (a.finding === "leak") reasons.push(`leak probe ${a.probe} matched its withheld content`);
+		const refused = a.history?.find((h) => !h.dispatched);
+		if (refused) reasons.push(`probe ${a.probe} was refused before dispatch (${refused.refusalReason}): ${refused.refusalMessage}`);
+		const overflow = a.history?.find((h) => h.ineligibleReason === "stdout-overflow");
+		if (overflow && !a.answered) reasons.push(`probe ${a.probe} exceeded maxStdoutBytes and was cut as incomplete`);
+		const replyOver = a.history?.find((h) => h.ineligibleReason === "reply-bytes-exceeded");
+		if (replyOver && !a.answered) reasons.push(`probe ${a.probe} reply (${replyOver.replyBytes} bytes) exceeded maxProbeReplyBytes`);
 	}
 	const canary = answers.find((a) => a.kind === "canary");
 	if (arm.canaries.length > 0 && canary !== undefined && !canary.answered) reasons.push("the canary question was not answered, so delivery is unshown");
