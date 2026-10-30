@@ -697,3 +697,18 @@ All 6 tests in AGP's `docs/reviews/npm-cache-storage-acceptance.test.mjs` (`6/6`
 
 **Source.**\
 `[V, director selection 2026-10-31; docs/BACKLOG.md B31; incoming/agp-workspace-retention-defect-2026-10-30.md lines 105-134]`
+
+### 0045
+
+**Ruling.**\
+Four architectural corrections amend `0041`/`0043`/`0044` (`B31`) in `packages/core/src/review-panel.ts` to resolve the runtime composition, silent-shortening, and ownership-recovery findings in `incoming/agp-workspace-retention-defect-2026-10-30.md` (lines 138–181):
+- **Sandbox-mounted preload & invocation-local `NODE_OPTIONS`:** Removes parent `process.env.NODE_OPTIONS` mutation and global `fs` monkeypatching. Places the quota preload at `{SCRATCH}/.context-lab-quota/preload.mjs` (inside `scratchDir`, which is in `inv.extraWritable` and therefore mounted inside `runSandboxed` `bwrap`) and sets `NODE_OPTIONS` only on `inv.extraEnv` so concurrent invocations never leak environment state into the parent or sibling workers.
+- **Byte-faithful `ENOSPC` write refusal (no silent shortening):** When a Node write inside `{DEP_CACHE}`, `{SCRATCH}`, or `{WORKSPACE}` would exceed `maxDepCacheBytes` or `maxWorkspaceBytes`, the preload records the violation in `{SCRATCH}/.context-lab-quota/{dep,ws}-violation.txt` and throws an explicit `ENOSPC` error (`code: "ENOSPC"`, `errno: -28`) **before writing any bytes**, preserving existing file contents unchanged.
+- **Clean two-phase backup/swap without detached polling guards or `-prev`/`-ready` leftovers:** Removes the detached polling swap-guard child and its `-prev` / `-ready` / `-done` sidecars. Every staging and backup directory writes `.context-lab-owner.json` (`ArchiveOwnerMetadata`) before staging or moving `destDir -> backupDir`, and strips `.context-lab-owner.json` immediately before `stagingDir -> destDir` (or backup restore).
+- **Ownership-metadata verification in `recoverInterruptedPublication`:** Requires both `<prefix><pid>-<timestamp>` naming and verified ownership metadata (`.context-lab-owner.json` or a valid `MANIFEST.json` naming `member`) before restoring a backup or retiring dead-PID `.staging-*` / `.backup-*` directories, so numerically named unowned directories (such as `.staging-p1-999999-3000` without `.context-lab-owner.json`) are never deleted.
+
+**Evidence.**\
+Both tests in AGP's `docs/reviews/npm-cache-storage-runtime-composition.test.mjs` (`2/2` passing under read-only `bwrap`), all 3 tests in Zorg's `test/verify-eval-archive.test.js` (`3/3`), and all 359 tests in `context-lab`'s `npm test` (including `review-panel.test.ts` testing `runSandboxed` preload visibility, byte-faithful `ENOSPC` refusal without shortening a 100-byte file, zero `process.env.NODE_OPTIONS` mutation, and preservation of numeric unowned staging directories) pass.
+
+**Source.**\
+`[V, director selection 2026-10-31 ("continue as recommended"); docs/BACKLOG.md B31; incoming/agp-workspace-retention-defect-2026-10-30.md lines 138-181]`

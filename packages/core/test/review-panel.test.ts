@@ -359,12 +359,16 @@ test("B31: runReview and publishRetainedWorkspace isolate dep-cache and scratch,
 	const intGoodBackup = path.join(intParent, ".backup-p1-999999-1000");
 	const intDamagedBackup = path.join(intParent, ".backup-p1-999999-2000");
 	const intStaging = path.join(intParent, ".staging-p1-999999-1000");
+	const intUnownedNumericStaging = path.join(intParent, ".staging-p1-999999-3000");
 	const intUnowned = path.join(intParent, ".staging-p1-manual-notes");
 	fs.renameSync(intDest, intGoodBackup);
 	fs.cpSync(intGoodBackup, intDamagedBackup, { recursive: true });
 	fs.unlinkSync(path.join(intDamagedBackup, "proof.txt"));
 	fs.mkdirSync(intStaging, { recursive: true });
+	fs.writeFileSync(path.join(intStaging, ".context-lab-owner.json"), JSON.stringify({ owner: "context-lab", kind: "staging", member: "p1", pid: 999999, timestamp: 1000, createdAt: new Date().toISOString() }));
 	fs.writeFileSync(path.join(intStaging, "partial.txt"), "abandoned\n");
+	fs.mkdirSync(intUnownedNumericStaging, { recursive: true });
+	fs.writeFileSync(path.join(intUnownedNumericStaging, "notes.txt"), "numeric but no owner metadata\n");
 	fs.mkdirSync(intUnowned, { recursive: true });
 	fs.writeFileSync(path.join(intUnowned, "notes.txt"), "keep me\n");
 	const rec = recoverInterruptedPublication(intDest, "p1");
@@ -372,5 +376,57 @@ test("B31: runReview and publishRetainedWorkspace isolate dep-cache and scratch,
 	assert.equal(fs.existsSync(path.join(intDest, "MANIFEST.json")), true);
 	assert.equal(fs.existsSync(path.join(intDest, "proof.txt")), true);
 	assert.equal(fs.existsSync(intUnowned), true, "unowned directory without numeric <pid>-<ts> must survive");
-	assert.deepEqual(fs.readdirSync(intParent).filter((n) => n.startsWith(".")), [".staging-p1-manual-notes"]);
+	assert.equal(fs.existsSync(intUnownedNumericStaging), true, "numeric staging directory without .context-lab-owner.json must survive");
+	assert.deepEqual(fs.readdirSync(intParent).filter((n) => n.startsWith(".")).sort(), [".staging-p1-999999-3000", ".staging-p1-manual-notes"]);
+
+	// 9. Invocation-local preload visibility inside runSandboxed, zero process.env.NODE_OPTIONS mutation, and byte-faithful ENOSPC refusal.
+	const { runSandboxed } = await import("../src/index.js");
+	const origNodeOpts = process.env["NODE_OPTIONS"] ?? null;
+	const sandboxAdapter = (runtime: string): Adapter => ({
+		runtime, rulesFiles: ["AGENTS.md"], modes: ["inline"], network: "detected", filesystem: "sandboxed", continue: false,
+		compaction: { onDemand: false, instructionsAfterCompaction: "unknown" }, refuse: () => null,
+		async invoke(inv: Invocation) {
+			fs.mkdirSync(inv.work, { recursive: true });
+			// Run a child Node process inside real bwrap (`runSandboxed`) with the invocation's mounts and env:
+			// (a) an in-budget write (100 bytes <= 1024) succeeds with exact bytes;
+			// (b) an over-budget write (2048 bytes > 1024) throws ENOSPC without shortening the existing 100-byte file.
+			const script = [
+				'const fs = require("node:fs");',
+				'const path = require("node:path");',
+				'const cacheFile = path.join(process.env.npm_config_cache, "exact.bin");',
+				'fs.writeFileSync(cacheFile, Buffer.alloc(100, "A"));',
+				'let code = null;',
+				'try { fs.writeFileSync(cacheFile, Buffer.alloc(2048, "B")); } catch (e) { code = e.code; }',
+				'console.log(JSON.stringify({ sizeAfter: fs.statSync(cacheFile).size, code }));',
+			].join(" ");
+			const res = await runSandboxed({
+				install: fs.realpathSync(process.execPath),
+				writable: [inv.work, inv.workspace, ...(inv.extraWritable ?? [])],
+				readOnly: inv.arm.onRequest.map((o) => o.path),
+				home: path.join(inv.work, "home"),
+				cwd: inv.workspace,
+				command: [process.execPath, "-e", script],
+				env: { PATH: process.env["PATH"] ?? "/usr/bin:/bin", ...(inv.extraEnv ?? {}) },
+				stdin: null,
+				timeLimitSeconds: 10,
+			});
+			assert.equal(res.exit, 0, res.stderr);
+			const parsed = JSON.parse(res.lines[0]!.text) as { sizeAfter: number; code: string | null };
+			assert.equal(parsed.code, "ENOSPC");
+			assert.equal(parsed.sizeAfter, 100, "failed over-budget write must not shorten or overwrite the valid 100-byte file");
+			return outcome("```json\n[]\n```");
+		},
+	});
+	const pktSandbox = await runReview(dir, {
+		promptFile,
+		members: ["p1", "p2"],
+		parallel: 2,
+		tools: "on",
+		outDir: path.join(sDir, "out-sandbox-quota"),
+		work: path.join(sDir, "work-sandbox-quota"),
+		storageLimits: { maxDepCacheBytes: 1024 },
+		adapters: { opencode: sandboxAdapter("opencode"), codex: sandboxAdapter("codex") },
+	});
+	assert.equal(process.env["NODE_OPTIONS"] ?? null, origNodeOpts, "parent process.env.NODE_OPTIONS must never be mutated");
+	assert.equal(pktSandbox.archivalSummary?.allVerified, false, "recorded ENOSPC violation must fail archival");
 });
