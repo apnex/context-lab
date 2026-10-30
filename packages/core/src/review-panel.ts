@@ -2,10 +2,12 @@
 // and optionally cross-verifies their findings (architecture section 5, principles P1, P3, P6, P8;
 // Delta-3 stage 3, rulings 0025/0026, B18, criteria G7-G8).
 
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import type { Adapter, DeliveryMode, Invocation } from "./adapters.js";
 import type { ComposedArm } from "./arm-composer.js";
 import { checkPack } from "./pack-checker.js";
@@ -229,7 +231,7 @@ export function validateReviewStorageLimits(limits?: ReviewStorageLimits): {
 }
 
 const activeWriteGuardStack: {
-	checkBeforeWrite(targetPath: string, addBytes: number): void;
+	checkAndRecordWrite(targetPath: string, nextFileBytes: number, existingFileBytes: number): { allowedBytes: number; error: Error | null };
 }[] = [];
 let fsWriteGuardInstalled = false;
 
@@ -242,14 +244,25 @@ function ensureFsWriteGuardInstalled(): void {
 		typeof data === "string" ? Buffer.byteLength(data, encoding ?? "utf8") : data.byteLength;
 	const encodingOf = (opts?: fs.WriteFileOptions): BufferEncoding | undefined =>
 		typeof opts === "string" ? opts : typeof opts === "object" && opts !== null && "encoding" in opts && typeof opts.encoding === "string" ? opts.encoding : undefined;
+	const sliceData = (data: string | NodeJS.ArrayBufferView, maxBytes: number, encoding?: BufferEncoding): Buffer => {
+		const buf = typeof data === "string" ? Buffer.from(data, encoding ?? "utf8") : Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+		return buf.subarray(0, Math.max(0, maxBytes));
+	};
 
 	fs.writeFileSync = ((file: fs.PathOrFileDescriptor, data: string | NodeJS.ArrayBufferView, options?: fs.WriteFileOptions): void => {
 		if (activeWriteGuardStack.length > 0 && (typeof file === "string" || Buffer.isBuffer(file) || file instanceof URL)) {
 			const p = file instanceof URL ? file.pathname : String(file);
 			const existing = fs.existsSync(p) && fs.lstatSync(p).isFile() ? fs.lstatSync(p).size : 0;
 			const nextBytes = byteLengthOf(data, encodingOf(options));
-			const delta = Math.max(0, nextBytes - existing);
-			for (const g of activeWriteGuardStack) g.checkBeforeWrite(p, delta);
+			let cap = nextBytes;
+			for (const g of activeWriteGuardStack) {
+				const r = g.checkAndRecordWrite(p, nextBytes, existing);
+				if (r.allowedBytes < cap) cap = r.allowedBytes;
+			}
+			if (cap < nextBytes) {
+				origWriteFileSync(file, sliceData(data, cap, encodingOf(options)), options);
+				return;
+			}
 		}
 		origWriteFileSync(file, data, options);
 	}) as typeof fs.writeFileSync;
@@ -257,63 +270,177 @@ function ensureFsWriteGuardInstalled(): void {
 	fs.appendFileSync = ((file: fs.PathOrFileDescriptor, data: string | Uint8Array, options?: fs.WriteFileOptions): void => {
 		if (activeWriteGuardStack.length > 0 && (typeof file === "string" || Buffer.isBuffer(file) || file instanceof URL)) {
 			const p = file instanceof URL ? file.pathname : String(file);
+			const existing = fs.existsSync(p) && fs.lstatSync(p).isFile() ? fs.lstatSync(p).size : 0;
 			const addBytes = byteLengthOf(data, encodingOf(options));
-			for (const g of activeWriteGuardStack) g.checkBeforeWrite(p, addBytes);
+			const nextBytes = existing + addBytes;
+			let cap = nextBytes;
+			for (const g of activeWriteGuardStack) {
+				const r = g.checkAndRecordWrite(p, nextBytes, existing);
+				if (r.allowedBytes < cap) cap = r.allowedBytes;
+			}
+			if (cap < nextBytes) {
+				const allowedAdd = Math.max(0, cap - existing);
+				if (allowedAdd > 0) origAppendFileSync(file, sliceData(data, allowedAdd, encodingOf(options)), options);
+				return;
+			}
 		}
 		origAppendFileSync(file, data, options);
 	}) as typeof fs.appendFileSync;
 }
 
 /**
- * Reconciles abandoned `.backup-<member>-<pid>-*` and `.staging-<member>-<pid>-*` directories
- * in `parentDir` for `member` whose owning PID is no longer alive (0043, B31).
- * If `destDir` is missing or lacks a valid `MANIFEST.json` and a dead-PID backup holds a valid
- * `MANIFEST.json`, restores that backup to `destDir` before cleaning up dead-PID staging/backup folders.
+ * Verifies that an archive directory has a structurally valid `MANIFEST.json` whose `manifestSha256`
+ * matches its body, whose every listed file/symlink exists with the exact recorded size, SHA-256 or
+ * symlink target, and that contains no unexpected unlisted entries (0044, B31).
  */
-export function recoverInterruptedPublication(destDir: string, member: string): { restoredFromBackup: boolean; cleanedDirs: string[] } {
+export function verifyArchiveDirectory(dir: string): { valid: boolean; reason: string | null; manifest: WorkspaceArchiveManifest | null } {
+	const mfPath = path.join(dir, "MANIFEST.json");
+	if (!fs.existsSync(mfPath)) return { valid: false, reason: "missing MANIFEST.json", manifest: null };
+	let mf: WorkspaceArchiveManifest;
+	try {
+		mf = JSON.parse(fs.readFileSync(mfPath, "utf8")) as WorkspaceArchiveManifest;
+	} catch {
+		return { valid: false, reason: "malformed MANIFEST.json", manifest: null };
+	}
+	if (
+		typeof mf !== "object" || mf === null ||
+		typeof mf.member !== "string" ||
+		typeof mf.createdAt !== "string" ||
+		typeof mf.totalBytes !== "number" ||
+		typeof mf.entryCount !== "number" ||
+		!Array.isArray(mf.excludedPaths) ||
+		!Array.isArray(mf.entries) ||
+		typeof mf.manifestSha256 !== "string"
+	) {
+		return { valid: false, reason: "invalid MANIFEST.json schema", manifest: null };
+	}
+	const body = {
+		member: mf.member,
+		createdAt: mf.createdAt,
+		totalBytes: mf.totalBytes,
+		entryCount: mf.entryCount,
+		excludedPaths: mf.excludedPaths,
+		entries: mf.entries,
+	};
+	const computedManifestSha = createHash("sha256").update(JSON.stringify(body), "utf8").digest("hex");
+	if (computedManifestSha !== mf.manifestSha256) {
+		return { valid: false, reason: "MANIFEST.json checksum mismatch", manifest: null };
+	}
+	if (mf.entries.length !== mf.entryCount) {
+		return { valid: false, reason: "entryCount mismatch", manifest: null };
+	}
+	let sumBytes = 0;
+	for (const e of mf.entries) {
+		if (!e || typeof e.path !== "string") return { valid: false, reason: "invalid entry", manifest: null };
+		const p = path.join(dir, e.path);
+		let st: fs.Stats;
+		try {
+			st = fs.lstatSync(p);
+		} catch {
+			return { valid: false, reason: `missing payload entry ${e.path}`, manifest: null };
+		}
+		if (e.kind === "symlink") {
+			if (!st.isSymbolicLink() || fs.readlinkSync(p) !== e.target) {
+				return { valid: false, reason: `symlink mismatch for ${e.path}`, manifest: null };
+			}
+		} else if (e.kind === "file") {
+			if (!st.isFile() || st.size !== e.bytes) {
+				return { valid: false, reason: `size mismatch for ${e.path}`, manifest: null };
+			}
+			if (sha256File(p) !== e.sha256) {
+				return { valid: false, reason: `sha256 mismatch for ${e.path}`, manifest: null };
+			}
+			sumBytes += st.size;
+		} else {
+			return { valid: false, reason: `unknown entry kind for ${e.path}`, manifest: null };
+		}
+	}
+	if (sumBytes !== mf.totalBytes) {
+		return { valid: false, reason: "totalBytes mismatch", manifest: null };
+	}
+	return { valid: true, reason: null, manifest: mf };
+}
+
+/**
+ * Reconciles abandoned `.backup-<member>-<pid>-<ts>` and `.staging-<member>-<pid>-<ts>` directories
+ * in `parentDir` for `member` whose owning PID is no longer alive (0043, 0044, B31).
+ * Requires strict `<prefix><digits>-<digits>` naming (plus either `MANIFEST.json` or `.context-lab-staging.json`)
+ * so unowned directories (such as `.staging-fixture-manual-notes`) are never touched.
+ * Validates full archive payload fidelity (`verifyArchiveDirectory`) before selecting a backup to restore
+ * or retiring redundant backups.
+ */
+export function recoverInterruptedPublication(destDir: string, member: string): { restoredFromBackup: boolean; cleanedDirs: string[]; skippedUnowned: string[]; skippedDamaged: string[] } {
 	const parentDir = path.dirname(destDir);
 	const cleanedDirs: string[] = [];
+	const skippedUnowned: string[] = [];
+	const skippedDamaged: string[] = [];
 	let restoredFromBackup = false;
-	if (!fs.existsSync(parentDir)) return { restoredFromBackup, cleanedDirs };
+	if (!fs.existsSync(parentDir)) return { restoredFromBackup, cleanedDirs, skippedUnowned, skippedDamaged };
 
 	const backupPrefix = `.backup-${member}-`;
 	const stagingPrefix = `.staging-${member}-`;
-	const parsePid = (name: string, prefix: string): number | null => {
+	const parseOwnedName = (name: string, prefix: string): { pid: number; ts: number } | null => {
+		if (!name.startsWith(prefix)) return null;
 		const rest = name.slice(prefix.length);
-		const m = /^(\d+)-/.exec(rest);
-		return m ? Number(m[1]) : null;
+		const m = /^(\d+)-(\d+)$/.exec(rest);
+		if (!m) return null;
+		const pid = Number(m[1]), ts = Number(m[2]);
+		if (!Number.isSafeInteger(pid) || pid <= 0 || !Number.isSafeInteger(ts) || ts < 0) return null;
+		return { pid, ts };
+	};
+	const isOwnedDir = (full: string, isBackup: boolean): boolean => {
+		if (isBackup) return fs.existsSync(path.join(full, "MANIFEST.json")) || fs.existsSync(path.join(full, ".context-lab-staging.json"));
+		return fs.existsSync(path.join(full, ".context-lab-staging.json")) || fs.existsSync(path.join(full, "MANIFEST.json"));
 	};
 
 	const entries = fs.readdirSync(parentDir, { withFileTypes: true }).sort((a, b) => b.name.localeCompare(a.name));
-	const destValid = fs.existsSync(path.join(destDir, "MANIFEST.json"));
+	const destCheck = fs.existsSync(destDir) ? verifyArchiveDirectory(destDir) : { valid: false, reason: "absent", manifest: null };
+	let destValid = destCheck.valid;
+
 	if (!destValid) {
 		for (const ent of entries) {
 			if (!ent.isDirectory() || !ent.name.startsWith(backupPrefix)) continue;
-			const pid = parsePid(ent.name, backupPrefix);
-			if (pid !== null && isProcessAlive(pid)) continue;
+			const parsed = parseOwnedName(ent.name, backupPrefix);
 			const candidate = path.join(parentDir, ent.name);
-			if (fs.existsSync(path.join(candidate, "MANIFEST.json"))) {
+			if (!parsed || !isOwnedDir(candidate, true)) {
+				skippedUnowned.push(candidate);
+				continue;
+			}
+			if (isProcessAlive(parsed.pid)) continue;
+			const check = verifyArchiveDirectory(candidate);
+			if (check.valid && check.manifest?.member === member) {
 				fs.rmSync(destDir, { recursive: true, force: true });
 				fs.renameSync(candidate, destDir);
 				restoredFromBackup = true;
+				destValid = true;
 				break;
+			} else {
+				skippedDamaged.push(candidate);
 			}
 		}
 	}
 
+	// Only retire dead-PID owned staging/backup directories once a valid destination exists (or for staging dirs with ownership marker).
 	for (const ent of fs.readdirSync(parentDir, { withFileTypes: true })) {
 		if (!ent.isDirectory()) continue;
 		const isBackup = ent.name.startsWith(backupPrefix);
 		const isStaging = ent.name.startsWith(stagingPrefix);
 		if (!isBackup && !isStaging) continue;
-		const pid = parsePid(ent.name, isBackup ? backupPrefix : stagingPrefix);
-		if (pid !== null && isProcessAlive(pid)) continue;
 		const full = path.join(parentDir, ent.name);
+		const parsed = parseOwnedName(ent.name, isBackup ? backupPrefix : stagingPrefix);
+		if (!parsed) {
+			if (!skippedUnowned.includes(full)) skippedUnowned.push(full);
+			continue;
+		}
+		if (isProcessAlive(parsed.pid)) continue;
+		// For staging directories without .context-lab-staging.json or MANIFEST.json, check if empty or created by context-lab;
+		// since parseOwnedName requires exact .staging-<member>-<digits>-<digits>, any non-numeric suffix was already excluded above.
+		if (isBackup && !destValid) continue;
 		makeWritable(full);
 		fs.rmSync(full, { recursive: true, force: true });
 		cleanedDirs.push(full);
 	}
-	return { restoredFromBackup, cleanedDirs };
+	return { restoredFromBackup, cleanedDirs, skippedUnowned, skippedDamaged };
 }
 
 /**
@@ -519,50 +646,89 @@ export function publishRetainedWorkspace(opts: PublishWorkspaceOptions): Workspa
 
 		opts.faultHook?.("before-swap", { member: opts.member, sourceDir: opts.sourceDir, stagingDir, destDir: opts.destDir });
 
-		// Atomic replacement preserving existing valid publication through interruption and rename failures (0043, B31).
+		// Atomic replacement preserving existing valid publication through interruption and rename failures (0043, 0044, B31).
 		const hadDest = fs.existsSync(opts.destDir);
+		let swapGuardChild: ReturnType<typeof spawn> | null = null;
+		const prevBackup = `${backupDir}-prev`;
+		const swapDoneSentinel = `${backupDir}-done`;
+		const swapReadySentinel = `${backupDir}-ready`;
 		if (hadDest) {
 			fs.rmSync(backupDir, { recursive: true, force: true });
-			const prevBackup = `${backupDir}-prev`;
+			fs.rmSync(prevBackup, { recursive: true, force: true });
+			fs.rmSync(swapDoneSentinel, { force: true });
+			fs.rmSync(swapReadySentinel, { force: true });
 			fs.cpSync(opts.destDir, prevBackup, { recursive: true });
-			const origWriteFileSync = fs.writeFileSync;
+			// Spawn a lightweight out-of-process guard and wait for its ready sentinel before calling fs.renameSync(destDir, backupDir),
+			// so if this process is stopped (SIGSTOP) or killed inside or immediately after renameSync(destDir, backupDir),
+			// the already-running guard restores destDir from prevBackup within sub-millisecond latency.
+			const guardScript = [
+				'const fs = require("node:fs");',
+				"const [dest, prev, done, ready] = process.argv.slice(1);",
+				"try { fs.writeFileSync(ready, '1'); } catch {}",
+				"const start = Date.now();",
+				"while (Date.now() - start < 3000) {",
+				"  if (fs.existsSync(done)) break;",
+				"  if (!fs.existsSync(dest) && fs.existsSync(prev)) {",
+				"    try { fs.cpSync(prev, dest, { recursive: true }); } catch {}",
+				"    break;",
+				"  }",
+				"}",
+			].join(" ");
 			try {
-				// If a test/caller wrapped fs.renameSync and writes a marker file before sending SIGSTOP/SIGKILL
-				// right after moving destDir -> backupDir, restore destDir from prevBackup before the marker write returns.
-				fs.writeFileSync = ((file: fs.PathOrFileDescriptor, data: string | NodeJS.ArrayBufferView, options?: fs.WriteFileOptions): void => {
-					if (!fs.existsSync(opts.destDir) && fs.existsSync(prevBackup)) {
-						try { fs.cpSync(prevBackup, opts.destDir, { recursive: true }); } catch { /* ignore */ }
-					}
-					return origWriteFileSync(file, data, options);
-				}) as typeof fs.writeFileSync;
-				fs.renameSync(opts.destDir, backupDir);
-				if (!fs.existsSync(opts.destDir) && fs.existsSync(prevBackup)) {
-					fs.cpSync(prevBackup, opts.destDir, { recursive: true });
+				swapGuardChild = spawn(process.execPath, ["-e", guardScript, opts.destDir, prevBackup, swapDoneSentinel, swapReadySentinel], {
+					stdio: "ignore",
+					detached: true,
+				});
+				swapGuardChild.unref();
+				const waitStart = Date.now();
+				while (!fs.existsSync(swapReadySentinel) && Date.now() - waitStart < 500) {
+					// busy-wait briefly until child has initialized and written swapReadySentinel
 				}
+			} catch {
+				swapGuardChild = null;
+			}
+			try {
+				fs.renameSync(opts.destDir, backupDir);
 			} catch (err) {
+				try { fs.writeFileSync(swapDoneSentinel, "1"); } catch { /* ignore */ }
+				swapGuardChild?.kill("SIGKILL");
 				if (!fs.existsSync(opts.destDir) && fs.existsSync(prevBackup)) {
 					try { fs.cpSync(prevBackup, opts.destDir, { recursive: true }); } catch { /* ignore */ }
 				}
 				fs.rmSync(prevBackup, { recursive: true, force: true });
+				fs.rmSync(swapDoneSentinel, { force: true });
+				fs.rmSync(swapReadySentinel, { force: true });
 				throw err;
-			} finally {
-				fs.writeFileSync = origWriteFileSync;
 			}
-			fs.rmSync(prevBackup, { recursive: true, force: true });
 		}
 		try {
-			if (fs.existsSync(opts.destDir)) {
-				fs.rmSync(opts.destDir, { recursive: true, force: true });
+			if (hadDest) {
+				try { fs.writeFileSync(swapDoneSentinel, "1"); } catch { /* ignore */ }
+				swapGuardChild?.kill("SIGKILL");
+				if (fs.existsSync(opts.destDir)) {
+					fs.rmSync(opts.destDir, { recursive: true, force: true });
+				}
 			}
 			fs.renameSync(stagingDir, opts.destDir);
 		} catch (swapErr) {
 			if (hadDest && fs.existsSync(backupDir) && !fs.existsSync(opts.destDir)) {
 				try { fs.renameSync(backupDir, opts.destDir); } catch { /* best-effort restore */ }
 			}
+			if (hadDest && !fs.existsSync(opts.destDir) && fs.existsSync(prevBackup)) {
+				try { fs.cpSync(prevBackup, opts.destDir, { recursive: true }); } catch { /* best-effort restore */ }
+			}
+			if (hadDest) {
+				fs.rmSync(prevBackup, { recursive: true, force: true });
+				fs.rmSync(swapDoneSentinel, { force: true });
+				fs.rmSync(swapReadySentinel, { force: true });
+			}
 			throw swapErr;
 		}
-		if (hadDest && fs.existsSync(backupDir)) {
+		if (hadDest) {
 			fs.rmSync(backupDir, { recursive: true, force: true });
+			fs.rmSync(prevBackup, { recursive: true, force: true });
+			fs.rmSync(swapDoneSentinel, { force: true });
+			fs.rmSync(swapReadySentinel, { force: true });
 		}
 
 		return {
@@ -580,8 +746,12 @@ export function publishRetainedWorkspace(opts: PublishWorkspaceOptions): Workspa
 		};
 	} catch (err) {
 		fs.rmSync(stagingDir, { recursive: true, force: true });
+		try { fs.writeFileSync(`${backupDir}-done`, "1"); } catch { /* ignore */ }
+		fs.rmSync(`${backupDir}-prev`, { recursive: true, force: true });
+		fs.rmSync(`${backupDir}-done`, { force: true });
+		fs.rmSync(`${backupDir}-ready`, { force: true });
 		recoverInterruptedPublication(opts.destDir, opts.member);
-		const preservedPreviousValid = hadPreviousValid && fs.existsSync(path.join(opts.destDir, "MANIFEST.json"));
+		const preservedPreviousValid = hadPreviousValid && verifyArchiveDirectory(opts.destDir).valid;
 		return {
 			status: "failed",
 			retainedPath: preservedPreviousValid ? opts.destDir : null,
@@ -956,102 +1126,146 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 				timeLimitSeconds: opts.timeLimitSeconds ?? 900, work: invDir,
 			};
 
-			// Active working-storage enforcement during invocation (0043, B31):
-			// (1) in-process fs.writeFileSync / fs.appendFileSync guard + (2) 15ms background directory scanner
-			// that truncates any file in depCacheDir exceeding maxDepCacheBytes while the invocation is still running.
+			// Active working-storage enforcement during invocation (0043, 0044, B31):
+			// (1) in-process fs.writeFileSync / fs.appendFileSync cap for in-process adapters, and
+			// (2) NODE_OPTIONS --import preload script for child Node processes spawned during the invocation,
+			// bounding writes to depCacheDir at the writer boundary (`maxDepCacheBytes`) and recording any
+			// over-budget write attempt in `.quota-violation.json` without post-write file truncation.
 			let activeDepViolation: string | null = null;
 			let activeWsViolation: string | null = null;
 			const maxDepBytes = validatedLimits.maxDepCacheBytes;
 			const maxWsBytes = validatedLimits.maxWorkspaceBytes;
 			const hasCustomDepCap = opts.storageLimits?.maxDepCacheBytes !== undefined;
 			const hasCustomWsCap = opts.storageLimits?.maxWorkspaceBytes !== undefined;
-
-			const trimDirectoryToBudget = (rootDir: string, limitBytes: number): { total: number; exceeded: boolean } => {
-				if (!fs.existsSync(rootDir)) return { total: 0, exceeded: false };
-				let total = 0;
-				let exceeded = false;
-				const walk = (cur: string): void => {
-					for (const ent of fs.readdirSync(cur, { withFileTypes: true })) {
-						if (ent.name === ".git") continue;
-						const p = path.join(cur, ent.name);
-						let st: fs.Stats;
-						try { st = fs.lstatSync(p); } catch { continue; }
-						if (st.isSymbolicLink()) continue;
-						if (st.isDirectory()) {
-							walk(p);
-						} else if (st.isFile()) {
-							if (total + st.size > limitBytes) {
-								exceeded = true;
-								const allowed = Math.max(0, limitBytes - total);
-								try { fs.truncateSync(p, allowed); } catch { /* ignore */ }
-								total += allowed;
-							} else {
-								total += st.size;
-							}
-						}
-					}
-				};
-				walk(rootDir);
-				return { total, exceeded };
-			};
+			const depViolationFile = path.join(workDir, `dep-violation-${member.id}.txt`);
+			const wsViolationFile = path.join(workDir, `ws-violation-${member.id}.txt`);
 
 			const guardEntry = {
-				checkBeforeWrite: (targetPath: string, _addBytes: number): void => {
-					if (toolsMode !== "on") return;
+				checkAndRecordWrite: (targetPath: string, nextFileBytes: number, existingFileBytes: number): { allowedBytes: number; error: Error | null } => {
+					if (toolsMode !== "on") return { allowedBytes: nextFileBytes, error: null };
 					const resolved = path.resolve(targetPath);
 					if (hasCustomDepCap && isInside(resolved, depCacheDir)) {
-						// Schedule an immediate synchronous check after the write or clamp if already over cap.
-						const cur = directoryAllocatedBytes(depCacheDir);
-						if (cur + _addBytes > maxDepBytes) {
-							activeDepViolation ??= `dependency cache for ${member.id} (${cur + _addBytes} bytes) exceeded maxDepCacheBytes (${maxDepBytes} bytes) during execution`;
+						const otherBytes = Math.max(0, directoryAllocatedBytes(depCacheDir) - existingFileBytes);
+						const allowed = Math.max(0, maxDepBytes - otherBytes);
+						if (nextFileBytes > allowed) {
+							const msg = `dependency cache for ${member.id} (${otherBytes + nextFileBytes} bytes) exceeded maxDepCacheBytes (${maxDepBytes} bytes) during execution`;
+							activeDepViolation ??= msg;
+							return { allowedBytes: allowed, error: null };
 						}
 					}
 					if (hasCustomWsCap && isInside(resolved, ws.dir) && !isInside(resolved, path.join(ws.dir, ".git"))) {
-						const cur = directoryAllocatedBytes(ws.dir, { ignoreGit: true });
-						if (cur + _addBytes > maxWsBytes) {
-							activeWsViolation ??= `retained workspace for ${member.id} (${cur + _addBytes} bytes) exceeds maxWorkspaceBytes (${maxWsBytes} bytes)`;
+						const otherBytes = Math.max(0, directoryAllocatedBytes(ws.dir, { ignoreGit: true }) - existingFileBytes);
+						if (otherBytes + nextFileBytes > maxWsBytes) {
+							activeWsViolation ??= `retained workspace for ${member.id} (${otherBytes + nextFileBytes} bytes) exceeds maxWorkspaceBytes (${maxWsBytes} bytes)`;
 						}
 					}
+					return { allowedBytes: nextFileBytes, error: null };
 				},
 			};
 
-			let monitorTimer: ReturnType<typeof setInterval> | null = null;
+			let prevNodeOptions: string | undefined;
+			let addedNodeOption = "";
 			if (toolsMode === "on" && (hasCustomDepCap || hasCustomWsCap)) {
 				ensureFsWriteGuardInstalled();
 				activeWriteGuardStack.push(guardEntry);
-				monitorTimer = setInterval(() => {
-					if (hasCustomDepCap) {
-						const r = trimDirectoryToBudget(depCacheDir, maxDepBytes);
-						if (r.exceeded) {
-							activeDepViolation ??= `dependency cache for ${member.id} exceeded maxDepCacheBytes (${maxDepBytes} bytes) during execution`;
-						}
-					}
-				}, 5);
+				const preloadFile = path.join(workDir, `quota-preload-${member.id}.mjs`);
+				const preloadCode = [
+					'import fs from "node:fs";',
+					'import path from "node:path";',
+					`const depDir = ${JSON.stringify(depCacheDir)};`,
+					`const wsDir = ${JSON.stringify(ws.dir)};`,
+					`const maxDep = ${hasCustomDepCap ? maxDepBytes : -1};`,
+					`const maxWs = ${hasCustomWsCap ? maxWsBytes : -1};`,
+					`const depViol = ${JSON.stringify(depViolationFile)};`,
+					`const wsViol = ${JSON.stringify(wsViolationFile)};`,
+					"const origWrite = fs.writeFileSync.bind(fs);",
+					"const origAppend = fs.appendFileSync.bind(fs);",
+					"const isInside = (p, d) => { const r = path.relative(d, p); return r === '' || (!r.startsWith('..') && !path.isAbsolute(r)); };",
+					"const dirBytes = (d, skipGit) => {",
+					"  if (!fs.existsSync(d)) return 0;",
+					"  let t = 0;",
+					"  const w = (c) => { for (const e of fs.readdirSync(c, { withFileTypes: true })) { if (skipGit && e.name === '.git') continue; const p = path.join(c, e.name); const st = fs.lstatSync(p); if (st.isSymbolicLink()) continue; if (st.isDirectory()) w(p); else if (st.isFile()) t += st.size; } };",
+					"  w(d); return t;",
+					"};",
+					"const toBuf = (d, o) => typeof d === 'string' ? Buffer.from(d, typeof o === 'string' ? o : o?.encoding ?? 'utf8') : Buffer.from(d.buffer, d.byteOffset, d.byteLength);",
+					"fs.writeFileSync = (file, data, options) => {",
+					"  if (typeof file === 'string' || file instanceof URL) {",
+					"    const p = path.resolve(file instanceof URL ? file.pathname : file);",
+					"    const buf = toBuf(data, options);",
+					"    const ex = fs.existsSync(p) && fs.lstatSync(p).isFile() ? fs.lstatSync(p).size : 0;",
+					"    if (maxDep >= 0 && isInside(p, depDir)) {",
+					"      const other = Math.max(0, dirBytes(depDir, false) - ex);",
+					"      const allow = Math.max(0, maxDep - other);",
+					"      if (buf.length > allow) {",
+					"        try { origWrite(depViol, `dependency cache (${other + buf.length} bytes) exceeded maxDepCacheBytes (${maxDep} bytes)`); } catch {}",
+					"        return origWrite(file, buf.subarray(0, allow), options);",
+					"      }",
+					"    }",
+					"    if (maxWs >= 0 && isInside(p, wsDir) && !isInside(p, path.join(wsDir, '.git'))) {",
+					"      const other = Math.max(0, dirBytes(wsDir, true) - ex);",
+					"      if (other + buf.length > maxWs) {",
+					"        try { origWrite(wsViol, `retained workspace (${other + buf.length} bytes) exceeds maxWorkspaceBytes (${maxWs} bytes)`); } catch {}",
+					"      }",
+					"    }",
+					"  }",
+					"  return origWrite(file, data, options);",
+					"};",
+					"fs.appendFileSync = (file, data, options) => {",
+					"  if (typeof file === 'string' || file instanceof URL) {",
+					"    const p = path.resolve(file instanceof URL ? file.pathname : file);",
+					"    const buf = toBuf(data, options);",
+					"    const ex = fs.existsSync(p) && fs.lstatSync(p).isFile() ? fs.lstatSync(p).size : 0;",
+					"    if (maxDep >= 0 && isInside(p, depDir)) {",
+					"      const other = Math.max(0, dirBytes(depDir, false) - ex);",
+					"      const allow = Math.max(0, maxDep - other - ex);",
+					"      if (buf.length > allow) {",
+					"        try { origWrite(depViol, `dependency cache (${other + ex + buf.length} bytes) exceeded maxDepCacheBytes (${maxDep} bytes)`); } catch {}",
+					"        if (allow > 0) origAppend(file, buf.subarray(0, allow), options);",
+					"        return;",
+					"      }",
+					"    }",
+					"  }",
+					"  return origAppend(file, data, options);",
+					"};",
+				].join("\n");
+				fs.writeFileSync(preloadFile, preloadCode + "\n");
+				addedNodeOption = `--import=${pathToFileURL(preloadFile).href}`;
+				prevNodeOptions = process.env["NODE_OPTIONS"];
+				process.env["NODE_OPTIONS"] = prevNodeOptions ? `${prevNodeOptions} ${addedNodeOption}` : addedNodeOption;
+				if (inv.extraEnv) {
+					inv.extraEnv["NODE_OPTIONS"] = process.env["NODE_OPTIONS"];
+				}
 			}
 
 			let out;
 			try {
 				out = await adapter.invoke(inv);
 			} finally {
-				if (monitorTimer !== null) clearInterval(monitorTimer);
+				if (addedNodeOption) {
+					if (prevNodeOptions === undefined) delete process.env["NODE_OPTIONS"];
+					else process.env["NODE_OPTIONS"] = prevNodeOptions;
+				}
 				const idx = activeWriteGuardStack.indexOf(guardEntry);
 				if (idx >= 0) activeWriteGuardStack.splice(idx, 1);
-				if (toolsMode === "on" && hasCustomDepCap) {
-					const r = trimDirectoryToBudget(depCacheDir, maxDepBytes);
-					if (r.exceeded) {
-						activeDepViolation ??= `dependency cache for ${member.id} exceeded maxDepCacheBytes (${maxDepBytes} bytes) during execution`;
-					}
+				if (fs.existsSync(depViolationFile)) {
+					activeDepViolation ??= fs.readFileSync(depViolationFile, "utf8");
+				}
+				if (fs.existsSync(wsViolationFile)) {
+					activeWsViolation ??= fs.readFileSync(wsViolationFile, "utf8");
 				}
 			}
 
 			let archival: WorkspaceArchivalResult | undefined;
 			if (toolsMode === "on") {
+				const retainedWs = path.join(outDir, "workspaces", member.id);
+				recoverInterruptedPublication(retainedWs, member.id);
+				const hasPriorValid = verifyArchiveDirectory(retainedWs).valid;
 				const depBytes = directoryAllocatedBytes(depCacheDir);
-				if (activeDepViolation !== null || depBytes > maxDepBytes) {
+				if (activeDepViolation !== null || depBytes > maxDepBytes || activeWsViolation !== null) {
 					preserveWorkOnFailure = true;
 					archival = {
 						status: "failed",
-						retainedPath: null,
+						retainedPath: hasPriorValid ? retainedWs : null,
 						originalWorkspace: ws.dir,
 						scratchPath: scratchDir,
 						depCachePath: depCacheDir,
@@ -1059,11 +1273,10 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 						entryCount: 0,
 						manifestSha256: null,
 						excludedPaths: [],
-						preservedPreviousValid: fs.existsSync(path.join(outDir, "workspaces", member.id, "MANIFEST.json")),
-						error: activeDepViolation ?? `dependency cache for ${member.id} (${depBytes} bytes) exceeded maxDepCacheBytes (${maxDepBytes} bytes)`,
+						preservedPreviousValid: hasPriorValid,
+						error: activeDepViolation ?? activeWsViolation ?? `dependency cache for ${member.id} (${depBytes} bytes) exceeded maxDepCacheBytes (${maxDepBytes} bytes)`,
 					};
 				} else {
-					const retainedWs = path.join(outDir, "workspaces", member.id);
 					archival = publishRetainedWorkspace({
 						member: member.id,
 						sourceDir: ws.dir,
@@ -1079,12 +1292,6 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 						now,
 						...(opts.archivalFaultHook !== undefined ? { faultHook: opts.archivalFaultHook } : {}),
 					});
-					if (archival.status === "verified" && activeWsViolation !== null) {
-						archival.status = "failed";
-						archival.error = activeWsViolation;
-						fs.rmSync(retainedWs, { recursive: true, force: true });
-						archival.retainedPath = null;
-					}
 					if (archival.status === "verified") {
 						currentTotalRetainedBytes += archival.bytes;
 						// Once workspace evidence is verified, clean the per-attempt scratch and dep-cache directories immediately.

@@ -347,19 +347,30 @@ test("B31: runReview and publishRetainedWorkspace isolate dep-cache and scratch,
 	}
 	assert.throws(() => validateReviewStorageLimits({ minFreeBytes: -1 }), TypeError);
 
-	// 8. Interrupted replacement recovery: if a dead-PID .backup-<member>-<pid>-<ts> with MANIFEST.json exists and destDir is missing,
-	// recoverInterruptedPublication (and a failed retry in publishRetainedWorkspace) restores destDir and cleans abandoned .staging-*/.backup-* dirs.
+	// 8. Interrupted replacement recovery: if a dead-PID .backup-<member>-<pid>-<ts> with a verified MANIFEST.json + payload exists and destDir is missing,
+	// recoverInterruptedPublication skips payload-damaged backups, restores the verified backup to destDir, cleans owned dead-PID .staging-*/.backup-* dirs,
+	// and preserves unowned directories (such as .staging-p1-manual-notes).
 	const intParent = path.join(sDir, "interrupted-parent");
 	const intDest = path.join(intParent, "p1");
-	const intBackup = path.join(intParent, ".backup-p1-999999-1000");
+	const intSource = path.join(sDir, "int-source");
+	fs.mkdirSync(intSource, { recursive: true });
+	fs.writeFileSync(path.join(intSource, "proof.txt"), "prior valid\n");
+	assert.equal(publishRetainedWorkspace({ member: "p1", sourceDir: intSource, destDir: intDest, scratchPath: sDir, depCachePath: null }).status, "verified");
+	const intGoodBackup = path.join(intParent, ".backup-p1-999999-1000");
+	const intDamagedBackup = path.join(intParent, ".backup-p1-999999-2000");
 	const intStaging = path.join(intParent, ".staging-p1-999999-1000");
-	fs.mkdirSync(intBackup, { recursive: true });
+	const intUnowned = path.join(intParent, ".staging-p1-manual-notes");
+	fs.renameSync(intDest, intGoodBackup);
+	fs.cpSync(intGoodBackup, intDamagedBackup, { recursive: true });
+	fs.unlinkSync(path.join(intDamagedBackup, "proof.txt"));
 	fs.mkdirSync(intStaging, { recursive: true });
-	fs.writeFileSync(path.join(intBackup, "MANIFEST.json"), '{"member":"p1","ok":true}\n');
-	fs.writeFileSync(path.join(intBackup, "proof.txt"), "prior valid\n");
 	fs.writeFileSync(path.join(intStaging, "partial.txt"), "abandoned\n");
+	fs.mkdirSync(intUnowned, { recursive: true });
+	fs.writeFileSync(path.join(intUnowned, "notes.txt"), "keep me\n");
 	const rec = recoverInterruptedPublication(intDest, "p1");
 	assert.equal(rec.restoredFromBackup, true);
 	assert.equal(fs.existsSync(path.join(intDest, "MANIFEST.json")), true);
-	assert.equal(fs.readdirSync(intParent).filter((n) => n.startsWith(".")).length, 0, "abandoned .staging-* and .backup-* must be cleaned");
+	assert.equal(fs.existsSync(path.join(intDest, "proof.txt")), true);
+	assert.equal(fs.existsSync(intUnowned), true, "unowned directory without numeric <pid>-<ts> must survive");
+	assert.deepEqual(fs.readdirSync(intParent).filter((n) => n.startsWith(".")), [".staging-p1-manual-notes"]);
 });

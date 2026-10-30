@@ -682,3 +682,18 @@ All 6 tests in AGP's `docs/reviews/npm-cache-storage-acceptance.test.mjs` (`6/6`
 
 **Source.**\
 `[V, director selection 2026-10-31; docs/BACKLOG.md B31; incoming/agp-workspace-retention-defect-2026-10-30.md lines 76-101]`
+
+### 0044
+
+**Ruling.**\
+Four further lifecycle corrections amend `0041`/`0043` (`B31`) in `packages/core/src/review-panel.ts` to close the four supplementary lifecycle gaps in `incoming/agp-workspace-retention-defect-2026-10-30.md` (lines 105–134):
+- **Payload-verified backup recovery and strict numeric ownership (`verifyArchiveDirectory`, `recoverInterruptedPublication`):** `recoverInterruptedPublication` requires strict `.backup-<member>-<digits>-<digits>` / `.staging-<member>-<digits>-<digits>` naming (leaving unowned directories such as `.staging-fixture-manual-notes` untouched), verifies full manifest structure, `manifestSha256`, and every payload entry's existence, byte size, and SHA-256 (`verifyArchiveDirectory`) before selecting a backup to restore, and retires dead-PID backups only after a verified destination is in place.
+- **Pre-publication working-size failure check (`runReview`):** Checks `activeDepViolation`, `depBytes > maxDepCacheBytes`, and `activeWsViolation` **before** calling `publishRetainedWorkspace`, so a run that transiently exceeded `maxWorkspaceBytes` fails archival while preserving the previous verified publication at `<out>/workspaces/<member>` (`preservedPreviousValid: true`, `retainedPath: retainedWs`).
+- **Writer-boundary quota enforcement without post-write truncation (`runReview`):** Replaces the post-write `fs.truncateSync` monitor with an in-process write guard plus a per-invocation `NODE_OPTIONS --import` preload module (`quota-preload-<member>.mjs`) inherited by spawned Node child processes, bounding `{DEP_CACHE}` writes at the writer call (`fs.writeFileSync` / `fs.appendFileSync`) before bytes exceed `maxDepCacheBytes` on disk.
+- **Observer-independent mid-swap reachability (`publishRetainedWorkspace`):** Replaces the `fs.writeFileSync` marker hook with a ready-synchronized detached swap guard process that restores `destDir` from `prevBackup` within sub-millisecond latency if `publishRetainedWorkspace` is stopped (`SIGSTOP`/`SIGKILL`) right after `fs.renameSync(destDir, backupDir)`, whether interruption is observed via IPC or a marker file.
+
+**Evidence.**\
+All 6 tests in AGP's `docs/reviews/npm-cache-storage-acceptance.test.mjs` (`6/6`), all 4 tests in AGP's `docs/reviews/npm-cache-storage-lifecycle-acceptance.test.mjs` (`4/4`), all 3 tests in Zorg's `test/verify-eval-archive.test.js` (`3/3`), and all 359 tests in `context-lab`'s `npm test` pass.
+
+**Source.**\
+`[V, director selection 2026-10-31; docs/BACKLOG.md B31; incoming/agp-workspace-retention-defect-2026-10-30.md lines 105-134]`
