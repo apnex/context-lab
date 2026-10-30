@@ -337,4 +337,29 @@ test("B31: runReview and publishRetainedWorkspace isolate dep-cache and scratch,
 	assert.equal(pub.status, "verified");
 	assert.equal(fs.existsSync(path.join(dstWs, ".cache", "keep", "proof.txt")), true);
 	assert.equal(fs.existsSync(path.join(dstWs, "other.txt")), false);
+
+	// 7. Invalid storageLimits (NaN, 0, negative, float) are rejected before dispatch.
+	const { recoverInterruptedPublication, validateReviewStorageLimits } = await import("../src/index.js");
+	for (const bad of [Number.NaN, 0, -5, 1.5, Number.POSITIVE_INFINITY]) {
+		assert.throws(() => validateReviewStorageLimits({ maxWorkspaceBytes: bad }), TypeError);
+		assert.throws(() => validateReviewStorageLimits({ maxTotalRetainedBytes: bad }), TypeError);
+		assert.throws(() => validateReviewStorageLimits({ maxDepCacheBytes: bad }), TypeError);
+	}
+	assert.throws(() => validateReviewStorageLimits({ minFreeBytes: -1 }), TypeError);
+
+	// 8. Interrupted replacement recovery: if a dead-PID .backup-<member>-<pid>-<ts> with MANIFEST.json exists and destDir is missing,
+	// recoverInterruptedPublication (and a failed retry in publishRetainedWorkspace) restores destDir and cleans abandoned .staging-*/.backup-* dirs.
+	const intParent = path.join(sDir, "interrupted-parent");
+	const intDest = path.join(intParent, "p1");
+	const intBackup = path.join(intParent, ".backup-p1-999999-1000");
+	const intStaging = path.join(intParent, ".staging-p1-999999-1000");
+	fs.mkdirSync(intBackup, { recursive: true });
+	fs.mkdirSync(intStaging, { recursive: true });
+	fs.writeFileSync(path.join(intBackup, "MANIFEST.json"), '{"member":"p1","ok":true}\n');
+	fs.writeFileSync(path.join(intBackup, "proof.txt"), "prior valid\n");
+	fs.writeFileSync(path.join(intStaging, "partial.txt"), "abandoned\n");
+	const rec = recoverInterruptedPublication(intDest, "p1");
+	assert.equal(rec.restoredFromBackup, true);
+	assert.equal(fs.existsSync(path.join(intDest, "MANIFEST.json")), true);
+	assert.equal(fs.readdirSync(intParent).filter((n) => n.startsWith(".")).length, 0, "abandoned .staging-* and .backup-* must be cleaned");
 });

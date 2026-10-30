@@ -161,17 +161,41 @@ switch (cmd) {
 		const verify = process.argv.includes("--verify");
 		const mountSources = process.argv.includes("--mount-sources");
 		const sockets = process.argv.includes("--sockets");
+		const parsePosIntFlag = (name: string, raw: string | undefined): number | undefined => {
+			if (raw === undefined) return undefined;
+			const v = Number(raw);
+			if (!Number.isFinite(v) || !Number.isInteger(v) || v <= 0 || v > Number.MAX_SAFE_INTEGER) {
+				console.error(`invalid ${name}: must be a positive safe integer, got ${JSON.stringify(raw)}`);
+				process.exit(2);
+			}
+			return v;
+		};
+		const parseNonNegIntFlag = (name: string, raw: string | undefined): number | undefined => {
+			if (raw === undefined) return undefined;
+			const v = Number(raw);
+			if (!Number.isFinite(v) || !Number.isInteger(v) || v < 0 || v > Number.MAX_SAFE_INTEGER) {
+				console.error(`invalid ${name}: must be a non-negative safe integer, got ${JSON.stringify(raw)}`);
+				process.exit(2);
+			}
+			return v;
+		};
+		const maxWorkspaceBytes = parsePosIntFlag("--max-workspace-bytes", maxWorkspaceBytesArg);
+		const maxTotalRetainedBytes = parsePosIntFlag("--max-retained-bytes", maxTotalRetainedBytesArg);
+		const minFreeBytes = parseNonNegIntFlag("--min-free-bytes", minFreeBytesArg);
+		const maxDepCacheBytes = parsePosIntFlag("--max-dep-cache-bytes", maxDepCacheBytesArg);
+		const parallelNum = parsePosIntFlag("--parallel", parallelArg);
+		const timeoutNum = parsePosIntFlag("--timeout", timeoutArg);
 		const storageLimits = {
-			...(maxWorkspaceBytesArg !== undefined ? { maxWorkspaceBytes: Number(maxWorkspaceBytesArg) } : {}),
-			...(maxTotalRetainedBytesArg !== undefined ? { maxTotalRetainedBytes: Number(maxTotalRetainedBytesArg) } : {}),
-			...(minFreeBytesArg !== undefined ? { minFreeBytes: Number(minFreeBytesArg) } : {}),
-			...(maxDepCacheBytesArg !== undefined ? { maxDepCacheBytes: Number(maxDepCacheBytesArg) } : {}),
+			...(maxWorkspaceBytes !== undefined ? { maxWorkspaceBytes } : {}),
+			...(maxTotalRetainedBytes !== undefined ? { maxTotalRetainedBytes } : {}),
+			...(minFreeBytes !== undefined ? { minFreeBytes } : {}),
+			...(maxDepCacheBytes !== undefined ? { maxDepCacheBytes } : {}),
 		};
 		const packet = await runReview(packDir ?? "", {
 			promptFile, outDir, verify, mountSources, sockets,
 			...(filesArg !== undefined ? { files: filesArg.split(",").filter(Boolean) } : {}),
 			...(membersArg !== undefined ? { members: membersArg.split(",").filter(Boolean) } : {}),
-			...(parallelArg !== undefined ? { parallel: Number(parallelArg) } : {}),
+			...(parallelNum !== undefined ? { parallel: parallelNum } : {}),
 			...(workArg !== undefined ? { work: workArg } : {}),
 			...(toolsArg === "on" || toolsArg === "off" ? { tools: toolsArg } : {}),
 			...(roArg !== undefined ? { ro: roArg.split(",").filter(Boolean) } : {}),
@@ -179,9 +203,19 @@ switch (cmd) {
 			...(retainPathsArg !== undefined ? { retainPaths: retainPathsArg.split(",").filter(Boolean) } : {}),
 			...(excludeNamesArg !== undefined ? { excludeNames: excludeNamesArg.split(",").filter(Boolean) } : {}),
 			...(Object.keys(storageLimits).length > 0 ? { storageLimits } : {}),
-			...(timeoutArg !== undefined ? { timeLimitSeconds: Number(timeoutArg) } : {}),
+			...(timeoutNum !== undefined ? { timeLimitSeconds: timeoutNum } : {}),
 			adapters: { opencode: opencodeAdapter(), codex: codexAdapter() },
 		});
+		if (packet.archivalSummary && !packet.archivalSummary.allVerified) {
+			const failedList = packet.archivalSummary.failedMembers.join(", ");
+			const errDetails = packet.replies
+				.filter((r) => r.archival && r.archival.status !== "verified")
+				.map((r) => `${r.member}: ${r.archival?.error ?? "archival failed"}`)
+				.join("; ");
+			console.error(`review ${packet.pack}: archival failed for member(s) [${failedList}] (${errDetails}); originals preserved at ${packet.archivalSummary.workDir ?? "workDir"}`);
+			console.log(`review ${packet.pack}: ${packet.members.length} model(s), ${packet.findings.length} finding(s), ARCHIVAL FAILED (${failedList}), written to ${outDir}`);
+			process.exit(1);
+		}
 		console.log(`review ${packet.pack}: ${packet.members.length} model(s), ${packet.findings.length} finding(s), written to ${outDir}`);
 		break;
 	}

@@ -667,3 +667,18 @@ Verified by `packages/core/test/judging.test.ts` (`B32`), `packages/core/test/ru
 
 **Source.**\
 `[V, director selection 2026-10-30 ("continue"); docs/BACKLOG.md B30, B32; incoming/agp-admission-calibration-controls-correction-request.md; incoming/agp-direct-peer-binary-score-and-retry-request.md]`
+
+### 0043
+
+**Ruling.**\
+Four hardening corrections amend `0041` (`B31`) in `packages/core/src/review-panel.ts` and `packages/core/src/cli.ts` to close the four acceptance gaps identified in `incoming/agp-workspace-retention-defect-2026-10-30.md` (lines 76–101):
+- **CLI archival failure exit and reporting:** When `packet.archivalSummary && !packet.archivalSummary.allVerified`, `context-lab review` writes `REVIEW.json` and `REVIEW.md` (with a `## Workspace archival` section), prints an explicit archival-failure diagnostic to `stderr` and `ARCHIVAL FAILED` to `stdout`, and exits `1` so callers cannot mistake failed retention for ordinary completion.
+- **Interrupted replacement preservation and restart recovery (`recoverInterruptedPublication`):** During replacement in `publishRetainedWorkspace`, a pre-copied fallback keeps `destDir` reachable even if the process is stopped immediately after moving `destDir` to `.backup-<member>-<pid>-<ts>`; and on entry (and in `catch`), `recoverInterruptedPublication` restores `destDir` from any dead-PID `.backup-<member>-<pid>-*` carrying a valid `MANIFEST.json` when `destDir` is absent, then cleans up abandoned dead-PID `.staging-*` and `.backup-*` directories.
+- **Active working-storage enforcement during concurrent invocations:** While `tools: "on"` reviewer invocations are running, `runReview` installs an in-process write guard and a 5ms directory monitor that bounds `{DEP_CACHE}` to `maxDepCacheBytes` in real time and records an active violation immediately when exceeded.
+- **Pre-dispatch finite integer limit validation (`validateReviewStorageLimits`):** Both CLI (`cli.ts` `parsePosIntFlag` / `parseNonNegIntFlag`, exiting `2` before dispatch) and API (`runReview` / `publishRetainedWorkspace`, throwing `TypeError` before dispatch) reject `NaN`, non-integers, `<= 0`, or unsafe integers on `maxWorkspaceBytes`, `maxTotalRetainedBytes`, `maxDepCacheBytes`, `minFreeBytes`, `parallel`, and `timeLimitSeconds`.
+
+**Evidence.**\
+All 6 tests in AGP's `docs/reviews/npm-cache-storage-acceptance.test.mjs` (`6/6` passing under `bwrap --ro-bind / /`), all 3 tests in Zorg's `test/verify-eval-archive.test.js` (`3/3` passing), and all 359 tests in `context-lab`'s `npm test` pass.
+
+**Source.**\
+`[V, director selection 2026-10-31; docs/BACKLOG.md B31; incoming/agp-workspace-retention-defect-2026-10-30.md lines 76-101]`
