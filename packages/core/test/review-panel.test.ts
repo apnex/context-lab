@@ -173,3 +173,168 @@ test("G7: ARCHITECTURE-TARGET.md absorbs 0025/0026/B18, and runReview refuses < 
 	assert.equal(fs.readFileSync(path.join(outTools, "events", "p1.jsonl"), "utf8").trim(), '{"type":"turn"}');
 	assert.equal(toolsPacket.findings[0]?.severity, "blocking");
 });
+
+test("B31: runReview and publishRetainedWorkspace isolate dep-cache and scratch, exclude package-cache payloads, verify MANIFEST.json before atomic publication, preserve existing valid archives and original workspaces on fault, and cleanReviewWorkRoot honors active/preserved locks", async () => {
+	const {
+		cleanReviewWorkRoot,
+		directoryAllocatedBytes,
+		prepareIsolatedDepCache,
+		publishRetainedWorkspace,
+	} = await import("../src/index.js");
+	const dir = copyPack();
+	const sDir = scratch();
+	const promptFile = path.join(sDir, "prompt-b31.md");
+	fs.writeFileSync(promptFile, "Verify workspace {WORKSPACE} using scratch {SCRATCH} and dep-cache {DEP_CACHE}.\n");
+
+	// Create a simulated shared read-only host npm cache (~/.npm) with a large payload in _cacache/content-v2.
+	const fakeHostNpm = path.join(sDir, "host-npm");
+	fs.mkdirSync(path.join(fakeHostNpm, "_cacache", "content-v2", "sha512", "ab"), { recursive: true });
+	fs.mkdirSync(path.join(fakeHostNpm, "_cacache", "index-v5", "cd"), { recursive: true });
+	const bigTarball = Buffer.alloc(64 * 1024, "T");
+	fs.writeFileSync(path.join(fakeHostNpm, "_cacache", "content-v2", "sha512", "ab", "tarball.tgz"), bigTarball);
+	fs.writeFileSync(path.join(fakeHostNpm, "_cacache", "index-v5", "cd", "idx.json"), '{"key":"pkg"}\n');
+
+	// 1. Test prepareIsolatedDepCache links content-v2 without copying bytes and leaves _locks/_logs/_cacache/tmp writable.
+	const isoCache = path.join(sDir, "iso-dep-cache");
+	const prep = prepareIsolatedDepCache(isoCache, fakeHostNpm);
+	assert.equal(prep.roMount, fs.realpathSync(fakeHostNpm));
+	assert.equal(prep.env["npm_config_cache"], isoCache);
+	assert.equal(prep.env["npm_config_prefer_offline"], "true");
+	assert.equal(fs.lstatSync(path.join(isoCache, "_cacache", "content-v2")).isSymbolicLink(), true);
+	assert.equal(directoryAllocatedBytes(isoCache), 0, "symlinked content-v2 must allocate 0 duplicate payload bytes");
+
+	// 2. Repeated attempts retain declared evidence while excluding node_modules, .npm, npm-cache, _cacache, _npx, _prebuilds.
+	const out1 = path.join(sDir, "out-clean");
+	const workRoot1 = path.join(sDir, "work-root-1");
+	const cachingAdapter = (runtime: string): Adapter => ({
+		runtime, rulesFiles: ["AGENTS.md"], modes: ["inline"], network: "detected", filesystem: "open", continue: false,
+		compaction: { onDemand: false, instructionsAfterCompaction: "unknown" }, refuse: () => null,
+		async invoke(inv: Invocation) {
+			// Verify extraWritable and extraEnv carry isolated scratch and dep-cache outside workspace.
+			assert.ok(inv.extraWritable && inv.extraWritable.length === 2);
+			assert.ok(inv.extraEnv?.["npm_config_cache"]?.includes("dep-cache"));
+			assert.ok(inv.extraEnv?.["TMPDIR"]?.includes("scratch"));
+			// Write legitimate certification evidence AND simulated package-cache bloat inside workspace.
+			fs.writeFileSync(path.join(inv.workspace, "cert.json"), JSON.stringify({ member: inv.member.id, ok: true }));
+			fs.mkdirSync(path.join(inv.workspace, "node_modules", "pkg"), { recursive: true });
+			fs.writeFileSync(path.join(inv.workspace, "node_modules", "pkg", "index.js"), "A".repeat(32768));
+			fs.mkdirSync(path.join(inv.workspace, "npm-cache", "_cacache", "content-v2"), { recursive: true });
+			fs.writeFileSync(path.join(inv.workspace, "npm-cache", "_cacache", "content-v2", "blob"), "B".repeat(32768));
+			// Write scratch data in TMPDIR.
+			fs.writeFileSync(path.join(inv.extraEnv!["TMPDIR"]!, "temp.bin"), "C".repeat(16384));
+			return outcome('```json\n[{"id": "C1", "severity": "minor", "title": "Clean", "evidence": "cert.json", "fix": "none"}]\n```');
+		},
+	});
+	const pkt1 = await runReview(dir, {
+		promptFile,
+		members: ["p1", "p2"],
+		tools: "on",
+		ro: [fakeHostNpm],
+		outDir: out1,
+		work: workRoot1,
+		adapters: { opencode: cachingAdapter("opencode"), codex: cachingAdapter("codex") },
+	});
+	assert.equal(pkt1.archivalSummary?.allVerified, true);
+	for (const m of ["p1", "p2"]) {
+		const wsRet = path.join(out1, "workspaces", m);
+		assert.equal(fs.existsSync(path.join(wsRet, "cert.json")), true);
+		assert.equal(fs.existsSync(path.join(wsRet, "MANIFEST.json")), true);
+		assert.equal(fs.existsSync(path.join(wsRet, "node_modules")), false, "node_modules must not enter retained evidence");
+		assert.equal(fs.existsSync(path.join(wsRet, "npm-cache")), false, "npm-cache must not enter retained evidence");
+		const reply = pkt1.replies.find((r) => r.member === m)!;
+		assert.equal(reply.archival?.status, "verified");
+		assert.ok(reply.archival?.excludedPaths.includes("node_modules"));
+		assert.ok(reply.archival?.excludedPaths.includes("npm-cache"));
+	}
+
+	// 3. Fault injection: checksum corruption before verification refuses publication, preserves existing valid publication on replacement failure, and preserves original workspace when work is omitted.
+	// First, verify out1/workspaces/p1 has valid content from pkt1.
+	const origManifest = fs.readFileSync(path.join(out1, "workspaces", "p1", "MANIFEST.json"), "utf8");
+	const pktFault = await runReview(dir, {
+		promptFile,
+		members: ["p1", "p2"],
+		tools: "on",
+		outDir: out1,
+		// Omit `work` so default workDir cleanup in `finally` would run if not guarded!
+		archivalFaultHook: (stage, ctx) => {
+			if (stage === "before-verify" && ctx.member === "p1") {
+				// Corrupt staged file after copy to trigger SHA-256 verification failure.
+				fs.writeFileSync(path.join(ctx.stagingDir, "cert.json"), "CORRUPTED");
+			}
+		},
+		adapters: { opencode: cachingAdapter("opencode"), codex: cachingAdapter("codex") },
+	});
+	const p1Fault = pktFault.replies.find((r) => r.member === "p1")!;
+	assert.equal(p1Fault.archival?.status, "failed");
+	assert.match(p1Fault.archival?.error ?? "", /verification failed: staged file cert\.json/);
+	assert.equal(p1Fault.archival?.preservedPreviousValid, true, "prior valid publication must remain intact when replacement verification fails");
+	assert.equal(fs.readFileSync(path.join(out1, "workspaces", "p1", "MANIFEST.json"), "utf8"), origManifest);
+	assert.equal(pktFault.archivalSummary?.allVerified, false);
+	assert.equal(pktFault.archivalSummary?.workDirPreserved, true);
+	assert.ok(pktFault.archivalSummary?.workDir && fs.existsSync(pktFault.archivalSummary.workDir), "default workDir must be preserved when archival fails");
+	assert.equal(fs.existsSync(path.join(p1Fault.archival!.originalWorkspace, "cert.json")), true, "original workspace evidence must still exist on disk");
+
+	// 4. Storage bounds: maxWorkspaceBytes refusal preserves original workspace and leaves no partial archive.
+	const outBound = path.join(sDir, "out-bound");
+	const pktBound = await runReview(dir, {
+		promptFile,
+		members: ["p1", "p2"],
+		tools: "on",
+		outDir: outBound,
+		storageLimits: { maxWorkspaceBytes: 10 }, // cert.json is > 10 bytes
+		adapters: { opencode: cachingAdapter("opencode"), codex: cachingAdapter("codex") },
+	});
+	assert.equal(pktBound.archivalSummary?.allVerified, false);
+	for (const r of pktBound.replies) {
+		assert.equal(r.archival?.status, "failed");
+		assert.match(r.archival?.error ?? "", /exceeds maxWorkspaceBytes/);
+		assert.equal(fs.existsSync(path.join(outBound, "workspaces", r.member)), false, "no partial archive may be published on maxWorkspaceBytes failure");
+		assert.equal(fs.existsSync(path.join(r.archival!.originalWorkspace, "cert.json")), true, "sole original workspace must be preserved");
+	}
+
+	// 5. cleanReviewWorkRoot skips active PIDs, unowned folders, and failed-preserved folders (until includeFailedPreserved: true).
+	const cleanRoot = path.join(sDir, "clean-root");
+	const activeDir = path.join(cleanRoot, "review-active");
+	const preservedDir = pktFault.archivalSummary!.workDir!;
+	const preservedCopy = path.join(cleanRoot, path.basename(preservedDir));
+	const retiredDir = path.join(cleanRoot, "review-retired");
+	const unownedDir = path.join(cleanRoot, "review-unowned");
+	fs.mkdirSync(activeDir, { recursive: true });
+	fs.writeFileSync(path.join(activeDir, "LOCK.json"), JSON.stringify({ owner: "context-lab", kind: "review", pid: process.pid, startedAt: new Date().toISOString(), outDir: out1 }));
+	fs.writeFileSync(path.join(activeDir, "ACTIVE"), `${process.pid}\n`);
+	fs.cpSync(preservedDir, preservedCopy, { recursive: true });
+	fs.mkdirSync(retiredDir, { recursive: true });
+	fs.writeFileSync(path.join(retiredDir, "LOCK.json"), JSON.stringify({ owner: "context-lab", kind: "review", pid: 999999, startedAt: new Date().toISOString(), outDir: out1 }));
+	fs.mkdirSync(unownedDir, { recursive: true });
+
+	const c1 = cleanReviewWorkRoot(cleanRoot);
+	assert.deepEqual(c1.removed, [retiredDir]);
+	assert.deepEqual(c1.skippedActive, [activeDir]);
+	assert.deepEqual(c1.skippedPreserved, [preservedCopy]);
+	assert.deepEqual(c1.skippedUnowned, [unownedDir]);
+
+	const c2 = cleanReviewWorkRoot(cleanRoot, { includeFailedPreserved: true });
+	assert.deepEqual(c2.removed, [preservedCopy]);
+
+	// Clean up preserved default workDirs created during the test.
+	fs.rmSync(preservedDir, { recursive: true, force: true });
+	if (pktBound.archivalSummary?.workDir) fs.rmSync(pktBound.archivalSummary.workDir, { recursive: true, force: true });
+
+	// 6. Test publishRetainedWorkspace explicit retainPaths override.
+	const srcWs = path.join(sDir, "src-ws-retain");
+	const dstWs = path.join(sDir, "dst-ws-retain");
+	fs.mkdirSync(path.join(srcWs, ".cache", "keep"), { recursive: true });
+	fs.writeFileSync(path.join(srcWs, ".cache", "keep", "proof.txt"), "kept\n");
+	fs.writeFileSync(path.join(srcWs, "other.txt"), "dropped\n");
+	const pub = publishRetainedWorkspace({
+		member: "p1",
+		sourceDir: srcWs,
+		destDir: dstWs,
+		scratchPath: sDir,
+		depCachePath: null,
+		retainPaths: [".cache/keep"],
+	});
+	assert.equal(pub.status, "verified");
+	assert.equal(fs.existsSync(path.join(dstWs, ".cache", "keep", "proof.txt")), true);
+	assert.equal(fs.existsSync(path.join(dstWs, "other.txt")), false);
+});

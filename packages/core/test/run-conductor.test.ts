@@ -760,7 +760,58 @@ test("B30: calibrateRun scores a fixed response across all judge families with z
 	assert.equal(calCell.syntheticCalibration, true);
 	assert.equal(calCell.fixedResponse?.bytes, Buffer.byteLength(fs.readFileSync(respFile, "utf8")));
 
-	// 3. Overriding a registered limit downgrades status from result to exploration, and maxTotalInvocations marks an exhausted run incomplete.
+	// 3. Overriding a registered limit on a registered experiment is refused before dispatch across conductRun, calibrateRun, and previewRun (Condition 2, 0042); equal-value overrides are accepted with origin "experiment"; and on an unregistered exploration experiment, maxTotalInvocations marks an exhausted run incomplete.
+	await assert.rejects(
+		() => conductRun(dir, {
+			experiment: "orchard",
+			maxTotalInvocations: 10,
+			adapters: { opencode: scripted("opencode"), codex: scripted("codex") },
+			work: path.join(scratch(), "lim-refused-work"),
+			records: path.join(scratch(), "lim-refused-records"),
+		}),
+		/disagree with registered experiment orchard/,
+	);
+	await assert.rejects(
+		() => calibrateRun(dir, {
+			experiment: "orchard",
+			responseFile: respFile,
+			maxProbeAttempts: 1, // Registered value is 2
+			out: path.join(scratch(), "cal-refused"),
+			adapters: { opencode: scripted("opencode"), codex: scripted("codex") },
+			work: path.join(scratch(), "cal-refused-work"),
+		}),
+		/disagree with registered experiment orchard/,
+	);
+	await assert.rejects(
+		() => previewRun(dir, "orchard", {
+			adapters: { opencode: oc, codex: cx },
+			out: path.join(scratch(), "pv-refused"),
+			probeTimeLimitSeconds: 999, // Registered value is 120
+		}),
+		/disagree with registered experiment orchard/,
+	);
+	// Equal-value flags agree with the registered declaration and keep origin "experiment".
+	const pvEqual = await previewRun(dir, "orchard", {
+		adapters: { opencode: oc, codex: cx },
+		out: path.join(scratch(), "pv-equal"),
+		mode: "calibrate",
+		response: fs.readFileSync(respFile, "utf8"),
+		responsePath: respFile,
+		probeTimeLimitSeconds: 120,
+		maxProbeAttempts: 2,
+	});
+	assert.equal(pvEqual.mode, "calibrate");
+	assert.equal(pvEqual.readers.length, 0, "preview --calibrate renders 0 reader invocations");
+	assert.equal(pvEqual.judges.length, 6, "preview --calibrate renders all 3 judge families across the 2 answer units");
+	assert.ok(pvEqual.judges.every((j) => j.retry !== null && j.retry.attempt === 2), "single-unit jobs with maxJudgeAttempts > 1 expose attempt 2 pending-unit retry");
+	assert.equal(pvEqual.effectiveLimits.origins.probeTimeLimitSeconds, "experiment");
+
+	// On an unregistered experiment, overrides are permitted and maxTotalInvocations marks an exhausted run incomplete.
+	editJson(path.join(dir, "experiments", "orchard.json"), (j) => {
+		j.declaredStatus = "exploration";
+	});
+	fs.rmSync(path.join(dir, "register", "orchard.json"), { force: true });
+	commitAll(dir);
 	const { record: expRec } = await conductRun(dir, {
 		experiment: "orchard",
 		runsPerCell: 1,
@@ -792,5 +843,185 @@ test("B30: calibrateRun scores a fixed response across all judge families with z
 	assert.equal(flags.maxJudgeAttempts, 1);
 	assert.equal(flags.maxStdoutBytes, 524288);
 	assert.equal(flags.maxTotalInvocations, 66);
+});
+
+test("B30/B32: AGP 6-case parcel-policy calibration preview and synthetic calibration run produce 12 case/axis units, 18 two-unit jobs across all 3 families, 36 axis votes, and aligned 0|1 / 0|1|2 / mixed score domains", async () => {
+	const { calibrateRun, previewRun } = await import("../src/index.js");
+	const calCasesPath = path.resolve(packageRoot, "..", "..", "..", "agp", "docs", "reviews", "admission-assurance-packet", "calibration-cases.json");
+	const exp02Path = path.resolve(packageRoot, "..", "..", "..", "agp", "docs", "reviews", "admission-assurance-packet", "questions-02", "experiment.json");
+	const scen02Path = path.resolve(packageRoot, "..", "..", "..", "agp", "docs", "reviews", "admission-assurance-packet", "questions-02", "scenario.json");
+	if (!fs.existsSync(calCasesPath) || !fs.existsSync(exp02Path) || !fs.existsSync(scen02Path)) return;
+
+	const calSpec = JSON.parse(fs.readFileSync(calCasesPath, "utf8")) as {
+		reading: string;
+		question: string;
+		required: string[];
+		cases: { id: string; answer: string; decision: number; grounding: number }[];
+	};
+	const exp02 = JSON.parse(fs.readFileSync(exp02Path, "utf8")) as { judgeInstructions: string };
+	const scen02 = JSON.parse(fs.readFileSync(scen02Path, "utf8")) as { properties: { id: string; rubric: string }[] };
+	const dRubric = scen02.properties.find((p) => p.id.endsWith("-d"))!.rubric;
+	const gRubric = scen02.properties.find((p) => p.id.endsWith("-g"))!.rubric;
+	const keyText = calSpec.required.map((r, i) => `${i + 1}. ${r}`).join("\n");
+
+	const dir = path.join(scratch(), "agp-cal-pack");
+	const srcDir = path.join(dir, "reading-source");
+	fs.mkdirSync(srcDir, { recursive: true });
+	fs.writeFileSync(path.join(srcDir, "READING.md"), calSpec.reading + "\n");
+	execFileSync("git", ["init", "-q"], { cwd: srcDir });
+	execFileSync("git", ["add", "READING.md"], { cwd: srcDir });
+	execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "reading"], { cwd: srcDir });
+
+	const headings = calSpec.cases.map((_, i) => `C0${i + 1}`);
+	const properties = calSpec.cases.flatMap((c, i) => {
+		const h = headings[i]!;
+		const slug = `c0${i + 1}`;
+		return [
+			{
+				id: `${slug}-d`,
+				type: "comprehension",
+				decidedBy: "judge",
+				answerHeading: h,
+				question: calSpec.question,
+				key: keyText,
+				scale: [0, 1],
+				rubric: dRubric,
+				judgedWith: ["delivered"],
+			},
+			{
+				id: `${slug}-g`,
+				type: "comprehension",
+				decidedBy: "judge",
+				answerHeading: h,
+				question: calSpec.question,
+				key: keyText,
+				scale: [0, 2],
+				rubric: gRubric,
+				judgedWith: ["delivered"],
+			},
+		];
+	});
+	fs.writeFileSync(path.join(dir, "pack.json"), JSON.stringify({
+		schema: "context-lab.pack/1",
+		id: "agp-parcel-calibration",
+		sources: [{ id: "parcel-source", path: "reading-source", addresses: [] }],
+		variants: [{ id: "parcel-v1", source: "parcel-source", include: ["READING.md"], canaries: ["The amber tern counts eleven leaves."] }],
+		arms: [
+			{ id: "parcel", deliver: [{ variant: "parcel-v1", file: "READING.md", as: "instruction" }] },
+			{ id: "bare", deliver: [] },
+		],
+		population: [
+			{ id: "c", family: "claude", runtime: "opencode", model: "litellm-nexus/claude-opus-5-5" },
+			{ id: "g", family: "gemini", runtime: "opencode", model: "litellm-nexus/gemini-3.8-flash" },
+			{ id: "o", family: "gpt", runtime: "codex", model: "gpt-6-astra" },
+		],
+		hooks: [],
+		masks: { identifiers: [] },
+		isolation: {
+			leakProbes: [{ id: "withheld-key", question: "What is the sealed marker? Answer UNKNOWN if not supplied.", leak: "copper-orchard-4198", arms: ["parcel", "bare"] }],
+			forbidden: { paths: [], addresses: [] },
+		},
+		experiments: ["experiment.json"],
+		suites: [{ id: "parcel-calibration", experiment: "parcel-calibration", select: { allTags: ["calibration"] } }],
+		records: { path: "records" },
+	}, null, 2) + "\n");
+	fs.writeFileSync(path.join(dir, "experiment.json"), JSON.stringify({
+		id: "parcel-calibration",
+		declaredStatus: "exploration",
+		scenarios: ["scenario.json"],
+		factors: { arms: ["parcel", "bare"], population: ["c", "g", "o"] },
+		runsPerCell: 1,
+		maxAttemptsPerCell: 1,
+		maxResponseBytes: 98304,
+		limits: {
+			readerTimeLimitSeconds: 1200,
+			judgeTimeLimitSeconds: 900,
+			probeTimeLimitSeconds: 300,
+			maxProbeAttempts: 2,
+			maxJudgeAttempts: 3,
+			maxReaderInputBytes: 131072,
+			maxJudgeInputBytes: 262144,
+			maxProbeInputBytes: 32768,
+			maxJudgeReplyBytes: 16384,
+			maxProbeReplyBytes: 4096,
+			maxStdoutBytes: 1048576,
+			maxTotalInvocations: 66,
+		},
+		phases: [{ id: "answer", session: "new" }],
+		judgeInstructions: exp02.judgeInstructions,
+		judging: { judges: ["c", "g", "o"], outcomesPerPrompt: 2 },
+	}, null, 2) + "\n");
+	fs.writeFileSync(path.join(dir, "scenario.json"), JSON.stringify({
+		id: "parcel-policy",
+		tags: ["calibration"],
+		fixture: null,
+		answerSource: "final",
+		task: headings.map((h) => `### ${h}\n${calSpec.question}`).join("\n\n"),
+		properties,
+	}, null, 2) + "\n");
+
+	const respText = calSpec.cases.map((c, i) => `### ${headings[i]}\n${c.answer}`).join("\n\n") + "\n";
+	const respFile = path.join(dir, "parcel-fixed-response.md");
+	fs.writeFileSync(respFile, respText);
+
+	const oc = scripted("opencode"), cx = scripted("codex");
+	oc.prepare = (inv) => ({
+		runtime: "opencode", command: ["stub"], env: {}, stdin: null, cwd: inv.workspace,
+		mounts: { install: "stub", writable: [inv.work], readOnly: [] },
+		prompt: { text: inv.prompt, delivery: inv.mode, wrapper: null, bytes: Buffer.byteLength(inv.prompt, "utf8") },
+		controlledInputBytes: Buffer.byteLength(inv.prompt, "utf8"), files: [], notRendered: [], outsideControl: [],
+	});
+	cx.prepare = (inv) => ({
+		runtime: "codex", command: ["stub"], env: {}, stdin: null, cwd: inv.workspace,
+		mounts: { install: "stub", writable: [inv.work], readOnly: [] },
+		prompt: { text: inv.prompt, delivery: inv.mode, wrapper: null, bytes: Buffer.byteLength(inv.prompt, "utf8") },
+		controlledInputBytes: Buffer.byteLength(inv.prompt, "utf8"), files: [], notRendered: [], outsideControl: [],
+	});
+
+	const pvOut = path.join(scratch(), "agp-cal-pv");
+	const pv = await previewRun(dir, "parcel-calibration", {
+		mode: "calibrate",
+		arm: "parcel",
+		response: respText,
+		responsePath: respFile,
+		seed: "agp-calibration-preview",
+		adapters: { opencode: oc, codex: cx },
+		out: pvOut,
+	});
+	assert.equal(pv.mode, "calibrate");
+	assert.equal(pv.readers.length, 0);
+	assert.equal(pv.answers.length, 12, "6 cases * 2 axes = 12 answer units");
+	assert.equal(pv.judges.length, 18, "6 two-unit jobs * 3 judge families = 18 judge jobs");
+	assert.equal(pv.inventory.calibration.judgeProbeQuestions, 6);
+	assert.equal(pv.inventory.calibration.judgeJobs, 18);
+	assert.equal(pv.inventory.calibration.firstAttempt, 24);
+	assert.equal(pv.inventory.calibration.maxAttempts, 66);
+	assert.deepEqual(pv.inventory.calibration.byAttemptCap, { probe1_judge1: 24, probe1_judge3: 60, probe2_judge3: 66, probe3_judge3: 72 });
+	for (const j of pv.judges) {
+		assert.equal(j.units.length, 2);
+		assert.ok(j.first.prompt.includes(exp02.judgeInstructions));
+		assert.ok(j.first.prompt.includes(calSpec.reading));
+		assert.ok(j.retry !== null && j.retry.attempt === 2);
+	}
+
+	// Also run calibrateRun with scripted judges returning the oracle scores to verify 36 votes across 18 jobs.
+	const calRunOut = path.join(scratch(), "agp-cal-run");
+	const { record: calRunRec } = await calibrateRun(dir, {
+		experiment: "parcel-calibration",
+		arm: "parcel",
+		responseFile: respFile,
+		out: calRunOut,
+		adapters: { opencode: scripted("opencode"), codex: scripted("codex") },
+		work: path.join(scratch(), "agp-cal-work"),
+	});
+	assert.equal(calRunRec.mode, "calibrate");
+	assert.equal(calRunRec.probes.length, 0);
+	assert.equal(calRunRec.judgeProbes.length, 3);
+	assert.equal(calRunRec.invocationSummary?.dispatchedByRole.reader, 0);
+	assert.equal(calRunRec.invocationSummary?.dispatchedByRole.judgeProbe, 6);
+	assert.equal(calRunRec.invocationSummary?.dispatchedByRole.judge, 18);
+	assert.equal(calRunRec.invocationSummary?.dispatchedTotal, 24);
+	const votes = JSON.parse(fs.readFileSync(path.join(calRunOut, "judging", "votes.json"), "utf8")) as unknown[];
+	assert.equal(votes.length, 36);
 });
 

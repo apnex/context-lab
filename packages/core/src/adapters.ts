@@ -104,6 +104,10 @@ export interface Invocation {
 	tools: "on" | "off";
 	/** When true (requires tools: "on"), permits local socket creation in runtimes whose workspace sandbox blocks it (Codex). */
 	sockets?: boolean;
+	/** Optional additional writable directories inside the sandbox (e.g. a per-attempt scratch/dependency-cache directory outside the retained workspace). */
+	extraWritable?: string[];
+	/** Optional environment variables passed into the sandboxed runtime (e.g. npm_config_cache / TMPDIR). */
+	extraEnv?: Record<string, string>;
 	timeLimitSeconds: number;
 	/** Optional pre-dispatch UTF-8 byte ceiling on evaluator-controlled input (prompt + wrapper + delivered instructions and folderFiles). */
 	maxInputBytes?: number;
@@ -463,6 +467,7 @@ export function opencodeAdapter(opts: OpencodeOptions = {}): Adapter {
 			PATH: sandboxPath(), PWD: inv.workspace, HOME: home,
 			XDG_CONFIG_HOME: xdg, XDG_DATA_HOME: path.join(inv.work, "data"), XDG_STATE_HOME: path.join(inv.work, "state"), XDG_CACHE_HOME: path.join(inv.work, "cache"),
 			OPENCODE_DISABLE_CLAUDE_CODE: "1",
+			...(inv.extraEnv ?? {}),
 		};
 		const shownEnv: Record<string, string> = { ...runEnv };
 		for (const v of p.credentialVars) {
@@ -474,7 +479,8 @@ export function opencodeAdapter(opts: OpencodeOptions = {}): Adapter {
 		if (inv.member.settings?.["outputTokenMax"] !== undefined) runEnv["OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX"] = shownEnv["OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX"] = String(inv.member.settings["outputTokenMax"]);
 		const instructionBytes = instructions.reduce((sum, f) => sum + fs.statSync(f.path).size, 0);
 		const controlledInputBytes = measureControlledInputBytes(inv, instructionBytes, inv.mode === "attachment" ? ATTACHMENT_WRAPPER : null);
-		const spec: SandboxSpec = { install: binary, writable: [inv.work, inv.workspace], readOnly: onRequest, home, cwd: inv.workspace, command: [binary, ...args], env: runEnv, stdin: null, timeLimitSeconds: inv.timeLimitSeconds, ...(inv.maxStdoutBytes !== undefined ? { maxStdoutBytes: inv.maxStdoutBytes } : {}) };
+		const writable = [inv.work, inv.workspace, ...(inv.tools === "on" ? (inv.extraWritable ?? []) : [])];
+		const spec: SandboxSpec = { install: binary, writable, readOnly: onRequest, home, cwd: inv.workspace, command: [binary, ...args], env: runEnv, stdin: null, timeLimitSeconds: inv.timeLimitSeconds, ...(inv.maxStdoutBytes !== undefined ? { maxStdoutBytes: inv.maxStdoutBytes } : {}) };
 		return { spec, home, xdg, secrets, shownEnv, instructions, controlledInputBytes, credentialVars: p.credentialVars, redacted: JSON.stringify(redactProvider(p.block)) !== JSON.stringify(p.block) };
 	}
 	return adapter;
@@ -635,9 +641,10 @@ export function codexAdapter(opts: CodexOptions = {}): Adapter {
 			: ["exec", ...common, "-C", workspace, inv.mode === "stdin" ? "-" : inv.prompt];
 		const secrets = live ? authSecrets(auth) : [];
 		const controlledInputBytes = measureControlledInputBytes(inv, Buffer.byteLength(dev, "utf8"), null);
+		const writable = inv.tools === "off" ? [inv.work] : [inv.work, inv.workspace, ...(inv.extraWritable ?? [])];
 		const spec: SandboxSpec = {
-			install: vendor, writable: inv.tools === "off" ? [inv.work] : [inv.work, inv.workspace], readOnly: inv.tools === "off" ? [] : inv.arm.onRequest.map((o) => o.path), home, cwd: workspace,
-			command: [binary, ...args], env: { PATH: sandboxPath(), PWD: workspace, HOME: home, CODEX_HOME: codexHome }, stdin: inv.mode === "stdin" ? inv.prompt : null, timeLimitSeconds: inv.timeLimitSeconds, ...(inv.maxStdoutBytes !== undefined ? { maxStdoutBytes: inv.maxStdoutBytes } : {}),
+			install: vendor, writable, readOnly: inv.tools === "off" ? [] : inv.arm.onRequest.map((o) => o.path), home, cwd: workspace,
+			command: [binary, ...args], env: { PATH: sandboxPath(), PWD: workspace, HOME: home, CODEX_HOME: codexHome, ...(inv.extraEnv ?? {}) }, stdin: inv.mode === "stdin" ? inv.prompt : null, timeLimitSeconds: inv.timeLimitSeconds, ...(inv.maxStdoutBytes !== undefined ? { maxStdoutBytes: inv.maxStdoutBytes } : {}),
 		};
 		return { spec, home, codexHome, workspace, secrets, controlledInputBytes };
 	}

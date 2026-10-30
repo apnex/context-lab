@@ -342,3 +342,45 @@ test("sandboxed path attempts are reported in the result", async () => {
 	assert.deepEqual(r.excluded, []);
 	assert.match(fs.readFileSync(path.join(rd, "RESULT.md"), "utf8"), /named forbidden paths/);
 });
+
+test("B32: comprehension answerPrompt renders the property's declared score domain (0|1 vs 0|1|2), rejects out-of-domain votes without clamping, and retries a failed single-unit job with original reasons retained", async () => {
+	const { judgePrompt, validate } = await import("../src/index.js");
+	const exp = {
+		id: "e",
+		declaredStatus: "exploration" as const,
+		scenarios: ["s"],
+		factors: { arms: ["a"], population: ["p1", "p2"] },
+		runsPerCell: 1,
+		phases: [{ id: "work", session: "new" as const }],
+		judgeInstructions: "Score strictly.",
+	};
+	const sc = {
+		id: "s",
+		tags: [],
+		fixture: null,
+		task: "### Q1\nQuestion 1?",
+		properties: [
+			{ id: "q1-d", type: "comprehension" as const, decidedBy: "judge" as const, key: "k-d", rubric: "r-d", scale: [0, 1] as [number, number], answerHeading: "Q1", question: "Question 1?" },
+			{ id: "q1-g", type: "comprehension" as const, decidedBy: "judge" as const, key: "k-g", rubric: "r-g", scale: [0, 2] as [number, number], answerHeading: "Q1", question: "Question 1?" },
+		],
+	};
+	const uD = { id: "u-d", cell: "s.a.p1.1", scenario: "s", arm: "a", member: "p1", family: "f1", properties: ["q1-d"], text: "--- ANSWER ---\nDecision text", blindedAt: "" };
+	const uG = { id: "u-g", cell: "s.a.p1.1", scenario: "s", arm: "a", member: "p1", family: "f1", properties: ["q1-g"], text: "--- ANSWER ---\nGrounding text", blindedAt: "" };
+
+	const promptD = judgePrompt(exp, { scenario: sc, answers: true }, [uD], []);
+	const promptG = judgePrompt(exp, { scenario: sc, answers: true }, [uG], []);
+	assert.ok(promptD.text.includes('{"item": "<answer id>", "score": 0|1, "reason": "<one sentence>"}'));
+	assert.equal(promptD.text.includes('"score": 0|1|2'), false);
+	assert.ok(promptG.text.includes('{"item": "<answer id>", "score": 0|1|2, "reason": "<one sentence>"}'));
+
+	const judge = { id: "p2", family: "f2", runtime: "opencode", model: "m2" };
+	// Out-of-domain score 2 on binary [0, 1] is rejected (returns []), never clamped to 1.
+	assert.deepEqual(validate({ outcomes: [{ id: "a1", scores: { "*": { v: 2, reason: "out of range" } } }] }, promptD.local, sc, judge, "job-d", [], 1), []);
+	assert.deepEqual(validate({ outcomes: [{ id: "a1", scores: { "*": { v: -1, reason: "negative" } } }] }, promptD.local, sc, judge, "job-d", [], 1), []);
+	assert.deepEqual(validate({ outcomes: [{ id: "a1", scores: { "*": { v: 0.5, reason: "float" } } }] }, promptD.local, sc, judge, "job-d", [], 1), []);
+	// Valid score 1 on binary [0, 1] is accepted with exact reason and attempt retained.
+	assert.deepEqual(
+		validate({ outcomes: [{ id: "a1", scores: { "*": { v: 1, reason: "exact binary reason" } } }] }, promptD.local, sc, judge, "job-d", [], 2),
+		[{ unit: "u-d", property: "q1-d", judge: "p2", family: "f2", value: 1, reason: "exact binary reason", guess: null, prompt: "job-d", attempt: 2 }],
+	);
+});

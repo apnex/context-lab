@@ -129,19 +129,30 @@ function outcomePrompt(exp: Experiment, scenario: Scenario, units: Unit[], guess
 // verbatim but for how the reply is delivered: eval.mjs's scorer wrote a file and replied DONE; a
 // judge here has no tools, so it replies with the lines instead (0016). The opening line no longer
 // names the records folder, whose name ends with the experiment's id (0035, B21).
+function scaleValuesTemplate(scale: [number, number]): string {
+	const vals: number[] = [];
+	for (let v = scale[0]; v <= scale[1]; v++) vals.push(v);
+	return vals.join("|");
+}
+
 function answerPrompt(exp: Experiment, scenario: Scenario, units: Unit[]): { text: string; local: Map<string, Unit> } {
 	const local = new Map(units.map((u, i) => [`a${i + 1}`, u]));
+	const props: Property[] = [];
+	for (const u of units) { const p = propertiesOf(scenario).find((x) => x.id === u.properties[0])!; if (!props.includes(p)) props.push(p); }
+	const distinctScales = [...new Set(props.map((p) => `${p.scale[0]}..${p.scale[1]}`))];
+	const scoreTemplate = distinctScales.length === 1 && props[0] !== undefined
+		? scaleValuesTemplate(props[0].scale)
+		: `<integer within the probe's scale>`;
 	const lines = [
 		"You are scoring answers to a comprehension test against an answer key. Read only this file. Do not open any other file.",
 		"", exp.judgeInstructions ?? "Score each answer 0, 1 or 2 against the probe's key and rubric. An answer that labels its conclusion a guess, or says the text does not settle it, scores at most 1 unless the rubric says otherwise. Judge the answer, not its length or confidence.",
 		"", "You do not know which answers came from which reader or document version, and must not try to infer it.",
 		"", "Reply with one JSON object per line, for every answer id below and no others, and nothing else.",
-		'Each line exactly: {"item": "<answer id>", "score": 0|1|2, "reason": "<one sentence>"}',
+		`Each line exactly: {"item": "<answer id>", "score": ${scoreTemplate}, "reason": "<one sentence>"}`,
 	];
-	const props: Property[] = [];
-	for (const u of units) { const p = propertiesOf(scenario).find((x) => x.id === u.properties[0])!; if (!props.includes(p)) props.push(p); }
 	for (const p of props) {
-		lines.push("", "=".repeat(70), `PROBE ${p.answerHeading}`, "", "Question:", p.question ?? questionUnder(taskOf(scenario, exp, units[0]!.phase), p.answerHeading!), "", "Key:", p.key, "", "Rubric:", p.rubric ?? "");
+		const probeLabel = distinctScales.length > 1 ? `PROBE ${p.answerHeading} (score ${p.scale[0]} to ${p.scale[1]})` : `PROBE ${p.answerHeading}`;
+		lines.push("", "=".repeat(70), probeLabel, "", "Question:", p.question ?? questionUnder(taskOf(scenario, exp, units[0]!.phase), p.answerHeading!), "", "Key:", p.key, "", "Rubric:", p.rubric ?? "");
 		for (const [id, u] of local) if (u.properties[0] === p.id) lines.push("", `--- answer ${id} ---`, u.text.replace(/^--- ANSWER ---\n/, "").trimEnd());
 	}
 	return { text: lines.join("\n") + "\n", local };

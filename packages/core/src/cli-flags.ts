@@ -13,6 +13,7 @@ export interface RunFlags extends LimitOverrides {
 	arm?: string;
 	out?: string;
 	response?: string;
+	calibrate?: boolean;
 }
 
 export function runFlags(argv: string[]): RunFlags {
@@ -67,6 +68,7 @@ export function runFlags(argv: string[]): RunFlags {
 		...(arm !== undefined ? { arm } : {}),
 		...(out !== undefined ? { out } : {}),
 		...(response !== undefined ? { response } : {}),
+		...(argv.includes("--calibrate") ? { calibrate: true } : {}),
 		...(readerTimeLimitSeconds !== undefined ? { readerTimeLimitSeconds, timeLimitSeconds: readerTimeLimitSeconds } : {}),
 		...(judgeTimeLimitSeconds !== undefined ? { judgeTimeLimitSeconds } : {}),
 		...(probeTimeLimitSeconds !== undefined ? { probeTimeLimitSeconds } : {}),

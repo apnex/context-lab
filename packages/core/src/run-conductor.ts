@@ -316,6 +316,9 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 	const overriddenKeys = (Object.entries(effectiveLimits.origins) as [keyof Omit<EffectiveLimits, "origins">, string][])
 		.filter(([, origin]) => origin === "override")
 		.map(([k]) => k);
+	if (overriddenKeys.length > 0 && status.record !== null) {
+		throw new Error(`execution limits overridden (${overriddenKeys.join(", ")}) disagree with registered experiment ${experimentId} (${status.record.hash}); register the updated profile or omit the override`);
+	}
 	if (overriddenKeys.length > 0 && statusValue === "result") {
 		statusValue = "exploration";
 		statusReason = `execution limits overridden (${overriddenKeys.join(", ")}) from the recorded experiment declaration`;
@@ -1104,6 +1107,14 @@ export async function calibrateRun(packDir: string, opts: CalibrateOptions): Pro
 		...(opts.maxStdoutBytes !== undefined ? { maxStdoutBytes: opts.maxStdoutBytes } : {}),
 		...(opts.maxTotalInvocations !== undefined ? { maxTotalInvocations: opts.maxTotalInvocations } : {}),
 	});
+	// Condition 2 (0042, B30): if the experiment is registered in register/<experiment>.json,
+	// any CLI/API execution-limit override that disagrees with the registered declaration is refused before dispatch.
+	const overriddenKeys = (Object.entries(effectiveLimits.origins) as [keyof Omit<EffectiveLimits, "origins">, string][])
+		.filter(([, origin]) => origin === "override")
+		.map(([k]) => k);
+	if (overriddenKeys.length > 0 && status.record !== null) {
+		throw new Error(`execution limits overridden (${overriddenKeys.join(", ")}) disagree with registered experiment ${experimentId} (${status.record.hash}); register the updated profile or omit the override`);
+	}
 	// Fixed-answer calibration always records status "exploration" so a synthetic calibration run can never be mistaken for a cold-reader result.
 	const statusValue: Status = "exploration";
 	const statusReason = `fixed-answer calibration from ${path.basename(respPath)} (sha256:${responseSha256.slice(0, 12)})`;

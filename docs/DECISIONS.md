@@ -639,3 +639,31 @@ Six additions land in the core (`B30`, requested by AGP in `incoming/agp-admissi
 
 **Source.**\
 `[V, director selection 2026-10-28 ("continue"); docs/BACKLOG.md B30; incoming/agp-admission-calibration-controls-implementation-request.md]`
+
+### 0041
+
+**Ruling.**\
+`runReview` (`packages/core/src/review-panel.ts`, `B31`) owns a bounded, fault-safe workspace and dependency-cache storage lifecycle for tools-enabled review and verification runs:
+- **Separated scratch, offline-compatible dependency cache, and retained workspace:** Each tools-enabled reviewer invocation receives three distinct writable paths: `{WORKSPACE}` (code checkouts and declared outputs), `{SCRATCH}` (`TMPDIR`, deleted after verified archival), and `{DEP_CACHE}` (`npm_config_cache` / `NPM_CONFIG_CACHE` with `npm_config_prefer_offline=true`, `npm_config_audit=false`, `npm_config_fund=false`). When `--npm-cache-source <dir>` is passed or `--ro` contains a host npm cache (`~/.npm`), `prepareIsolatedDepCache` symlinks `_cacache/content-v2` and `_cacache/index-v5` into `{DEP_CACHE}` while keeping `_locks`, `_logs`, and `_cacache/tmp` writable in `{DEP_CACHE}`, so offline `npm` installs succeed without `EROFS` and without copying package tarballs into `{WORKSPACE}` or `--out`.
+- **Package-cache exclusion and verified atomic publication (`publishRetainedWorkspace`):** Copies `{WORKSPACE}` into a staging directory `<out>/workspaces/.staging-<member>-<pid>`, excluding `.git` and `DEFAULT_EXCLUDED_RETENTION_DIRS` (`node_modules`, `.npm`, `npm-cache`, `_cacache`, `_npx`, `_prebuilds`, `.pnpm-store`, `.yarn`, `.cache`, plus `--exclude-names`) unless explicitly listed in `--retain-paths`. Enforces `maxWorkspaceBytes` (`256 MiB` default), `maxTotalRetainedBytes` (`1 GiB` default), `maxDepCacheBytes` (`512 MiB` default), and `minFreeBytes`; verifies every staged entry's size and SHA-256 against the source tree; writes `MANIFEST.json`; and atomically swaps the staged tree into `<out>/workspaces/<member>/` while preserving any prior valid archive on replacement failure.
+- **Separated invocation vs. archival outcome and failed-run preservation:** Each `ReviewerReply` records `archival` (`status: "verified" | "failed"`, `manifestSha256`, `excludedPaths`, `preservedPreviousValid`, `error`), and `ReviewPacket` records `archivalSummary`. Whenever any reviewer's archival fails or `runReview` throws, `runReview` writes `PRESERVE_ON_FAILURE.json` in `workDir` and skips deleting `workDir` in `finally`. `cleanReviewWorkRoot` removes only retired `context-lab` `review-*` directories (`LOCK.json`) that have no live `ACTIVE` PID and no `PRESERVE_ON_FAILURE.json` (unless `includeFailedPreserved: true`).
+
+**Evidence.**\
+`packages/core/test/review-panel.test.ts` (`B31`) verifies 0 duplicate tarball bytes in `prepareIsolatedDepCache`, exclusion of `node_modules` and `npm-cache` alongside retention of `cert.json` and `MANIFEST.json`, SHA-256 corruption detection preserving both the prior valid publication and the default `workDir` on failure, `maxWorkspaceBytes` refusal, `retainPaths` allowlisting, and `cleanReviewWorkRoot` skipping active/preserved/unowned folders.
+
+**Source.**\
+`[V, director selection 2026-10-30 ("continue"); docs/BACKLOG.md B31; incoming/agp-workspace-retention-defect-2026-10-30.md]`
+
+### 0042
+
+**Ruling.**\
+Three corrections complete the public qualification contracts for `B30` and `B32`:
+- **Registered execution-limit agreement or refusal (`conductRun`, `calibrateRun`, `previewRun`, `resumeRun`):** When an experiment has a registered entry in `register/<experiment>.json`, any CLI/API execution-limit override (`maxAttemptsPerCell`, `maxResponseBytes`, or `limits.*`) that disagrees with the registered declaration is refused before dispatch across `run`, `calibrate`, `preview`, and `resume` (equal-value flags agree with the registered declaration and keep origin `"experiment"`).
+- **Calibration-mode preview (`context-lab preview --calibrate`):** `previewRun` accepts `mode: "calibrate"` (`--calibrate` and `--arm`), rendering `0` reader invocations, `1` synthetic `fixed-response` cell per scenario (`fixedResponse` provenance with SHA-256), and all judge families scoring every unit.
+- **Comprehension score-domain alignment and single-unit retry preview (`B32`):** `answerPrompt` (`packages/core/src/judge-panel.ts`) renders `"score": 0|1` for `[0, 1]` binary comprehension properties and `"score": 0|1|2` for `[0, 2]` properties (or `<integer within the probe's scale>` with per-probe scale headers when mixed); and `previewRun` (`packages/core/src/preview.ts`) renders `retry` (attempt 2) over the still-pending single unit when `job.units.length === 1` and `maxJudgeAttempts > 1`.
+
+**Evidence.**\
+Verified by `packages/core/test/judging.test.ts` (`B32`), `packages/core/test/run-conductor.test.ts` (`B30` and `B30/B32` 6-case parcel-policy calibration preview and synthetic run), and AGP's `direct-peer-public-preview.test.mjs` (`decisionReplyTemplateIncludesTwo: 0`, `singleUnitRetryNotRendered: 0`).
+
+**Source.**\
+`[V, director selection 2026-10-30 ("continue"); docs/BACKLOG.md B30, B32; incoming/agp-admission-calibration-controls-correction-request.md; incoming/agp-direct-peer-binary-score-and-retry-request.md]`

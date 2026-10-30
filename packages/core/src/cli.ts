@@ -137,12 +137,14 @@ switch (cmd) {
 		const responseFile = flags.response, members = flag("--members"), revision = flags.revision;
 		const p = await previewRun(packDir ?? "", need(arg), {
 			...flags,
+			...(flags.calibrate ? { mode: "calibrate" } : {}),
+			...(flags.arm !== undefined ? { arm: flags.arm } : {}),
 			adapters: { opencode: opencodeAdapter(), codex: codexAdapter() }, out: outDir,
-			...(responseFile !== undefined ? { response: fs.readFileSync(responseFile, "utf8") } : {}),
+			...(responseFile !== undefined ? { response: fs.readFileSync(responseFile, "utf8"), responsePath: responseFile } : {}),
 			...(members !== undefined ? { members: members.split(",").filter(Boolean) } : {}),
 			...(revision !== undefined ? { revision } : {}),
 		});
-		console.log(`preview ${p.suite ?? p.experiment}: ${p.readers.length} reader invocation(s), ${p.judges.length} judge job(s), nothing invoked; written to ${outDir}`);
+		console.log(`preview ${p.suite ?? p.experiment}${p.mode === "calibrate" ? " (calibrate)" : ""}: ${p.readers.length} reader invocation(s), ${p.judges.length} judge job(s), nothing invoked; written to ${outDir}`);
 		break;
 	}
 	case "candidates": {
@@ -154,10 +156,17 @@ switch (cmd) {
 		const promptFile = need(flag("--prompt")), outDir = need(flag("--out"));
 		const filesArg = flag("--files"), membersArg = flag("--members"), parallelArg = flag("--parallel"), workArg = flag("--work");
 		const toolsArg = flag("--tools") as "on" | "off" | undefined;
-		const roArg = flag("--ro"), timeoutArg = flag("--timeout");
+		const roArg = flag("--ro"), timeoutArg = flag("--timeout"), npmCacheSource = flag("--npm-cache-source"), retainPathsArg = flag("--retain-paths"), excludeNamesArg = flag("--exclude-names");
+		const maxWorkspaceBytesArg = flag("--max-workspace-bytes"), maxTotalRetainedBytesArg = flag("--max-retained-bytes"), minFreeBytesArg = flag("--min-free-bytes"), maxDepCacheBytesArg = flag("--max-dep-cache-bytes");
 		const verify = process.argv.includes("--verify");
 		const mountSources = process.argv.includes("--mount-sources");
 		const sockets = process.argv.includes("--sockets");
+		const storageLimits = {
+			...(maxWorkspaceBytesArg !== undefined ? { maxWorkspaceBytes: Number(maxWorkspaceBytesArg) } : {}),
+			...(maxTotalRetainedBytesArg !== undefined ? { maxTotalRetainedBytes: Number(maxTotalRetainedBytesArg) } : {}),
+			...(minFreeBytesArg !== undefined ? { minFreeBytes: Number(minFreeBytesArg) } : {}),
+			...(maxDepCacheBytesArg !== undefined ? { maxDepCacheBytes: Number(maxDepCacheBytesArg) } : {}),
+		};
 		const packet = await runReview(packDir ?? "", {
 			promptFile, outDir, verify, mountSources, sockets,
 			...(filesArg !== undefined ? { files: filesArg.split(",").filter(Boolean) } : {}),
@@ -166,6 +175,10 @@ switch (cmd) {
 			...(workArg !== undefined ? { work: workArg } : {}),
 			...(toolsArg === "on" || toolsArg === "off" ? { tools: toolsArg } : {}),
 			...(roArg !== undefined ? { ro: roArg.split(",").filter(Boolean) } : {}),
+			...(npmCacheSource !== undefined ? { npmCacheSource } : {}),
+			...(retainPathsArg !== undefined ? { retainPaths: retainPathsArg.split(",").filter(Boolean) } : {}),
+			...(excludeNamesArg !== undefined ? { excludeNames: excludeNamesArg.split(",").filter(Boolean) } : {}),
+			...(Object.keys(storageLimits).length > 0 ? { storageLimits } : {}),
 			...(timeoutArg !== undefined ? { timeLimitSeconds: Number(timeoutArg) } : {}),
 			adapters: { opencode: opencodeAdapter(), codex: codexAdapter() },
 		});

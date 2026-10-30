@@ -12,6 +12,7 @@
 // generates - its work folder, workspaces, sessions, notes, the seed's shuffle - is named as
 // generated, and what the preview cannot render is listed, never filled in.
 
+import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -26,7 +27,7 @@ import { EMPTY_ARM, judgeInvocation, judgePrompt, planJudgeJobs } from "./judge-
 import type { Outcome } from "./outcome.js";
 import { checkPack } from "./pack-checker.js";
 import { phasesOf, propertiesOf, resolveEffectiveLimits, type EffectiveLimits, type LimitOverrides, type Member, type Scenario } from "./pack-schema.js";
-import { CALIBRATION_SYNTHETIC_MEMBER, answersOf, deliveredOf, phaseText, type CellRecord } from "./run-conductor.js";
+import { CALIBRATION_SYNTHETIC_MEMBER, answersOf, deliveredOf, phaseText, type CellRecord, type FixedResponseProvenance } from "./run-conductor.js";
 import { resolveSuite } from "./selector.js";
 import { buildVariant, variantDir, type BuiltVariant } from "./variant-builder.js";
 import { createWorkspace } from "./workspace-builder.js";
@@ -35,8 +36,14 @@ export interface PreviewOptions extends LimitOverrides {
 	adapters: Record<string, Adapter>;
 	/** A new folder for the preview: its work folder, PREVIEW.json and PREVIEW.md. */
 	out: string;
+	/** Preview mode: "run" (default) renders cold-reader cells and cross-family judges; "calibrate" renders fixed-answer calibration with zero reader invocations and all judge families scoring every unit (0042, B30). */
+	mode?: "run" | "calibrate";
+	/** Optional arm ID for calibration preview (defaults to first guided arm or first arm). */
+	arm?: string;
 	/** A sample reader response, given as every reader's reply to render extraction, masking and the judge prompts; a placeholder answering every heading if not given. */
 	response?: string;
+	/** Optional source file path of `response` for provenance hash recording in calibration preview. */
+	responsePath?: string;
 	/** Only these population members, as readers and judges. */
 	members?: string[];
 	/** The source revision of variants that pin none; the source's HEAD if not given, as a run. */
@@ -105,12 +112,16 @@ export interface PreviewJudgeJob {
 	/** The units in the first prompt, with the cell and properties each holds: analyst associations, never in the prompt. */
 	units: { id: string; cell: string; properties: string[] }[];
 	first: { attempt: 1; prompt: string; bytes: number; local: Record<string, string>; prepared: PreparedInvocation | null; unrendered: string | null };
-	/** A retry after the first unit has a valid vote: the same prompt over the rest; null for a job of one unit, whose retry repeats the first prompt. */
+	/** A retry on attempt 2: for a multi-unit job, over the units after the first has a valid vote; for a single-unit job (outcomesPerPrompt: 1) when maxJudgeAttempts > 1, over the still-pending single unit after an invalid or missing vote on attempt 1 (0042, B32). */
 	retry: { attempt: 2; prompt: string; bytes: number; local: Record<string, string>; prepared: PreparedInvocation | null; unrendered: string | null } | null;
 }
 
 export interface Preview {
 	pack: string;
+	/** Preview mode: "run" or "calibrate". */
+	mode?: "run" | "calibrate";
+	/** Provenance of the fixed-answer response when mode === "calibrate". */
+	fixedResponse?: FixedResponseProvenance;
 	experiment: string;
 	suite: string | null;
 	/** What a run of the experiment would be labelled now, and its registered hash. */
@@ -122,7 +133,7 @@ export interface Preview {
 	variants: Record<string, { source: string; revision: string; dir: string } | { failed: string }>;
 	arms: Record<string, { composed: boolean; reason?: string }>;
 	seed: string;
-	response: { given: boolean; bytes: number };
+	response: { given: boolean; bytes: number; sha256?: string };
 	readers: PreviewReader[];
 	answers: PreviewAnswer[];
 	judges: PreviewJudgeJob[];
@@ -195,6 +206,14 @@ export async function previewRun(packDir: string, target: string, opts: PreviewO
 		...(opts.maxStdoutBytes !== undefined ? { maxStdoutBytes: opts.maxStdoutBytes } : {}),
 		...(opts.maxTotalInvocations !== undefined ? { maxTotalInvocations: opts.maxTotalInvocations } : {}),
 	});
+	// Condition 2 (0042, B30): if the experiment has a registered record in register/<experiment>.json,
+	// any CLI/API execution-limit override that disagrees with the registered declaration is refused before rendering.
+	const overriddenKeys = (Object.entries(effectiveLimits.origins) as [keyof Omit<EffectiveLimits, "origins">, string][])
+		.filter(([, origin]) => origin === "override")
+		.map(([k]) => k);
+	if (status.record !== null && overriddenKeys.length > 0) {
+		throw new Error(`execution limits overridden (${overriddenKeys.join(", ")}) disagree with registered experiment ${experimentId} (${status.record.hash}); register the updated profile or omit the override`);
+	}
 
 	// Variants and arms, as a run builds and composes them.
 	const built = new Map<string, BuiltVariant>();
@@ -216,65 +235,121 @@ export async function previewRun(packDir: string, target: string, opts: PreviewO
 		if (c.ok) composed.set(a, c.arm);
 	}
 
-	// Readers: run 1 of every cell, every phase.
+	// Readers: run 1 of every cell, every phase (or in calibration mode, 0 reader invocations and 1 synthetic cell per scenario).
+	const previewMode: "run" | "calibrate" = opts.mode ?? "run";
 	const readers: PreviewReader[] = [];
 	const cells: CellRecord[] = [];
 	const response = opts.response ?? placeholderResponse(scenarios);
+	const responseSha256 = createHash("sha256").update(response, "utf8").digest("hex");
 	const marker = loaded.pack.masks.selfExplanationMarker;
-	for (const scenario of scenarios) for (const arm of composed.values()) for (const member of population) {
-		if (!can(member)) continue;
-		const adapter = opts.adapters[member.runtime]!;
-		const cell = `${scenario.id}.${arm.arm}.${member.id}.1`;
-		const phases = phasesOf(scenario, exp.experiment);
-		const traps = assignTraps(scenario, phases, 1, exp.experiment.factors.population.indexOf(member.id));
-		const ran: { phase: string; workspace: string; invocation: string }[] = [];
-		for (const [i, ph] of phases.entries()) {
-			const generated: string[] = [];
-			const prev = ph.after !== undefined ? ran.find((r) => r.phase === ph.after) : ran[ran.length - 1];
-			const workspace = ph.session === "continue" && prev ? prev.workspace : createWorkspace(loaded, scenario, arm, { base: path.join(work, "workspaces"), rulesFiles: adapter.rulesFiles }).dir;
-			let note: string | null = null;
-			if (ph.note !== undefined) {
-				note = `<note for phase ${ph.id}, ${"file" in ph.note ? `read from ${ph.note.file} after phase ${prev?.phase ?? "?"}` : `written by hook ${ph.note.generator}`} at run time>`;
-				generated.push(note);
-			}
-			const prompt = phasePrompt(exp.experiment, scenario, ph, i === 0, arm, workspace, note, traps.filter((t) => t.phase === ph.id));
-			fs.mkdirSync(path.join(work, "invocations"), { recursive: true });
-			const inv = fs.mkdtempSync(path.join(work, "invocations", "i-"));
-			fs.rmdirSync(inv);
-			let continueFrom: { session: string; work: string; workspace: string } | undefined;
-			if (ph.session === "continue" && prev) {
-				continueFrom = { session: `<session of phase ${prev.phase}, generated at run time>`, work: prev.invocation, workspace: prev.workspace };
-				generated.push(continueFrom.session);
-			}
-			const r = tryPrepare(adapter, readerInvocation(arm, member, adapter, prompt, workspace, inv, effectiveLimits.readerTimeLimitSeconds, continueFrom));
-			readers.push({ cell, scenario: scenario.id, arm: arm.arm, member: member.id, phase: ph.id, session: ph.session, ...r, prompt, promptBytes: bytes(prompt), generated });
-			ran.push({ phase: ph.id, workspace, invocation: inv });
+	const defaultArmId = exp.experiment.default !== undefined
+		? (armIds.find((a) => a !== exp.experiment.default) ?? armIds[0]!)
+		: (armIds.find((a) => (loaded.pack.arms.find((x) => x.id === a)?.deliver.length ?? 0) > 0) ?? armIds[0]!);
+	const calArmId = opts.arm ?? defaultArmId;
+	if (previewMode === "calibrate" && !armIds.includes(calArmId)) {
+		throw new Error(`arm ${calArmId} is not in experiment ${experimentId}'s arms (${armIds.join(", ")})`);
+	}
+	const fixedProvenance: FixedResponseProvenance | undefined = previewMode === "calibrate"
+		? {
+			path: opts.responsePath ? path.resolve(opts.responsePath) : "<in-memory response>",
+			sha256: responseSha256,
+			bytes: bytes(response),
+			arm: calArmId,
+			syntheticMember: CALIBRATION_SYNTHETIC_MEMBER.id,
+			syntheticFamily: CALIBRATION_SYNTHETIC_MEMBER.family,
 		}
-		// The sample response as this cell's reply in every phase, cut and extracted as a run does.
-		const maxBytes = scenario.maxResponseBytes ?? effectiveLimits.maxResponseBytes ?? undefined;
-		const phaseOutcomes: NonNullable<CellRecord["phaseOutcomes"]> = {};
-		const beforeBound: Record<string, { final: string; scored: string | null }> = {};
-		for (const ph of phases) {
-			const t = phaseText(scenario, maxBytes, marker, response, scenario.scoredFile !== undefined ? response : null);
-			phaseOutcomes[ph.id] = { final: t.final, diff: "", note: null, startDiff: "", scored: t.scored, traps: traps.filter((x) => x.phase === ph.id).map((x) => x.text), ...(t.responseBound ? { responseBound: t.responseBound } : {}) };
-			beforeBound[ph.id] = t.pre;
-		}
-		const propertyPhases: NonNullable<CellRecord["propertyPhases"]> = Object.fromEntries(propertiesOf(scenario).map((p) => [p.id, { phase: propertyPhase(scenario, phases, p.id, traps), state: "valid" as const }]));
-		const { answers, extraction } = answersOf(scenario, propertyPhases, phaseOutcomes, beforeBound, marker, 1);
-		const last = phases[phases.length - 1]!.id;
-		const outcome: Outcome = { final: response, exit: 0, signal: null, stop: { reason: "completed", inFlight: "none" }, cost: { seconds: 0, inputTokens: null, cachedInputTokens: null, outputTokens: null, toolCalls: 0 }, tools: [], filtered: false, error: null, session: null, trace: [], events: "" };
+		: undefined;
+
+	if (previewMode === "calibrate") {
+		const arm = composed.get(calArmId);
+		if (!arm) throw new Error(`could not compose calibration arm ${calArmId}`);
 		const { deliveredFiles } = deliveredOf(arm);
-		cells.push({
-			cell, scenario: scenario.id, arm: arm.arm, member: member.id, run: 1, valid: true,
-			attempts: [{ attempt: 1, validity: { valid: true }, outcome, diff: null, workspace: ran[ran.length - 1]!.workspace }],
-			final: phaseOutcomes[last]!.final, scoredFile: null, answers, ...(Object.keys(extraction).length ? { extraction } : {}), diff: null, codeScores: [],
-			traps, propertyPhases, phaseOutcomes, restated: [], ...(deliveredFiles.length ? { deliveredFiles } : {}),
-		});
+		for (const scenario of scenarios) {
+			const cell = `${scenario.id}.${calArmId}.${CALIBRATION_SYNTHETIC_MEMBER.id}.1`;
+			const phases = phasesOf(scenario, exp.experiment);
+			const last = phases[phases.length - 1]!.id;
+			const maxBytes = scenario.maxResponseBytes ?? effectiveLimits.maxResponseBytes ?? undefined;
+			const phaseOutcomes: NonNullable<CellRecord["phaseOutcomes"]> = {};
+			const beforeBound: Record<string, { final: string; scored: string | null }> = {};
+			for (const ph of phases) {
+				const t = phaseText(scenario, maxBytes, marker, response, scenario.scoredFile !== undefined ? response : null);
+				phaseOutcomes[ph.id] = { final: t.final, diff: "", note: null, startDiff: "", scored: t.scored, traps: [], ...(t.responseBound ? { responseBound: t.responseBound } : {}) };
+				beforeBound[ph.id] = t.pre;
+			}
+			const propertyPhases: NonNullable<CellRecord["propertyPhases"]> = Object.fromEntries(propertiesOf(scenario).map((p) => [p.id, { phase: last, state: "valid" as const }]));
+			const { answers, extraction } = answersOf(scenario, propertyPhases, phaseOutcomes, beforeBound, marker, 1);
+			const outcome: Outcome = { final: response, exit: 0, signal: null, stop: { reason: "completed", inFlight: "none" }, cost: { seconds: 0, inputTokens: null, cachedInputTokens: null, outputTokens: null, toolCalls: 0 }, tools: [], filtered: false, error: null, session: null, trace: [], events: "" };
+			cells.push({
+				cell, scenario: scenario.id, arm: calArmId, member: CALIBRATION_SYNTHETIC_MEMBER.id, run: 1, valid: true,
+				attempts: [{ attempt: 1, validity: { valid: true }, outcome, diff: "", workspace: work }],
+				final: phaseOutcomes[last]!.final,
+				scoredFile: scenario.scoredFile !== undefined ? { path: scenario.scoredFile, content: response, matchesFinal: true } : null,
+				answers, ...(Object.keys(extraction).length ? { extraction } : {}), diff: "", codeScores: [],
+				traps: [], propertyPhases, phaseOutcomes, restated: [],
+				...(deliveredFiles.length ? { deliveredFiles } : {}),
+				syntheticCalibration: true,
+				...(fixedProvenance !== undefined ? { fixedResponse: fixedProvenance } : {}),
+			});
+		}
+	} else {
+		for (const scenario of scenarios) for (const arm of composed.values()) for (const member of population) {
+			if (!can(member)) continue;
+			const adapter = opts.adapters[member.runtime]!;
+			const cell = `${scenario.id}.${arm.arm}.${member.id}.1`;
+			const phases = phasesOf(scenario, exp.experiment);
+			const traps = assignTraps(scenario, phases, 1, exp.experiment.factors.population.indexOf(member.id));
+			const ran: { phase: string; workspace: string; invocation: string }[] = [];
+			for (const [i, ph] of phases.entries()) {
+				const generated: string[] = [];
+				const prev = ph.after !== undefined ? ran.find((r) => r.phase === ph.after) : ran[ran.length - 1];
+				const workspace = ph.session === "continue" && prev ? prev.workspace : createWorkspace(loaded, scenario, arm, { base: path.join(work, "workspaces"), rulesFiles: adapter.rulesFiles }).dir;
+				let note: string | null = null;
+				if (ph.note !== undefined) {
+					note = `<note for phase ${ph.id}, ${"file" in ph.note ? `read from ${ph.note.file} after phase ${prev?.phase ?? "?"}` : `written by hook ${ph.note.generator}`} at run time>`;
+					generated.push(note);
+				}
+				const prompt = phasePrompt(exp.experiment, scenario, ph, i === 0, arm, workspace, note, traps.filter((t) => t.phase === ph.id));
+				fs.mkdirSync(path.join(work, "invocations"), { recursive: true });
+				const inv = fs.mkdtempSync(path.join(work, "invocations", "i-"));
+				fs.rmdirSync(inv);
+				let continueFrom: { session: string; work: string; workspace: string } | undefined;
+				if (ph.session === "continue" && prev) {
+					continueFrom = { session: `<session of phase ${prev.phase}, generated at run time>`, work: prev.invocation, workspace: prev.workspace };
+					generated.push(continueFrom.session);
+				}
+				const r = tryPrepare(adapter, readerInvocation(arm, member, adapter, prompt, workspace, inv, effectiveLimits.readerTimeLimitSeconds, continueFrom));
+				readers.push({ cell, scenario: scenario.id, arm: arm.arm, member: member.id, phase: ph.id, session: ph.session, ...r, prompt, promptBytes: bytes(prompt), generated });
+				ran.push({ phase: ph.id, workspace, invocation: inv });
+			}
+			// The sample response as this cell's reply in every phase, cut and extracted as a run does.
+			const maxBytes = scenario.maxResponseBytes ?? effectiveLimits.maxResponseBytes ?? undefined;
+			const phaseOutcomes: NonNullable<CellRecord["phaseOutcomes"]> = {};
+			const beforeBound: Record<string, { final: string; scored: string | null }> = {};
+			for (const ph of phases) {
+				const t = phaseText(scenario, maxBytes, marker, response, scenario.scoredFile !== undefined ? response : null);
+				phaseOutcomes[ph.id] = { final: t.final, diff: "", note: null, startDiff: "", scored: t.scored, traps: traps.filter((x) => x.phase === ph.id).map((x) => x.text), ...(t.responseBound ? { responseBound: t.responseBound } : {}) };
+				beforeBound[ph.id] = t.pre;
+			}
+			const propertyPhases: NonNullable<CellRecord["propertyPhases"]> = Object.fromEntries(propertiesOf(scenario).map((p) => [p.id, { phase: propertyPhase(scenario, phases, p.id, traps), state: "valid" as const }]));
+			const { answers, extraction } = answersOf(scenario, propertyPhases, phaseOutcomes, beforeBound, marker, 1);
+			const last = phases[phases.length - 1]!.id;
+			const outcome: Outcome = { final: response, exit: 0, signal: null, stop: { reason: "completed", inFlight: "none" }, cost: { seconds: 0, inputTokens: null, cachedInputTokens: null, outputTokens: null, toolCalls: 0 }, tools: [], filtered: false, error: null, session: null, trace: [], events: "" };
+			const { deliveredFiles } = deliveredOf(arm);
+			cells.push({
+				cell, scenario: scenario.id, arm: arm.arm, member: member.id, run: 1, valid: true,
+				attempts: [{ attempt: 1, validity: { valid: true }, outcome, diff: null, workspace: ran[ran.length - 1]!.workspace }],
+				final: phaseOutcomes[last]!.final, scoredFile: null, answers, ...(Object.keys(extraction).length ? { extraction } : {}), diff: null, codeScores: [],
+				traps, propertyPhases, phaseOutcomes, restated: [], ...(deliveredFiles.length ? { deliveredFiles } : {}),
+			});
+		}
 	}
 
 	// Judges: blinded and masked as a run does, jobs planned as a run does.
 	const scenarioMap = new Map(scenarios.map((s) => [s.id, s]));
-	const families = new Map(loaded.pack.population.map((m) => [m.id, m.family]));
+	const families = new Map([
+		...loaded.pack.population.map((m) => [m.id, m.family] as const),
+		[CALIBRATION_SYNTHETIC_MEMBER.id, CALIBRATION_SYNTHETIC_MEMBER.family] as const,
+	]);
 	const canaries = loaded.pack.variants.flatMap((v) => v.canaries);
 	const blinded = blind(loaded, scenarioMap, cells, families, seed, () => new Date(), { paths: [work, path.resolve(opts.out), loaded.dir], literals: canaries });
 	const answerRows: PreviewAnswer[] = [];
@@ -306,11 +381,16 @@ export async function previewRun(packDir: string, target: string, opts: PreviewO
 			const r = tryPrepare(adapter, judgeInvocation(job.judge, adapter, text, ws.dir, inv, effectiveLimits.judgeTimeLimitSeconds));
 			return { attempt, prompt: text, bytes: bytes(text), local: Object.fromEntries([...local].map(([k, u]) => [k, u.id])), ...r };
 		};
+		const retryUnits = job.units.length > 1
+			? job.units.slice(1)
+			: effectiveLimits.maxJudgeAttempts > 1
+				? job.units
+				: [];
 		judgeRows.push({
 			name: job.name, judge: job.judge.id, scenario: job.scenario.id,
 			units: job.units.map((u) => ({ id: u.id, cell: u.cell, properties: u.properties })),
 			first: render(1, job.units) as PreviewJudgeJob["first"],
-			retry: job.units.length > 1 ? (render(2, job.units.slice(1)) as NonNullable<PreviewJudgeJob["retry"]>) : null,
+			retry: retryUnits.length > 0 ? (render(2, retryUnits) as NonNullable<PreviewJudgeJob["retry"]>) : null,
 		});
 	}
 
@@ -327,9 +407,34 @@ export async function previewRun(packDir: string, target: string, opts: PreviewO
 	const readerFirst = scenarios.reduce((sum, s) => sum + phasesOf(s, exp.experiment).length * composed.size * population.length * runsPerCell, 0);
 	const readerMax = readerFirst * effectiveLimits.maxAttemptsPerCell;
 	// Full assurance judge jobs scale with runsPerCell (each cell run produces the same unit count as run 1).
+	const assuranceRun1Cells: CellRecord[] = previewMode === "run"
+		? cells
+		: scenarios.flatMap((scenario) => [...composed.values()].flatMap((arm) => population.filter(can).map((member) => {
+			const cell = `${scenario.id}.${arm.arm}.${member.id}.1`;
+			const phases = phasesOf(scenario, exp.experiment);
+			const last = phases[phases.length - 1]!.id;
+			const maxBytes = scenario.maxResponseBytes ?? effectiveLimits.maxResponseBytes ?? undefined;
+			const phaseOutcomes: NonNullable<CellRecord["phaseOutcomes"]> = {};
+			const beforeBound: Record<string, { final: string; scored: string | null }> = {};
+			for (const ph of phases) {
+				const t = phaseText(scenario, maxBytes, marker, response, scenario.scoredFile !== undefined ? response : null);
+				phaseOutcomes[ph.id] = { final: t.final, diff: "", note: null, startDiff: "", scored: t.scored, traps: [], ...(t.responseBound ? { responseBound: t.responseBound } : {}) };
+				beforeBound[ph.id] = t.pre;
+			}
+			const propertyPhases: NonNullable<CellRecord["propertyPhases"]> = Object.fromEntries(propertiesOf(scenario).map((p) => [p.id, { phase: last, state: "valid" as const }]));
+			const { answers, extraction } = answersOf(scenario, propertyPhases, phaseOutcomes, beforeBound, marker, 1);
+			const outcome: Outcome = { final: response, exit: 0, signal: null, stop: { reason: "completed", inFlight: "none" }, cost: { seconds: 0, inputTokens: null, cachedInputTokens: null, outputTokens: null, toolCalls: 0 }, tools: [], filtered: false, error: null, session: null, trace: [], events: "" };
+			const { deliveredFiles } = deliveredOf(arm);
+			return {
+				cell, scenario: scenario.id, arm: arm.arm, member: member.id, run: 1, valid: true,
+				attempts: [{ attempt: 1, validity: { valid: true }, outcome, diff: null, workspace: work }],
+				final: phaseOutcomes[last]!.final, scoredFile: null, answers, ...(Object.keys(extraction).length ? { extraction } : {}), diff: null, codeScores: [],
+				traps: [], propertyPhases, phaseOutcomes, restated: [], ...(deliveredFiles.length ? { deliveredFiles } : {}),
+			};
+		})));
 	const allRunCells: CellRecord[] = [];
 	for (let r = 1; r <= runsPerCell; r++) {
-		for (const c of cells) allRunCells.push({ ...c, cell: c.cell.replace(/\.1$/, `.${r}`), run: r });
+		for (const c of assuranceRun1Cells) allRunCells.push({ ...c, cell: c.cell.replace(/\.1$/, `.${r}`), run: r });
 	}
 	const fullBlinded = blind(loaded, scenarioMap, allRunCells, families, seed, () => new Date(), { paths: [work, path.resolve(opts.out), loaded.dir], literals: canaries });
 	const fullJudgeJobs = planJudgeJobs({ experiment: exp.experiment, scenarios: scenarioMap, units: fullBlinded.units, judges, seed }).length;
@@ -339,15 +444,13 @@ export async function previewRun(packDir: string, target: string, opts: PreviewO
 	const jProbeMax = judgeProbeQuestions * effectiveLimits.maxProbeAttempts;
 
 	// Calibration inventory: 1 synthetic cell per scenario, judged by all selected judges.
-	const defaultArmId = exp.experiment.default !== undefined
-		? (armIds.find((a) => a !== exp.experiment.default) ?? armIds[0]!)
-		: armIds[0]!;
-	const calCells: CellRecord[] = cells
-		.filter((c) => c.arm === defaultArmId)
-		.slice(0, scenarios.length)
-		.map((c) => ({ ...c, cell: `${c.scenario}.${defaultArmId}.${CALIBRATION_SYNTHETIC_MEMBER.id}.1`, member: CALIBRATION_SYNTHETIC_MEMBER.id }));
-	const calFamilies = new Map([...families, [CALIBRATION_SYNTHETIC_MEMBER.id, CALIBRATION_SYNTHETIC_MEMBER.family]]);
-	const calBlinded = blind(loaded, scenarioMap, calCells, calFamilies, seed, () => new Date(), { paths: [work, path.resolve(opts.out), loaded.dir], literals: canaries });
+	const calCells: CellRecord[] = previewMode === "calibrate"
+		? cells
+		: assuranceRun1Cells
+			.filter((c) => c.arm === calArmId)
+			.slice(0, scenarios.length)
+			.map((c) => ({ ...c, cell: `${c.scenario}.${calArmId}.${CALIBRATION_SYNTHETIC_MEMBER.id}.1`, member: CALIBRATION_SYNTHETIC_MEMBER.id }));
+	const calBlinded = blind(loaded, scenarioMap, calCells, families, seed, () => new Date(), { paths: [work, path.resolve(opts.out), loaded.dir], literals: canaries });
 	const calJudgeJobs = planJudgeJobs({ experiment: exp.experiment, scenarios: scenarioMap, units: calBlinded.units, judges, seed }).length;
 	const inventory: PreviewInventory = {
 		runsPerCell,
@@ -377,10 +480,13 @@ export async function previewRun(packDir: string, target: string, opts: PreviewO
 	};
 
 	const preview: Preview = {
-		pack: loaded.pack.id, experiment: experimentId, suite: suite?.id ?? null,
+		pack: loaded.pack.id,
+		mode: previewMode,
+		...(fixedProvenance !== undefined ? { fixedResponse: fixedProvenance } : {}),
+		experiment: experimentId, suite: suite?.id ?? null,
 		status: { status: status.status, reason: status.reason, hash: status.record?.hash ?? null },
 		effectiveLimits, inventory,
-		variants, arms, seed, response: { given: opts.response !== undefined, bytes: bytes(response) },
+		variants, arms, seed, response: { given: opts.response !== undefined, bytes: bytes(response), sha256: responseSha256 },
 		readers, answers: answerRows, judges: judgeRows,
 		generated: [
 			"the run's work folder, run- and six random characters, and every path under it: workspaces, invocation folders, variant folders",
