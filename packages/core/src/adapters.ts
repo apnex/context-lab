@@ -108,6 +108,8 @@ export interface Invocation {
 	extraWritable?: string[];
 	/** Optional environment variables passed into the sandboxed runtime (e.g. npm_config_cache / TMPDIR). */
 	extraEnv?: Record<string, string>;
+	/** Optional AbortSignal passed to runSandboxed so an active storage monitor can kill the sandbox immediately (0046, B31). */
+	signal?: AbortSignal;
 	timeLimitSeconds: number;
 	/** Optional pre-dispatch UTF-8 byte ceiling on evaluator-controlled input (prompt + wrapper + delivered instructions and folderFiles). */
 	maxInputBytes?: number;
@@ -480,7 +482,7 @@ export function opencodeAdapter(opts: OpencodeOptions = {}): Adapter {
 		const instructionBytes = instructions.reduce((sum, f) => sum + fs.statSync(f.path).size, 0);
 		const controlledInputBytes = measureControlledInputBytes(inv, instructionBytes, inv.mode === "attachment" ? ATTACHMENT_WRAPPER : null);
 		const writable = [inv.work, inv.workspace, ...(inv.tools === "on" ? (inv.extraWritable ?? []) : [])];
-		const spec: SandboxSpec = { install: binary, writable, readOnly: onRequest, home, cwd: inv.workspace, command: [binary, ...args], env: runEnv, stdin: null, timeLimitSeconds: inv.timeLimitSeconds, ...(inv.maxStdoutBytes !== undefined ? { maxStdoutBytes: inv.maxStdoutBytes } : {}) };
+		const spec: SandboxSpec = { install: binary, writable, readOnly: onRequest, home, cwd: inv.workspace, command: [binary, ...args], env: runEnv, stdin: null, timeLimitSeconds: inv.timeLimitSeconds, ...(inv.maxStdoutBytes !== undefined ? { maxStdoutBytes: inv.maxStdoutBytes } : {}), ...(inv.signal !== undefined ? { signal: inv.signal } : {}) };
 		return { spec, home, xdg, secrets, shownEnv, instructions, controlledInputBytes, credentialVars: p.credentialVars, redacted: JSON.stringify(redactProvider(p.block)) !== JSON.stringify(p.block) };
 	}
 	return adapter;
@@ -644,7 +646,7 @@ export function codexAdapter(opts: CodexOptions = {}): Adapter {
 		const writable = inv.tools === "off" ? [inv.work] : [inv.work, inv.workspace, ...(inv.extraWritable ?? [])];
 		const spec: SandboxSpec = {
 			install: vendor, writable, readOnly: inv.tools === "off" ? [] : inv.arm.onRequest.map((o) => o.path), home, cwd: workspace,
-			command: [binary, ...args], env: { PATH: sandboxPath(), PWD: workspace, HOME: home, CODEX_HOME: codexHome, ...(inv.extraEnv ?? {}) }, stdin: inv.mode === "stdin" ? inv.prompt : null, timeLimitSeconds: inv.timeLimitSeconds, ...(inv.maxStdoutBytes !== undefined ? { maxStdoutBytes: inv.maxStdoutBytes } : {}),
+			command: [binary, ...args], env: { PATH: sandboxPath(), PWD: workspace, HOME: home, CODEX_HOME: codexHome, ...(inv.extraEnv ?? {}) }, stdin: inv.mode === "stdin" ? inv.prompt : null, timeLimitSeconds: inv.timeLimitSeconds, ...(inv.maxStdoutBytes !== undefined ? { maxStdoutBytes: inv.maxStdoutBytes } : {}), ...(inv.signal !== undefined ? { signal: inv.signal } : {}),
 		};
 		return { spec, home, codexHome, workspace, secrets, controlledInputBytes };
 	}

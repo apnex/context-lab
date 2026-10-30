@@ -1023,6 +1023,7 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 	const replies: ReviewerReply[] = [];
 	let preserveWorkOnFailure = false;
 	let currentTotalRetainedBytes = 0;
+	const activeWorkingDirs = new Map<string, { ws: string; scratch: string; depCache: string }>();
 	try {
 		await pool(members, opts.parallel ?? 4, async (member) => {
 			const adapter = opts.adapters[member.runtime];
@@ -1038,6 +1039,7 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 			fs.mkdirSync(path.join(workDir, "invocations"), { recursive: true });
 			const invDir = fs.mkdtempSync(path.join(workDir, "invocations", "r-"));
 			fs.rmdirSync(invDir);
+			const abortController = new AbortController();
 			const inv: Invocation = {
 				arm, workspace: ws.dir, prompt: buildReviewerPrompt(ws.dir, scratchDir, depCacheDir), mode, member,
 				tools: toolsMode, ...(opts.sockets ? { sockets: true } : {}),
@@ -1047,20 +1049,29 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 						TMPDIR: scratchDir,
 						...(depCache ? depCache.env : {}),
 					},
+					signal: abortController.signal,
 				} : {}),
 				timeLimitSeconds: opts.timeLimitSeconds ?? 900, work: invDir,
 			};
+			if (toolsMode === "on") {
+				activeWorkingDirs.set(member.id, { ws: ws.dir, scratch: scratchDir, depCache: depCacheDir });
+			}
 
-			// Invocation-local working-storage enforcement (0045, B31):
+			// Invocation-local working-storage enforcement (0045, 0046, B31):
 			// - Preload module and violation markers live inside `scratchDir/.context-lab-quota/` (which is in
 			//   `inv.extraWritable`, so it is mounted inside `runSandboxed`).
 			// - `NODE_OPTIONS` is set only in `inv.extraEnv` (never mutating `process.env.NODE_OPTIONS` in the parent).
-			// - Inside the preload, any write that would exceed `maxDepCacheBytes` or `maxWorkspaceBytes` records a
-			//   violation and throws an explicit `ENOSPC` error before writing any bytes (never silently shortening).
+			// - Inside the preload, synchronous, callback, promise, stream, and FD writes across `depCacheDir`,
+			//   `scratchDir`, and `ws.dir` (and run-wide aggregate working storage) that would exceed their cap
+			//   record a violation and reject/throw an explicit `ENOSPC` error before writing any bytes.
+			// - In the parent, `scanWorkingDirs` scans `{DEP_CACHE}`, `{SCRATCH}`, `{WORKSPACE}`, and aggregate
+			//   active working bytes across concurrent reviewers, calling `abortController.abort()` to immediately
+			//   SIGKILL the sandbox (`bwrap`) if an unguarded native binary breaches a cap.
 			let activeDepViolation: string | null = null;
 			let activeWsViolation: string | null = null;
 			const maxDepBytes = validatedLimits.maxDepCacheBytes;
 			const maxWsBytes = validatedLimits.maxWorkspaceBytes;
+			const maxTotalBytes = validatedLimits.maxTotalRetainedBytes;
 			const quotaDir = path.join(scratchDir, ".context-lab-quota");
 			const preloadFile = path.join(quotaDir, "preload.mjs");
 			const depViolationFile = path.join(quotaDir, "dep-violation.txt");
@@ -1077,10 +1088,26 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 					`const wsDir = ${JSON.stringify(ws.dir)};`,
 					`const maxDep = ${maxDepBytes};`,
 					`const maxWs = ${maxWsBytes};`,
+					`const maxTotal = ${maxTotalBytes};`,
 					`const depViol = ${JSON.stringify(depViolationFile)};`,
 					`const wsViol = ${JSON.stringify(wsViolationFile)};`,
-					"const origWrite = fs.writeFileSync.bind(fs);",
-					"const origAppend = fs.appendFileSync.bind(fs);",
+					"const origWriteSync = fs.writeFileSync.bind(fs);",
+					"const origAppendSync = fs.appendFileSync.bind(fs);",
+					"const origCopySync = fs.copyFileSync.bind(fs);",
+					"const origCpSync = fs.cpSync.bind(fs);",
+					"const origWriteFdSync = fs.writeSync.bind(fs);",
+					"const origOpenSync = fs.openSync.bind(fs);",
+					"const origOpen = fs.open.bind(fs);",
+					"const origCloseSync = fs.closeSync.bind(fs);",
+					"const origClose = fs.close.bind(fs);",
+					"const origWriteFile = fs.writeFile.bind(fs);",
+					"const origAppendFile = fs.appendFile.bind(fs);",
+					"const origCopyFile = fs.copyFile.bind(fs);",
+					"const origCreateWriteStream = fs.createWriteStream.bind(fs);",
+					"const origPromWrite = fs.promises.writeFile.bind(fs.promises);",
+					"const origPromAppend = fs.promises.appendFile.bind(fs.promises);",
+					"const origPromCopy = fs.promises.copyFile.bind(fs.promises);",
+					"const fdPaths = new Map();",
 					"const isInside = (p, d) => { const r = path.relative(d, p); return r === '' || (!r.startsWith('..') && !path.isAbsolute(r)); };",
 					"const dirBytes = (d, skipGit) => {",
 					"  if (!fs.existsSync(d)) return 0;",
@@ -1088,18 +1115,19 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 					"  const w = (c) => { for (const e of fs.readdirSync(c, { withFileTypes: true })) { if (skipGit && e.name === '.git') continue; if (e.name === '.context-lab-quota') continue; const p = path.join(c, e.name); let st; try { st = fs.lstatSync(p); } catch { continue; } if (st.isSymbolicLink()) continue; if (st.isDirectory()) w(p); else if (st.isFile()) t += st.size; } };",
 					"  w(d); return t;",
 					"};",
-					"const toBuf = (d, o) => typeof d === 'string' ? Buffer.from(d, typeof o === 'string' ? o : o?.encoding ?? 'utf8') : Buffer.from(d.buffer, d.byteOffset, d.byteLength);",
+					"const toBuf = (d, o) => typeof d === 'string' ? Buffer.from(d, typeof o === 'string' ? o : o?.encoding ?? 'utf8') : Buffer.isBuffer(d) ? d : ArrayBuffer.isView(d) ? Buffer.from(d.buffer, d.byteOffset, d.byteLength) : Buffer.from(String(d));",
 					"const enospc = (msg, syscall, dest) => Object.assign(new Error(`ENOSPC: no space left on device (${msg}), ${syscall} '${dest}'`), { code: 'ENOSPC', errno: -28, syscall, path: dest });",
 					"const checkQuota = (file, addBytes, isOverwrite, syscall) => {",
-					"  if (typeof file !== 'string' && !(file instanceof URL)) return;",
-					"  const p = path.resolve(file instanceof URL ? file.pathname : file);",
+					"  const raw = typeof file === 'number' ? fdPaths.get(file) : (typeof file === 'string' || file instanceof URL ? (file instanceof URL ? file.pathname : file) : null);",
+					"  if (!raw) return;",
+					"  const p = path.resolve(raw);",
 					"  if (isInside(p, quotaDir)) return;",
 					"  const ex = isOverwrite && fs.existsSync(p) && fs.lstatSync(p).isFile() ? fs.lstatSync(p).size : 0;",
 					"  if (isInside(p, depDir)) {",
 					"    const nextTotal = Math.max(0, dirBytes(depDir, false) - ex) + addBytes;",
 					"    if (nextTotal > maxDep) {",
 					"      const msg = `dependency cache (${nextTotal} bytes) exceeded maxDepCacheBytes (${maxDep} bytes)`;",
-					"      try { origWrite(depViol, msg); } catch {}",
+					"      try { origWriteSync(depViol, msg); } catch {}",
 					"      throw enospc(msg, syscall, p);",
 					"    }",
 					"  }",
@@ -1107,29 +1135,40 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 					"    const nextTotal = Math.max(0, dirBytes(wsDir, true) - ex) + addBytes;",
 					"    if (nextTotal > maxWs) {",
 					"      const msg = `retained workspace (${nextTotal} bytes) exceeds maxWorkspaceBytes (${maxWs} bytes)`;",
-					"      try { origWrite(wsViol, msg); } catch {}",
+					"      try { origWriteSync(wsViol, msg); } catch {}",
+					"      throw enospc(msg, syscall, p);",
+					"    }",
+					"    if (nextTotal > maxTotal) {",
+					"      const msg = `aggregate retained workspaces (${nextTotal} bytes) exceed maxTotalRetainedBytes (${maxTotal} bytes)`;",
+					"      try { origWriteSync(wsViol, msg); } catch {}",
 					"      throw enospc(msg, syscall, p);",
 					"    }",
 					"  }",
 					"  if (isInside(p, scratchDir)) {",
 					"    const nextTotal = Math.max(0, dirBytes(scratchDir, false) - ex) + addBytes;",
 					"    if (nextTotal > maxDep) {",
-					"      const msg = `scratch directory (${nextTotal} bytes) exceeded limit (${maxDep} bytes)`;",
-					"      try { origWrite(depViol, msg); } catch {}",
+					"      const msg = `scratch directory (${nextTotal} bytes) exceeded maxDepCacheBytes (${maxDep} bytes)`;",
+					"      try { origWriteSync(depViol, msg); } catch {}",
 					"      throw enospc(msg, syscall, p);",
 					"    }",
 					"  }",
 					"};",
-					"fs.writeFileSync = (file, data, options) => {",
-					"  const buf = toBuf(data, options);",
-					"  checkQuota(file, buf.length, true, 'write');",
-					"  return origWrite(file, data, options);",
-					"};",
-					"fs.appendFileSync = (file, data, options) => {",
-					"  const buf = toBuf(data, options);",
-					"  checkQuota(file, buf.length, false, 'write');",
-					"  return origAppend(file, data, options);",
-					"};",
+					"fs.openSync = (file, flags, mode) => { const fd = origOpenSync(file, flags, mode); if (typeof file === 'string' || file instanceof URL) fdPaths.set(fd, path.resolve(file instanceof URL ? file.pathname : file)); return fd; };",
+					"fs.open = function(file, ...rest) { const cb = rest[rest.length - 1]; if (typeof cb === 'function') { rest[rest.length - 1] = (err, fd) => { if (!err && (typeof file === 'string' || file instanceof URL)) fdPaths.set(fd, path.resolve(file instanceof URL ? file.pathname : file)); cb(err, fd); }; } return origOpen(file, ...rest); };",
+					"fs.closeSync = (fd) => { fdPaths.delete(fd); return origCloseSync(fd); };",
+					"fs.close = (fd, cb) => { fdPaths.delete(fd); return origClose(fd, cb); };",
+					"fs.writeFileSync = (file, data, options) => { const buf = toBuf(data, options); checkQuota(file, buf.length, true, 'write'); return origWriteSync(file, data, options); };",
+					"fs.appendFileSync = (file, data, options) => { const buf = toBuf(data, options); checkQuota(file, buf.length, false, 'write'); return origAppendSync(file, data, options); };",
+					"fs.writeSync = function(fd, bufOrStr, ...rest) { const len = typeof bufOrStr === 'string' ? Buffer.byteLength(bufOrStr) : (typeof rest[1] === 'number' ? rest[1] : bufOrStr.byteLength); checkQuota(fd, len, false, 'write'); return origWriteFdSync(fd, bufOrStr, ...rest); };",
+					"fs.copyFileSync = (src, dest, mode) => { const sz = fs.statSync(src).size; checkQuota(dest, sz, true, 'copyfile'); return origCopySync(src, dest, mode); };",
+					"fs.cpSync = (src, dest, opts) => { const sz = fs.existsSync(src) && fs.lstatSync(src).isDirectory() ? dirBytes(String(src), false) : (fs.existsSync(src) ? fs.lstatSync(src).size : 0); checkQuota(dest, sz, true, 'cp'); return origCpSync(src, dest, opts); };",
+					"fs.writeFile = function(file, data, options, callback) { const cb = typeof options === 'function' ? options : callback; try { const buf = toBuf(data, typeof options === 'function' ? undefined : options); checkQuota(file, buf.length, true, 'write'); } catch (e) { if (typeof cb === 'function') { queueMicrotask(() => cb(e)); return; } throw e; } return origWriteFile(file, data, options, callback); };",
+					"fs.appendFile = function(file, data, options, callback) { const cb = typeof options === 'function' ? options : callback; try { const buf = toBuf(data, typeof options === 'function' ? undefined : options); checkQuota(file, buf.length, false, 'write'); } catch (e) { if (typeof cb === 'function') { queueMicrotask(() => cb(e)); return; } throw e; } return origAppendFile(file, data, options, callback); };",
+					"fs.copyFile = function(src, dest, mode, callback) { const cb = typeof mode === 'function' ? mode : callback; try { const sz = fs.statSync(src).size; checkQuota(dest, sz, true, 'copyfile'); } catch (e) { if (typeof cb === 'function') { queueMicrotask(() => cb(e)); return; } throw e; } return origCopyFile(src, dest, mode, callback); };",
+					"fs.promises.writeFile = async (file, data, options) => { const buf = toBuf(data, options); checkQuota(file, buf.length, true, 'write'); return origPromWrite(file, data, options); };",
+					"fs.promises.appendFile = async (file, data, options) => { const buf = toBuf(data, options); checkQuota(file, buf.length, false, 'write'); return origPromAppend(file, data, options); };",
+					"fs.promises.copyFile = async (src, dest, mode) => { const sz = fs.statSync(src).size; checkQuota(dest, sz, true, 'copyfile'); return origPromCopy(src, dest, mode); };",
+					"fs.createWriteStream = function(file, options) { const s = origCreateWriteStream(file, options); const origW = s._write.bind(s); s._write = function(chunk, enc, cb) { try { const b = toBuf(chunk, enc); checkQuota(file, b.length, false, 'write'); } catch (e) { cb(e); return; } return origW(chunk, enc, cb); }; return s; };",
 				].join("\n");
 				fs.writeFileSync(preloadFile, preloadCode + "\n");
 				const importOpt = `--import=${pathToFileURL(preloadFile).href}`;
@@ -1139,17 +1178,34 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 				}
 			}
 
-			// Periodic non-truncating parent monitor for in-process or native writes while invoke() runs.
+			// Periodic parent monitor across depCacheDir, scratchDir, ws.dir, and run-wide aggregate active working bytes.
+			// When any cap is breached during execution, immediately aborts `abortController` (sending SIGKILL to bwrap).
 			let monitorTimer: ReturnType<typeof setInterval> | null = null;
 			const scanWorkingDirs = (): void => {
 				if (toolsMode !== "on") return;
 				const dBytes = directoryAllocatedBytes(depCacheDir);
 				if (dBytes > maxDepBytes) {
 					activeDepViolation ??= `dependency cache for ${member.id} (${dBytes} bytes) exceeded maxDepCacheBytes (${maxDepBytes} bytes) during execution`;
+					abortController.abort();
+				}
+				const sBytes = Math.max(0, directoryAllocatedBytes(scratchDir) - directoryAllocatedBytes(quotaDir));
+				if (sBytes > maxDepBytes) {
+					activeDepViolation ??= `scratch directory for ${member.id} (${sBytes} bytes) exceeded maxDepCacheBytes (${maxDepBytes} bytes) during execution`;
+					abortController.abort();
 				}
 				const wBytes = directoryAllocatedBytes(ws.dir, { ignoreGit: true });
 				if (wBytes > maxWsBytes) {
 					activeWsViolation ??= `retained workspace for ${member.id} (${wBytes} bytes) exceeds maxWorkspaceBytes (${maxWsBytes} bytes)`;
+					abortController.abort();
+				}
+				// Aggregate active workspace bytes across all currently running reviewers + already retained bytes.
+				let activeWsSum = currentTotalRetainedBytes;
+				for (const dirs of activeWorkingDirs.values()) {
+					activeWsSum += directoryAllocatedBytes(dirs.ws, { ignoreGit: true });
+				}
+				if (activeWsSum > maxTotalBytes) {
+					activeWsViolation ??= `aggregate active workspaces (${activeWsSum} bytes) exceed maxTotalRetainedBytes (${maxTotalBytes} bytes)`;
+					abortController.abort();
 				}
 			};
 			if (toolsMode === "on") {
@@ -1160,6 +1216,7 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 			try {
 				out = await adapter.invoke(inv);
 			} finally {
+				activeWorkingDirs.delete(member.id);
 				if (monitorTimer !== null) clearInterval(monitorTimer);
 				scanWorkingDirs();
 				if (fs.existsSync(depViolationFile)) {

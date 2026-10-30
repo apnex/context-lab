@@ -30,6 +30,8 @@ export interface SandboxSpec {
 	timeLimitSeconds: number;
 	/** Optional UTF-8 byte cap on retained stdout lines; when exceeded, stops capturing partial trailing data, sends SIGKILL to bwrap, and resolves after child close (0040, B30). */
 	maxStdoutBytes?: number;
+	/** Optional AbortSignal to terminate the sandboxed process immediately (e.g. when an active working-storage cap is breached, 0046, B31). */
+	signal?: AbortSignal;
 }
 
 export interface SandboxResult {
@@ -73,9 +75,18 @@ export function runSandboxed(spec: SandboxSpec): Promise<SandboxResult> {
 		let pending = "";
 		let stderr = "";
 		let timedOut = false;
+		let aborted = false;
 		let stdoutTruncated = false;
 		let capturedStdoutBytes = 0;
 		const maxStdout = spec.maxStdoutBytes;
+		const onAbort = (): void => {
+			aborted = true;
+			child.kill("SIGKILL");
+		};
+		if (spec.signal) {
+			if (spec.signal.aborted) onAbort();
+			else spec.signal.addEventListener("abort", onAbort, { once: true });
+		}
 		const pushLine = (at: number, l: string): boolean => {
 			const trimmed = l.trim();
 			if (!trimmed) return true;
@@ -124,11 +135,12 @@ export function runSandboxed(spec: SandboxSpec): Promise<SandboxResult> {
 		}
 		const finish = (exit: number | null, signal: string | null): void => {
 			clearTimeout(timer);
+			if (spec.signal) spec.signal.removeEventListener("abort", onAbort);
 			if (!stdoutTruncated && pending.trim()) pushLine(Date.now() - started, pending);
 			resolve({
 				lines,
-				exit: timedOut || stdoutTruncated ? null : exit,
-				signal: timedOut || stdoutTruncated ? "SIGKILL" : signal,
+				exit: timedOut || stdoutTruncated || aborted ? null : exit,
+				signal: timedOut || stdoutTruncated || aborted ? "SIGKILL" : signal,
 				timedOut,
 				...(maxStdout !== undefined || stdoutTruncated ? { stdoutTruncated, capturedStdoutBytes } : {}),
 				seconds: (Date.now() - started) / 1000,

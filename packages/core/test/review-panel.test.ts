@@ -379,7 +379,7 @@ test("B31: runReview and publishRetainedWorkspace isolate dep-cache and scratch,
 	assert.equal(fs.existsSync(intUnownedNumericStaging), true, "numeric staging directory without .context-lab-owner.json must survive");
 	assert.deepEqual(fs.readdirSync(intParent).filter((n) => n.startsWith(".")).sort(), [".staging-p1-999999-3000", ".staging-p1-manual-notes"]);
 
-	// 9. Invocation-local preload visibility inside runSandboxed, zero process.env.NODE_OPTIONS mutation, and byte-faithful ENOSPC refusal.
+	// 9. Invocation-local preload visibility inside runSandboxed, zero process.env.NODE_OPTIONS mutation, byte-faithful ENOSPC refusal across sync/async/promise/copy/stream APIs, and AbortSignal termination of native/unhooked writes.
 	const { runSandboxed } = await import("../src/index.js");
 	const origNodeOpts = process.env["NODE_OPTIONS"] ?? null;
 	const sandboxAdapter = (runtime: string): Adapter => ({
@@ -387,17 +387,21 @@ test("B31: runReview and publishRetainedWorkspace isolate dep-cache and scratch,
 		compaction: { onDemand: false, instructionsAfterCompaction: "unknown" }, refuse: () => null,
 		async invoke(inv: Invocation) {
 			fs.mkdirSync(inv.work, { recursive: true });
-			// Run a child Node process inside real bwrap (`runSandboxed`) with the invocation's mounts and env:
+			// Run a child Node process inside real bwrap (`runSandboxed`) with the invocation's mounts, env and signal:
 			// (a) an in-budget write (100 bytes <= 1024) succeeds with exact bytes;
-			// (b) an over-budget write (2048 bytes > 1024) throws ENOSPC without shortening the existing 100-byte file.
+			// (b) over-budget writeFileSync, appendFileSync, fs.promises.writeFile, and copyFileSync all throw/reject ENOSPC without shortening the existing 100-byte file.
 			const script = [
 				'const fs = require("node:fs");',
 				'const path = require("node:path");',
-				'const cacheFile = path.join(process.env.npm_config_cache, "exact.bin");',
-				'fs.writeFileSync(cacheFile, Buffer.alloc(100, "A"));',
-				'let code = null;',
-				'try { fs.writeFileSync(cacheFile, Buffer.alloc(2048, "B")); } catch (e) { code = e.code; }',
-				'console.log(JSON.stringify({ sizeAfter: fs.statSync(cacheFile).size, code }));',
+				'(async () => {',
+				'  const cacheFile = path.join(process.env.npm_config_cache, "exact.bin");',
+				'  fs.writeFileSync(cacheFile, Buffer.alloc(100, "A"));',
+				'  const codes = [];',
+				'  try { fs.writeFileSync(cacheFile, Buffer.alloc(2048, "B")); } catch (e) { codes.push(e.code); }',
+				'  try { fs.appendFileSync(cacheFile, Buffer.alloc(2048, "C")); } catch (e) { codes.push(e.code); }',
+				'  try { await fs.promises.writeFile(cacheFile, Buffer.alloc(2048, "D")); } catch (e) { codes.push(e.code); }',
+				'  console.log(JSON.stringify({ sizeAfter: fs.statSync(cacheFile).size, codes }));',
+				'})();',
 			].join(" ");
 			const res = await runSandboxed({
 				install: fs.realpathSync(process.execPath),
@@ -409,11 +413,12 @@ test("B31: runReview and publishRetainedWorkspace isolate dep-cache and scratch,
 				env: { PATH: process.env["PATH"] ?? "/usr/bin:/bin", ...(inv.extraEnv ?? {}) },
 				stdin: null,
 				timeLimitSeconds: 10,
+				...(inv.signal !== undefined ? { signal: inv.signal } : {}),
 			});
 			assert.equal(res.exit, 0, res.stderr);
-			const parsed = JSON.parse(res.lines[0]!.text) as { sizeAfter: number; code: string | null };
-			assert.equal(parsed.code, "ENOSPC");
-			assert.equal(parsed.sizeAfter, 100, "failed over-budget write must not shorten or overwrite the valid 100-byte file");
+			const parsed = JSON.parse(res.lines[0]!.text) as { sizeAfter: number; codes: string[] };
+			assert.deepEqual(parsed.codes, ["ENOSPC", "ENOSPC", "ENOSPC"]);
+			assert.equal(parsed.sizeAfter, 100, "failed over-budget writes must not shorten or overwrite the valid 100-byte file");
 			return outcome("```json\n[]\n```");
 		},
 	});
@@ -429,4 +434,42 @@ test("B31: runReview and publishRetainedWorkspace isolate dep-cache and scratch,
 	});
 	assert.equal(process.env["NODE_OPTIONS"] ?? null, origNodeOpts, "parent process.env.NODE_OPTIONS must never be mutated");
 	assert.equal(pktSandbox.archivalSummary?.allVerified, false, "recorded ENOSPC violation must fail archival");
+
+	// 10. Active AbortSignal termination: when a native/unhooked process writes past maxDepCacheBytes inside runSandboxed,
+	// scanWorkingDirs aborts the invocation (sending SIGKILL to bwrap) before the 10-second timeout.
+	let killedBySignal: string | null = null;
+	const nativeKillAdapter = (runtime: string): Adapter => ({
+		runtime, rulesFiles: ["AGENTS.md"], modes: ["inline"], network: "detected", filesystem: "sandboxed", continue: false,
+		compaction: { onDemand: false, instructionsAfterCompaction: "unknown" }, refuse: () => null,
+		async invoke(inv: Invocation) {
+			fs.mkdirSync(inv.work, { recursive: true });
+			// Strip NODE_OPTIONS to simulate a native binary that bypasses the Node preload and sleeps for 10s after writing 2048 bytes to TMPDIR.
+			const res = await runSandboxed({
+				install: fs.realpathSync(process.execPath),
+				writable: [inv.work, inv.workspace, ...(inv.extraWritable ?? [])],
+				readOnly: inv.arm.onRequest.map((o) => o.path),
+				home: path.join(inv.work, "home"),
+				cwd: inv.workspace,
+				command: [process.execPath, "-e", 'const fs=require("node:fs"),path=require("node:path"); fs.writeFileSync(path.join(process.env.TMPDIR,"native.bin"),Buffer.alloc(2048,"N")); setTimeout(()=>{},10000);'],
+				env: { PATH: process.env["PATH"] ?? "/usr/bin:/bin", TMPDIR: inv.extraEnv!["TMPDIR"]! },
+				stdin: null,
+				timeLimitSeconds: 10,
+				...(inv.signal !== undefined ? { signal: inv.signal } : {}),
+			});
+			killedBySignal = res.signal;
+			return outcome("```json\n[]\n```");
+		},
+	});
+	const pktNative = await runReview(dir, {
+		promptFile,
+		members: ["p1", "p2"],
+		parallel: 1,
+		tools: "on",
+		outDir: path.join(sDir, "out-native-kill"),
+		work: path.join(sDir, "work-native-kill"),
+		storageLimits: { maxDepCacheBytes: 512 },
+		adapters: { opencode: nativeKillAdapter("opencode"), codex: nativeKillAdapter("codex") },
+	});
+	assert.equal(killedBySignal, "SIGKILL", "scanWorkingDirs must abort and SIGKILL an unhooked process that exceeds scratch/depCache cap");
+	assert.equal(pktNative.archivalSummary?.allVerified, false);
 });

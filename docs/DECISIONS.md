@@ -712,3 +712,16 @@ Both tests in AGP's `docs/reviews/npm-cache-storage-runtime-composition.test.mjs
 
 **Source.**\
 `[V, director selection 2026-10-31 ("continue as recommended"); docs/BACKLOG.md B31; incoming/agp-workspace-retention-defect-2026-10-30.md lines 138-181]`
+
+### 0046
+
+**Ruling.**\
+Two additions complete the working-storage enforcement and publication contract for `B31` (`packages/core/src/runtime-sandbox.ts`, `packages/core/src/adapters.ts`, `packages/core/src/review-panel.ts`, `docs/OPERATIONS.md`):
+- **Active `AbortSignal` sandbox termination + expanded Node/FD/stream/async quota hooks + aggregate active working-storage bound:** `SandboxSpec` and `Invocation` gain `signal?: AbortSignal`, which `runSandboxed` wires to `child.kill("SIGKILL")`. In `runReview`, the invocation-local preload (`{SCRATCH}/.context-lab-quota/preload.mjs`) covers synchronous, callback, `fs.promises`, `createWriteStream`, `copyFileSync`/`copyFile`/`cpSync`, and `open`/`writeSync` file-descriptor writes across `{DEP_CACHE}`, `{SCRATCH}`, and `{WORKSPACE}` (against `maxDepCacheBytes`, `maxWorkspaceBytes`, and `maxTotalRetainedBytes`), throwing/rejecting `ENOSPC` before writing over-budget bytes; and `scanWorkingDirs` scans `{DEP_CACHE}`, `{SCRATCH}`, `{WORKSPACE}`, and aggregate active working bytes across all concurrent reviewers (`activeWorkingDirs`) every `5ms`, calling `abortController.abort()` to immediately terminate `bwrap` with `SIGKILL` when a native/unhooked process breaches a cap.
+- **Explicit recoverable two-rename publication contract:** `publishRetainedWorkspace` uses POSIX two-rename (`destDir -> backupDir`, then `stagingDir -> destDir`) with `.context-lab-owner.json` ownership metadata and `verifyArchiveDirectory` payload verification. If a process is killed with `SIGKILL` at the exact midpoint between the two renames, `destDir` is absent until `recoverInterruptedPublication` runs on the next call and deterministically restores the verified backup (`continuousAtomicAvailabilityClaimed: false`).
+
+**Evidence.**\
+Verified by `packages/core/test/review-panel.test.ts` (subtests 9 and 10, verifying `ENOSPC` across `writeFileSync`, `appendFileSync`, and `fs.promises.writeFile` and verifying `killedBySignal === "SIGKILL"` when an unhooked process writes 2,048 bytes to `TMPDIR` under a 512-byte cap), AGP's `npm-cache-storage-runtime-composition.test.mjs` (`2/2`), AGP's `npm-cache-storage-corrected-invariants.test.mjs` (`2/2`), Zorg's `verify-eval-archive.test.js` (`3/3`), and `context-lab`'s full 359-test suite.
+
+**Source.**\
+`[V, director selection 2026-10-31 ("continue", Option B); docs/BACKLOG.md B31; incoming/agp-workspace-retention-defect-2026-10-30.md lines 185-220]`
