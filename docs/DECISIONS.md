@@ -753,3 +753,15 @@ All 3 tests in AGP's `docs/reviews/npm-cache-storage-working-footprint.test.mjs`
 
 **Source.**\
 `[V, director selection 2026-10-31 ("resume"); docs/BACKLOG.md B31; incoming/agp-workspace-retention-defect-2026-10-30.md lines 261-300]`
+
+### 0049
+
+**Ruling.**\
+`availableBytesAt(dir)` (`packages/core/src/review-panel.ts`, `B31`) walks up `path.dirname(cur)` until it reaches the nearest existing ancestor directory and returns `{ bytes: number | null, error: string | null }`.\
+Whenever `minFreeBytes > 0`, `runReview`, `scanWorkingDirs`, and `publishRetainedWorkspace` fail closed if `avail.bytes === null` (for example when `fs.statfsSync` throws or returns a non-finite value) or if `avail.bytes < minFreeBytes`—refusing before creating `workDir` or `outDir` and before dispatching any reviewer on preflight, and aborting the active sandbox (`AbortSignal` -> `SIGKILL`) during execution.
+
+**Evidence.**\
+All 3 tests in AGP's `docs/reviews/npm-cache-storage-headroom.test.mjs` (`3/3` passing under read-only `bwrap`, including `"B57 minFreeBytes refuses before dispatch with fresh-nested-parents"` with `dispatchedReplies: 0`, `workCreated: false`, `outputCreated: false`), plus AGP's `working-footprint` (`3/3`), `abort-and-write-compatibility` (`2/2`), `runtime-composition` (`2/2`), `corrected-invariants` (`2/2`), Zorg's `verify-eval-archive.test.js` (`3/3`), and `context-lab`'s `review-panel.test.ts` (including subtest 12 testing deeply nested fresh paths and simulated `statfsSync` `EACCES` failure) pass (`16/16` across the 7 suites).
+
+**Source.**\
+`[V, director selection 2026-10-31 ("resume"); docs/BACKLOG.md B31; incoming/agp-workspace-retention-defect-2026-10-30.md lines 304-338]`

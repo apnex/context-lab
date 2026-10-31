@@ -174,13 +174,27 @@ function sha256File(filePath: string): string {
 	return createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
 }
 
-function availableBytesAt(dir: string): number | null {
+/**
+ * Resolves the available disk bytes at `dir` (walking up to the nearest existing ancestor when
+ * `dir` and its immediate parent have not yet been created), returning `{ bytes, error }` so a
+ * positive `minFreeBytes` requirement fails closed when `statfsSync` cannot complete (0049, B31).
+ */
+export function availableBytesAt(dir: string): { bytes: number | null; error: string | null } {
 	try {
-		const target = fs.existsSync(dir) ? dir : path.dirname(dir);
-		const st = fs.statfsSync(target);
-		return Number(st.bavail) * Number(st.bsize);
-	} catch {
-		return null;
+		let cur = path.resolve(dir);
+		while (!fs.existsSync(cur)) {
+			const parent = path.dirname(cur);
+			if (parent === cur) break;
+			cur = parent;
+		}
+		const st = fs.statfsSync(cur);
+		const bytes = Number(st.bavail) * Number(st.bsize);
+		if (!Number.isFinite(bytes) || bytes < 0) {
+			return { bytes: null, error: `invalid statfs result (${String(bytes)}) at ${cur}` };
+		}
+		return { bytes, error: null };
+	} catch (err) {
+		return { bytes: null, error: err instanceof Error ? err.message : String(err) };
 	}
 }
 
@@ -560,8 +574,11 @@ export function publishRetainedWorkspace(opts: PublishWorkspaceOptions): Workspa
 	try {
 		if (minFree > 0) {
 			const avail = availableBytesAt(parentDir);
-			if (avail !== null && avail < minFree) {
-				throw new Error(`available disk space (${avail} bytes) is below minFreeBytes (${minFree} bytes) before archiving ${opts.member}`);
+			if (avail.bytes === null) {
+				throw new Error(`available disk space could not be measured at ${parentDir} (${avail.error ?? "unknown"}) under minFreeBytes (${minFree} bytes) before archiving ${opts.member}`);
+			}
+			if (avail.bytes < minFree) {
+				throw new Error(`available disk space (${avail.bytes} bytes) is below minFreeBytes (${minFree} bytes) before archiving ${opts.member}`);
 			}
 		}
 		fs.rmSync(stagingDir, { recursive: true, force: true });
@@ -602,8 +619,11 @@ export function publishRetainedWorkspace(opts: PublishWorkspaceOptions): Workspa
 					}
 					if (minFree > 0) {
 						const avail = availableBytesAt(parentDir);
-						if (avail !== null && avail - st.size < minFree) {
-							throw new Error(`available disk space (${avail} bytes) would fall below minFreeBytes (${minFree} bytes) while copying ${rel}`);
+						if (avail.bytes === null) {
+							throw new Error(`available disk space could not be measured at ${parentDir} (${avail.error ?? "unknown"}) under minFreeBytes (${minFree} bytes) while copying ${rel}`);
+						}
+						if (avail.bytes - st.size < minFree) {
+							throw new Error(`available disk space (${avail.bytes} bytes) would fall below minFreeBytes (${minFree} bytes) while copying ${rel}`);
 						}
 					}
 					fs.mkdirSync(path.dirname(dstPath), { recursive: true });
@@ -968,12 +988,19 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 	if (validatedLimits.minFreeBytes > 0) {
 		const checkRoot = path.resolve(opts.work ?? path.join(os.homedir(), "context-lab-work"));
 		const availWork = availableBytesAt(checkRoot);
-		if (availWork !== null && availWork < validatedLimits.minFreeBytes) {
-			throw new Error(`available disk space (${availWork} bytes) at ${checkRoot} is below minFreeBytes (${validatedLimits.minFreeBytes} bytes) before review dispatch`);
+		if (availWork.bytes === null) {
+			throw new Error(`available disk space could not be measured at ${checkRoot} (${availWork.error ?? "unknown"}) under minFreeBytes (${validatedLimits.minFreeBytes} bytes) before review dispatch`);
 		}
-		const availOut = availableBytesAt(path.resolve(opts.outDir));
-		if (availOut !== null && availOut < validatedLimits.minFreeBytes) {
-			throw new Error(`available disk space (${availOut} bytes) at ${path.resolve(opts.outDir)} is below minFreeBytes (${validatedLimits.minFreeBytes} bytes) before review dispatch`);
+		if (availWork.bytes < validatedLimits.minFreeBytes) {
+			throw new Error(`available disk space (${availWork.bytes} bytes) at ${checkRoot} is below minFreeBytes (${validatedLimits.minFreeBytes} bytes) before review dispatch`);
+		}
+		const resolvedOut = path.resolve(opts.outDir);
+		const availOut = availableBytesAt(resolvedOut);
+		if (availOut.bytes === null) {
+			throw new Error(`available disk space could not be measured at ${resolvedOut} (${availOut.error ?? "unknown"}) under minFreeBytes (${validatedLimits.minFreeBytes} bytes) before review dispatch`);
+		}
+		if (availOut.bytes < validatedLimits.minFreeBytes) {
+			throw new Error(`available disk space (${availOut.bytes} bytes) at ${resolvedOut} is below minFreeBytes (${validatedLimits.minFreeBytes} bytes) before review dispatch`);
 		}
 	}
 	const sourcePaths = opts.mountSources
@@ -1284,8 +1311,11 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 				}
 				if (validatedLimits.minFreeBytes > 0) {
 					const avail = availableBytesAt(workDir);
-					if (avail !== null && avail < validatedLimits.minFreeBytes) {
-						activeDepViolation ??= `available disk space (${avail} bytes) fell below minFreeBytes (${validatedLimits.minFreeBytes} bytes) during execution`;
+					if (avail.bytes === null) {
+						activeDepViolation ??= `available disk space could not be measured (${avail.error ?? "unknown"}) under minFreeBytes (${validatedLimits.minFreeBytes} bytes) during execution`;
+						abortController.abort();
+					} else if (avail.bytes < validatedLimits.minFreeBytes) {
+						activeDepViolation ??= `available disk space (${avail.bytes} bytes) fell below minFreeBytes (${validatedLimits.minFreeBytes} bytes) during execution`;
 						abortController.abort();
 					}
 				}

@@ -486,4 +486,58 @@ test("B31: runReview and publishRetainedWorkspace isolate dep-cache and scratch,
 		}),
 		/requireHardNativeQuota is not supported on unprivileged bwrap bind mounts/,
 	);
+
+	// 12. minFreeBytes preflight walks up to the nearest existing ancestor for deeply nested fresh paths,
+	// and fails closed before dispatch (creating neither work nor outDir) when statfsSync fails or cannot measure space (0049, B31).
+	const { availableBytesAt } = await import("../src/index.js");
+	const deepWork = path.join(sDir, "fresh-a", "fresh-b", "fresh-c", "work");
+	const deepOut = path.join(sDir, "fresh-x", "fresh-y", "fresh-z", "out");
+	assert.equal(typeof availableBytesAt(deepWork).bytes, "number");
+	assert.ok((availableBytesAt(deepWork).bytes ?? 0) > 0);
+	let dispatchedOnUnmet = 0;
+	const countingAdapter = (runtime: string): Adapter => ({
+		runtime, rulesFiles: ["AGENTS.md"], modes: ["inline"], network: "detected", filesystem: "open", continue: false,
+		compaction: { onDemand: false, instructionsAfterCompaction: "unknown" }, refuse: () => null,
+		async invoke() { dispatchedOnUnmet++; return outcome("```json\n[]\n```"); },
+	});
+	await assert.rejects(
+		() => runReview(dir, {
+			promptFile,
+			members: ["p1", "p2"],
+			tools: "on",
+			outDir: deepOut,
+			work: deepWork,
+			storageLimits: { minFreeBytes: Number.MAX_SAFE_INTEGER },
+			adapters: { opencode: countingAdapter("opencode"), codex: countingAdapter("codex") },
+		}),
+		/below minFreeBytes .* before review dispatch/,
+	);
+	assert.equal(dispatchedOnUnmet, 0);
+	assert.equal(fs.existsSync(path.join(sDir, "fresh-a")), false);
+	assert.equal(fs.existsSync(path.join(sDir, "fresh-x")), false);
+
+	// Unavailable-measurement branch: if fs.statfsSync throws (e.g. ENOSYS / EACCES), minFreeBytes > 0 fails closed before dispatch.
+	const origStatfs = fs.statfsSync;
+	try {
+		fs.statfsSync = (() => {
+			throw Object.assign(new Error("simulated statfs EACCES"), { code: "EACCES" });
+		}) as typeof fs.statfsSync;
+		await assert.rejects(
+			() => runReview(dir, {
+				promptFile,
+				members: ["p1", "p2"],
+				tools: "on",
+				outDir: deepOut,
+				work: deepWork,
+				storageLimits: { minFreeBytes: 1024 },
+				adapters: { opencode: countingAdapter("opencode"), codex: countingAdapter("codex") },
+			}),
+			/available disk space could not be measured .* before review dispatch/,
+		);
+		assert.equal(dispatchedOnUnmet, 0);
+		assert.equal(fs.existsSync(path.join(sDir, "fresh-a")), false);
+		assert.equal(fs.existsSync(path.join(sDir, "fresh-x")), false);
+	} finally {
+		fs.statfsSync = origStatfs;
+	}
 });
