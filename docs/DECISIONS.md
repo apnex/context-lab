@@ -740,3 +740,16 @@ All 6 tests across AGP's three current suites (`npm-cache-storage-runtime-compos
 
 **Source.**\
 `[V, director selection 2026-10-31 ("continue", Option A); docs/BACKLOG.md B31; incoming/agp-workspace-retention-defect-2026-10-30.md lines 224-257]`
+
+### 0048
+
+**Ruling.**\
+Two corrections complete the working-footprint accounting and monitored-mode headroom contract for `B31` (`packages/core/src/review-panel.ts`, `docs/OPERATIONS.md`):
+- **Original workspaces remain charged in `activeWorkingDirs` until physically retired (`runReview`):** After verified archival of a reviewer's workspace, `scratchDir` and `depCacheDir` are deleted (`directoryAllocatedBytes` returns `0` for them), while `member.id` remains in `activeWorkingDirs` because `ws.dir` still exists on disk under `workDir` until `runReview`'s `finally` block (or explicit `work` retirement). Thus `ownedFootprintSum` continues to charge both the retained archive (`currentTotalRetainedBytes`) and the still-present original `ws.dir` against `maxTotalWorkingBytes` during subsequent reviewers' execution.
+- **Pre-dispatch and active `minFreeBytes` enforcement + accurate `5ms` scan-interval terms (`runReview`, `docs/OPERATIONS.md`):** When `minFreeBytes > 0`, `runReview` checks available disk space (`availableBytesAt` via `fs.statfsSync`) on both the `--work` root and `--out` before creating `workDir` or dispatching any reviewer, and `scanWorkingDirs` checks `availableBytesAt(workDir) < minFreeBytes` on every scan tick (aborting the active invocation via `abortController.abort()` -> `SIGKILL` on breach), in addition to the existing pre-copy and per-file checks in `publishRetainedWorkspace`. `docs/OPERATIONS.md` section 7.3 states that `5ms` is the requested timer interval rather than a guaranteed maximum scheduling delay or hard write-time ceiling.
+
+**Evidence.**\
+All 3 tests in AGP's `docs/reviews/npm-cache-storage-working-footprint.test.mjs` (`3/3` passing under read-only `bwrap`, including `"B57 verified reviewer originals remain counted until physically retired"` where `ownedPayloadLowerBound: 3072 > 2500` aborts the second reviewer with `secondSignalAborted: true`), plus AGP's `npm-cache-storage-runtime-composition.test.mjs` (`2/2`), `npm-cache-storage-corrected-invariants.test.mjs` (`2/2`), `npm-cache-storage-abort-and-write-compatibility.test.mjs` (`2/2`), Zorg's `verify-eval-archive.test.js` (`3/3`), and `context-lab`'s `review-panel.test.ts` pass.
+
+**Source.**\
+`[V, director selection 2026-10-31 ("resume"); docs/BACKLOG.md B31; incoming/agp-workspace-retention-defect-2026-10-30.md lines 261-300]`

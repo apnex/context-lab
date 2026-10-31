@@ -965,6 +965,17 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 	if (toolsMode === "on" && validatedLimits.requireHardNativeQuota) {
 		throw new Error("requireHardNativeQuota is not supported on unprivileged bwrap bind mounts (Linux user namespaces cannot mount size-bounded tmpfs over host paths or enforce kernel prjquota); omit requireHardNativeQuota to use synchronous Node ENOSPC + 5ms active SIGKILL monitoring");
 	}
+	if (validatedLimits.minFreeBytes > 0) {
+		const checkRoot = path.resolve(opts.work ?? path.join(os.homedir(), "context-lab-work"));
+		const availWork = availableBytesAt(checkRoot);
+		if (availWork !== null && availWork < validatedLimits.minFreeBytes) {
+			throw new Error(`available disk space (${availWork} bytes) at ${checkRoot} is below minFreeBytes (${validatedLimits.minFreeBytes} bytes) before review dispatch`);
+		}
+		const availOut = availableBytesAt(path.resolve(opts.outDir));
+		if (availOut !== null && availOut < validatedLimits.minFreeBytes) {
+			throw new Error(`available disk space (${availOut} bytes) at ${path.resolve(opts.outDir)} is below minFreeBytes (${validatedLimits.minFreeBytes} bytes) before review dispatch`);
+		}
+	}
 	const sourcePaths = opts.mountSources
 		? loaded.pack.sources.map((s) => path.resolve(loaded.dir, s.path)).filter((p) => fs.existsSync(p))
 		: [];
@@ -1271,6 +1282,13 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 					activeDepViolation ??= `aggregate owned working footprint (${ownedFootprintSum} bytes) exceeds maxTotalWorkingBytes (${maxTotalWorkBytes} bytes)`;
 					abortController.abort();
 				}
+				if (validatedLimits.minFreeBytes > 0) {
+					const avail = availableBytesAt(workDir);
+					if (avail !== null && avail < validatedLimits.minFreeBytes) {
+						activeDepViolation ??= `available disk space (${avail} bytes) fell below minFreeBytes (${validatedLimits.minFreeBytes} bytes) during execution`;
+						abortController.abort();
+					}
+				}
 			};
 			if (toolsMode === "on") {
 				monitorTimer = setInterval(scanWorkingDirs, 5);
@@ -1329,11 +1347,12 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 					});
 					if (archival.status === "verified") {
 						currentTotalRetainedBytes += archival.bytes;
-						// Once workspace evidence is verified, clean the per-attempt scratch and dep-cache directories immediately,
-						// and remove this member from `activeWorkingDirs` (whereas failed/preserved members remain in `activeWorkingDirs`).
+						// Once workspace evidence is verified, clean the per-attempt scratch and dep-cache directories immediately.
+						// Do NOT remove `member.id` from `activeWorkingDirs` while `ws.dir` remains on disk (`directoryAllocatedBytes`
+						// returns 0 for the deleted `scratchDir` and `depCacheDir`, while continuing to charge `ws.dir` alongside
+						// `currentTotalRetainedBytes` until `workDir` is physically retired; 0048, B31).
 						fs.rmSync(scratchDir, { recursive: true, force: true });
 						fs.rmSync(depCacheDir, { recursive: true, force: true });
-						activeWorkingDirs.delete(member.id);
 					} else {
 						preserveWorkOnFailure = true;
 					}
