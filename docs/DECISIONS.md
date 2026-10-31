@@ -725,3 +725,18 @@ Verified by `packages/core/test/review-panel.test.ts` (subtests 9 and 10, verify
 
 **Source.**\
 `[V, director selection 2026-10-31 ("continue", Option B); docs/BACKLOG.md B31; incoming/agp-workspace-retention-defect-2026-10-30.md lines 185-220]`
+
+### 0047
+
+**Ruling.**\
+Three corrections and two contract alignments complete `B31` (`packages/core/src/review-panel.ts`, `packages/core/src/cli.ts`, `packages/core/test/review-panel.test.ts`, `docs/OPERATIONS.md`):
+- **In-budget positioned FD write compatibility (`preload.mjs`):** `fs.openSync` / `fs.open` record `{ path, pos: 0, append: isAppendFlag(flags) }` in `fdMeta`, and `fs.writeSync` / `fs.write` parse all Node call signatures (`(fd, buf, offset, length, position)`, `(fd, buf, options)`, `(fd, string, position, encoding)`) and compute net file growth `max(0, (startPos + writeLen) - curSize)` via `fs.fstatSync(fd).size`, so overwriting the first `128` bytes of an existing `4,096`-byte file under a `4,096`-byte cap charges `0` net growth and succeeds with exact bytes.
+- **Complete owned working-footprint accounting until retirement (`runReview`):** `activeWorkingDirs` retains each member's `{ ws, scratch, depCache }` until verified archival deletes `scratchDir` and `depCacheDir` (so failed/preserved members remain in `activeWorkingDirs` for the rest of the run), and `scanWorkingDirs` sums `ws + depCache + scratch` across all entries in `activeWorkingDirs` plus `currentTotalRetainedBytes` against `maxTotalWorkingBytes` (`--max-working-bytes`, defaulting to `maxTotalRetainedBytes + 2 * maxDepCacheBytes`).
+- **Distinction between synchronous Node `ENOSPC` refusal and monitored native `SIGKILL` termination (`requireHardNativeQuota`):** Adds `requireHardNativeQuota?: boolean` (`--require-hard-native-quota`), which refuses before dispatch on unprivileged `bwrap` bind mounts because Linux user namespaces cannot mount size-bounded `tmpfs` over host directories or enforce kernel `prjquota`; when omitted, Node writers receive synchronous write-time `ENOSPC` refusal while native non-Node binaries are bounded by `5ms` monitored `SIGKILL` termination (`AbortSignal`) and `minFreeBytes` headroom.
+- **Publication and documentation alignment (amending `0041`–`0046` references to "atomic publication"):** `docs/OPERATIONS.md` (both the `review` command table row and section 7.3) and the `B31` test title in `packages/core/test/review-panel.test.ts` now state `recoverable two-rename publication` rather than `atomic publication`, preserving the historical text of `0041`–`0046` unchanged under this correction reference.
+
+**Evidence.**\
+All 6 tests across AGP's three current suites (`npm-cache-storage-runtime-composition.test.mjs` `2/2`, `npm-cache-storage-corrected-invariants.test.mjs` `2/2`, `npm-cache-storage-abort-and-write-compatibility.test.mjs` `2/2`), all 3 tests in Zorg's `test/verify-eval-archive.test.js` (`3/3`), and `packages/core/test/review-panel.test.ts` (including subtest 11 for `requireHardNativeQuota` pre-dispatch refusal) pass.
+
+**Source.**\
+`[V, director selection 2026-10-31 ("continue", Option A); docs/BACKLOG.md B31; incoming/agp-workspace-retention-defect-2026-10-30.md lines 224-257]`

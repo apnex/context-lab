@@ -157,7 +157,8 @@ switch (cmd) {
 		const filesArg = flag("--files"), membersArg = flag("--members"), parallelArg = flag("--parallel"), workArg = flag("--work");
 		const toolsArg = flag("--tools") as "on" | "off" | undefined;
 		const roArg = flag("--ro"), timeoutArg = flag("--timeout"), npmCacheSource = flag("--npm-cache-source"), retainPathsArg = flag("--retain-paths"), excludeNamesArg = flag("--exclude-names");
-		const maxWorkspaceBytesArg = flag("--max-workspace-bytes"), maxTotalRetainedBytesArg = flag("--max-retained-bytes"), minFreeBytesArg = flag("--min-free-bytes"), maxDepCacheBytesArg = flag("--max-dep-cache-bytes");
+		const maxWorkspaceBytesArg = flag("--max-workspace-bytes"), maxTotalRetainedBytesArg = flag("--max-retained-bytes"), minFreeBytesArg = flag("--min-free-bytes"), maxDepCacheBytesArg = flag("--max-dep-cache-bytes"), maxTotalWorkingBytesArg = flag("--max-working-bytes");
+		const requireHardNativeQuota = process.argv.includes("--require-hard-native-quota");
 		const verify = process.argv.includes("--verify");
 		const mountSources = process.argv.includes("--mount-sources");
 		const sockets = process.argv.includes("--sockets");
@@ -183,6 +184,7 @@ switch (cmd) {
 		const maxTotalRetainedBytes = parsePosIntFlag("--max-retained-bytes", maxTotalRetainedBytesArg);
 		const minFreeBytes = parseNonNegIntFlag("--min-free-bytes", minFreeBytesArg);
 		const maxDepCacheBytes = parsePosIntFlag("--max-dep-cache-bytes", maxDepCacheBytesArg);
+		const maxTotalWorkingBytes = parsePosIntFlag("--max-working-bytes", maxTotalWorkingBytesArg);
 		const parallelNum = parsePosIntFlag("--parallel", parallelArg);
 		const timeoutNum = parsePosIntFlag("--timeout", timeoutArg);
 		const storageLimits = {
@@ -190,6 +192,8 @@ switch (cmd) {
 			...(maxTotalRetainedBytes !== undefined ? { maxTotalRetainedBytes } : {}),
 			...(minFreeBytes !== undefined ? { minFreeBytes } : {}),
 			...(maxDepCacheBytes !== undefined ? { maxDepCacheBytes } : {}),
+			...(maxTotalWorkingBytes !== undefined ? { maxTotalWorkingBytes } : {}),
+			...(requireHardNativeQuota ? { requireHardNativeQuota: true } : {}),
 		};
 		const packet = await runReview(packDir ?? "", {
 			promptFile, outDir, verify, mountSources, sockets,

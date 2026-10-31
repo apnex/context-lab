@@ -132,6 +132,10 @@ export interface ReviewStorageLimits {
 	minFreeBytes?: number;
 	/** Maximum bytes allowed in a per-attempt writable dependency cache (default 512 MiB). */
 	maxDepCacheBytes?: number;
+	/** Maximum aggregate owned working + retained bytes across all active and preserved reviewer trees (ws + depCache + scratch + retained; default maxTotalRetainedBytes + 2 * maxDepCacheBytes). */
+	maxTotalWorkingBytes?: number;
+	/** When true, refuses before dispatch if the execution environment cannot enforce a kernel/write-time block ceiling on native non-Node binaries (0047, B31). */
+	requireHardNativeQuota?: boolean;
 }
 
 export interface ReviewOptions {
@@ -211,21 +215,35 @@ function assertNonNegativeFiniteInt(name: string, val: unknown): number {
 	return val;
 }
 
-/** Validates a `ReviewStorageLimits` object, throwing a `TypeError` before dispatch if any supplied limit is non-finite, non-integer, or out of range (0043, B31). */
+/** Validates a `ReviewStorageLimits` object, throwing a `TypeError` before dispatch if any supplied limit is non-finite, non-integer, or out of range (0043, 0047, B31). */
 export function validateReviewStorageLimits(limits?: ReviewStorageLimits): {
 	maxWorkspaceBytes: number;
 	maxTotalRetainedBytes: number;
 	minFreeBytes: number;
 	maxDepCacheBytes: number;
+	maxTotalWorkingBytes: number;
+	requireHardNativeQuota: boolean;
 } {
 	if (limits !== undefined && (typeof limits !== "object" || limits === null)) {
 		throw new TypeError(`storageLimits must be an object, got ${JSON.stringify(limits)}`);
 	}
+	if (limits?.requireHardNativeQuota !== undefined && typeof limits.requireHardNativeQuota !== "boolean") {
+		throw new TypeError(`requireHardNativeQuota must be a boolean, got ${JSON.stringify(limits.requireHardNativeQuota)}`);
+	}
+	const maxWorkspaceBytes = limits?.maxWorkspaceBytes !== undefined ? assertPositiveFiniteInt("maxWorkspaceBytes", limits.maxWorkspaceBytes) : 256 * 1024 * 1024;
+	const maxTotalRetainedBytes = limits?.maxTotalRetainedBytes !== undefined ? assertPositiveFiniteInt("maxTotalRetainedBytes", limits.maxTotalRetainedBytes) : 1024 * 1024 * 1024;
+	const minFreeBytes = limits?.minFreeBytes !== undefined ? assertNonNegativeFiniteInt("minFreeBytes", limits.minFreeBytes) : 0;
+	const maxDepCacheBytes = limits?.maxDepCacheBytes !== undefined ? assertPositiveFiniteInt("maxDepCacheBytes", limits.maxDepCacheBytes) : 512 * 1024 * 1024;
+	const maxTotalWorkingBytes = limits?.maxTotalWorkingBytes !== undefined
+		? assertPositiveFiniteInt("maxTotalWorkingBytes", limits.maxTotalWorkingBytes)
+		: maxTotalRetainedBytes + 2 * maxDepCacheBytes;
 	return {
-		maxWorkspaceBytes: limits?.maxWorkspaceBytes !== undefined ? assertPositiveFiniteInt("maxWorkspaceBytes", limits.maxWorkspaceBytes) : 256 * 1024 * 1024,
-		maxTotalRetainedBytes: limits?.maxTotalRetainedBytes !== undefined ? assertPositiveFiniteInt("maxTotalRetainedBytes", limits.maxTotalRetainedBytes) : 1024 * 1024 * 1024,
-		minFreeBytes: limits?.minFreeBytes !== undefined ? assertNonNegativeFiniteInt("minFreeBytes", limits.minFreeBytes) : 0,
-		maxDepCacheBytes: limits?.maxDepCacheBytes !== undefined ? assertPositiveFiniteInt("maxDepCacheBytes", limits.maxDepCacheBytes) : 512 * 1024 * 1024,
+		maxWorkspaceBytes,
+		maxTotalRetainedBytes,
+		minFreeBytes,
+		maxDepCacheBytes,
+		maxTotalWorkingBytes,
+		requireHardNativeQuota: Boolean(limits?.requireHardNativeQuota),
 	};
 }
 
@@ -944,6 +962,9 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 	if (opts.sockets && toolsMode !== "on") {
 		throw new Error("--sockets requires --tools on");
 	}
+	if (toolsMode === "on" && validatedLimits.requireHardNativeQuota) {
+		throw new Error("requireHardNativeQuota is not supported on unprivileged bwrap bind mounts (Linux user namespaces cannot mount size-bounded tmpfs over host paths or enforce kernel prjquota); omit requireHardNativeQuota to use synchronous Node ENOSPC + 5ms active SIGKILL monitoring");
+	}
 	const sourcePaths = opts.mountSources
 		? loaded.pack.sources.map((s) => path.resolve(loaded.dir, s.path)).filter((p) => fs.existsSync(p))
 		: [];
@@ -1072,6 +1093,7 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 			const maxDepBytes = validatedLimits.maxDepCacheBytes;
 			const maxWsBytes = validatedLimits.maxWorkspaceBytes;
 			const maxTotalBytes = validatedLimits.maxTotalRetainedBytes;
+			const maxTotalWorkBytes = validatedLimits.maxTotalWorkingBytes;
 			const quotaDir = path.join(scratchDir, ".context-lab-quota");
 			const preloadFile = path.join(quotaDir, "preload.mjs");
 			const depViolationFile = path.join(quotaDir, "dep-violation.txt");
@@ -1096,6 +1118,7 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 					"const origCopySync = fs.copyFileSync.bind(fs);",
 					"const origCpSync = fs.cpSync.bind(fs);",
 					"const origWriteFdSync = fs.writeSync.bind(fs);",
+					"const origWriteFd = fs.write.bind(fs);",
 					"const origOpenSync = fs.openSync.bind(fs);",
 					"const origOpen = fs.open.bind(fs);",
 					"const origCloseSync = fs.closeSync.bind(fs);",
@@ -1107,7 +1130,8 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 					"const origPromWrite = fs.promises.writeFile.bind(fs.promises);",
 					"const origPromAppend = fs.promises.appendFile.bind(fs.promises);",
 					"const origPromCopy = fs.promises.copyFile.bind(fs.promises);",
-					"const fdPaths = new Map();",
+					"const fdMeta = new Map();",
+					"const isAppendFlag = (fl) => typeof fl === 'string' ? fl.includes('a') : (typeof fl === 'number' ? Boolean(fl & fs.constants.O_APPEND) : false);",
 					"const isInside = (p, d) => { const r = path.relative(d, p); return r === '' || (!r.startsWith('..') && !path.isAbsolute(r)); };",
 					"const dirBytes = (d, skipGit) => {",
 					"  if (!fs.existsSync(d)) return 0;",
@@ -1118,7 +1142,7 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 					"const toBuf = (d, o) => typeof d === 'string' ? Buffer.from(d, typeof o === 'string' ? o : o?.encoding ?? 'utf8') : Buffer.isBuffer(d) ? d : ArrayBuffer.isView(d) ? Buffer.from(d.buffer, d.byteOffset, d.byteLength) : Buffer.from(String(d));",
 					"const enospc = (msg, syscall, dest) => Object.assign(new Error(`ENOSPC: no space left on device (${msg}), ${syscall} '${dest}'`), { code: 'ENOSPC', errno: -28, syscall, path: dest });",
 					"const checkQuota = (file, addBytes, isOverwrite, syscall) => {",
-					"  const raw = typeof file === 'number' ? fdPaths.get(file) : (typeof file === 'string' || file instanceof URL ? (file instanceof URL ? file.pathname : file) : null);",
+					"  const raw = typeof file === 'number' ? fdMeta.get(file)?.path : (typeof file === 'string' || file instanceof URL ? (file instanceof URL ? file.pathname : file) : null);",
 					"  if (!raw) return;",
 					"  const p = path.resolve(raw);",
 					"  if (isInside(p, quotaDir)) return;",
@@ -1153,13 +1177,42 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 					"    }",
 					"  }",
 					"};",
-					"fs.openSync = (file, flags, mode) => { const fd = origOpenSync(file, flags, mode); if (typeof file === 'string' || file instanceof URL) fdPaths.set(fd, path.resolve(file instanceof URL ? file.pathname : file)); return fd; };",
-					"fs.open = function(file, ...rest) { const cb = rest[rest.length - 1]; if (typeof cb === 'function') { rest[rest.length - 1] = (err, fd) => { if (!err && (typeof file === 'string' || file instanceof URL)) fdPaths.set(fd, path.resolve(file instanceof URL ? file.pathname : file)); cb(err, fd); }; } return origOpen(file, ...rest); };",
-					"fs.closeSync = (fd) => { fdPaths.delete(fd); return origCloseSync(fd); };",
-					"fs.close = (fd, cb) => { fdPaths.delete(fd); return origClose(fd, cb); };",
+					"const fdWriteGrowth = (fd, writeLen, explicitPos) => {",
+					"  const meta = fdMeta.get(fd);",
+					"  if (!meta) return { growth: writeLen, nextPos: 0 };",
+					"  let curSize = 0;",
+					"  try { curSize = fs.fstatSync(fd).size; } catch { try { curSize = fs.lstatSync(meta.path).size; } catch {} }",
+					"  const startPos = meta.append ? curSize : (typeof explicitPos === 'number' && explicitPos >= 0 ? explicitPos : meta.pos);",
+					"  const endPos = startPos + writeLen;",
+					"  const growth = Math.max(0, endPos - curSize);",
+					"  const nextPos = typeof explicitPos === 'number' && explicitPos >= 0 ? meta.pos : endPos;",
+					"  return { growth, nextPos };",
+					"};",
+					"const parseFdWriteArgs = (bufOrStr, rest) => {",
+					"  if (typeof bufOrStr === 'string') {",
+					"    const pos = typeof rest[0] === 'number' ? rest[0] : null;",
+					"    const enc = typeof rest[0] === 'string' ? rest[0] : (typeof rest[1] === 'string' ? rest[1] : 'utf8');",
+					"    return { len: Buffer.byteLength(bufOrStr, enc), pos };",
+					"  }",
+					"  if (rest.length > 0 && typeof rest[0] === 'object' && rest[0] !== null && !ArrayBuffer.isView(rest[0])) {",
+					"    const o = rest[0];",
+					"    const len = typeof o.length === 'number' ? o.length : bufOrStr.byteLength - (typeof o.offset === 'number' ? o.offset : 0);",
+					"    const pos = typeof o.position === 'number' ? o.position : null;",
+					"    return { len, pos };",
+					"  }",
+					"  const offset = typeof rest[0] === 'number' ? rest[0] : 0;",
+					"  const len = typeof rest[1] === 'number' ? rest[1] : bufOrStr.byteLength - offset;",
+					"  const pos = typeof rest[2] === 'number' ? rest[2] : null;",
+					"  return { len, pos };",
+					"};",
+					"fs.openSync = (file, flags, mode) => { const fd = origOpenSync(file, flags, mode); if (typeof file === 'string' || file instanceof URL) fdMeta.set(fd, { path: path.resolve(file instanceof URL ? file.pathname : file), pos: 0, append: isAppendFlag(flags) }); return fd; };",
+					"fs.open = function(file, ...rest) { const flags = rest.length > 1 ? rest[0] : 'r'; const cb = rest[rest.length - 1]; if (typeof cb === 'function') { rest[rest.length - 1] = (err, fd) => { if (!err && (typeof file === 'string' || file instanceof URL)) fdMeta.set(fd, { path: path.resolve(file instanceof URL ? file.pathname : file), pos: 0, append: isAppendFlag(flags) }); cb(err, fd); }; } return origOpen(file, ...rest); };",
+					"fs.closeSync = (fd) => { fdMeta.delete(fd); return origCloseSync(fd); };",
+					"fs.close = (fd, cb) => { fdMeta.delete(fd); return origClose(fd, cb); };",
 					"fs.writeFileSync = (file, data, options) => { const buf = toBuf(data, options); checkQuota(file, buf.length, true, 'write'); return origWriteSync(file, data, options); };",
 					"fs.appendFileSync = (file, data, options) => { const buf = toBuf(data, options); checkQuota(file, buf.length, false, 'write'); return origAppendSync(file, data, options); };",
-					"fs.writeSync = function(fd, bufOrStr, ...rest) { const len = typeof bufOrStr === 'string' ? Buffer.byteLength(bufOrStr) : (typeof rest[1] === 'number' ? rest[1] : bufOrStr.byteLength); checkQuota(fd, len, false, 'write'); return origWriteFdSync(fd, bufOrStr, ...rest); };",
+					"fs.writeSync = function(fd, bufOrStr, ...rest) { const { len, pos } = parseFdWriteArgs(bufOrStr, rest); const { growth, nextPos } = fdWriteGrowth(fd, len, pos); checkQuota(fd, growth, false, 'write'); const written = origWriteFdSync(fd, bufOrStr, ...rest); const m = fdMeta.get(fd); if (m) m.pos = nextPos; return written; };",
+					"fs.write = function(fd, bufOrStr, ...rest) { const cb = rest[rest.length - 1]; const argsNoCb = typeof cb === 'function' ? rest.slice(0, -1) : rest; try { const { len, pos } = parseFdWriteArgs(bufOrStr, argsNoCb); const { growth, nextPos } = fdWriteGrowth(fd, len, pos); checkQuota(fd, growth, false, 'write'); const m = fdMeta.get(fd); if (m) m.pos = nextPos; } catch (e) { if (typeof cb === 'function') { queueMicrotask(() => cb(e)); return; } throw e; } return origWriteFd(fd, bufOrStr, ...rest); };",
 					"fs.copyFileSync = (src, dest, mode) => { const sz = fs.statSync(src).size; checkQuota(dest, sz, true, 'copyfile'); return origCopySync(src, dest, mode); };",
 					"fs.cpSync = (src, dest, opts) => { const sz = fs.existsSync(src) && fs.lstatSync(src).isDirectory() ? dirBytes(String(src), false) : (fs.existsSync(src) ? fs.lstatSync(src).size : 0); checkQuota(dest, sz, true, 'cp'); return origCpSync(src, dest, opts); };",
 					"fs.writeFile = function(file, data, options, callback) { const cb = typeof options === 'function' ? options : callback; try { const buf = toBuf(data, typeof options === 'function' ? undefined : options); checkQuota(file, buf.length, true, 'write'); } catch (e) { if (typeof cb === 'function') { queueMicrotask(() => cb(e)); return; } throw e; } return origWriteFile(file, data, options, callback); };",
@@ -1178,8 +1231,9 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 				}
 			}
 
-			// Periodic parent monitor across depCacheDir, scratchDir, ws.dir, and run-wide aggregate active working bytes.
-			// When any cap is breached during execution, immediately aborts `abortController` (sending SIGKILL to bwrap).
+			// Periodic parent monitor across depCacheDir, scratchDir, ws.dir, and run-wide aggregate owned working bytes.
+			// `activeWorkingDirs` retains every member's directories until verified archival retires them, so failed/preserved
+			// originals, caches, and scratch continue to count toward the owned footprint (0047, B31).
 			let monitorTimer: ReturnType<typeof setInterval> | null = null;
 			const scanWorkingDirs = (): void => {
 				if (toolsMode !== "on") return;
@@ -1198,13 +1252,23 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 					activeWsViolation ??= `retained workspace for ${member.id} (${wBytes} bytes) exceeds maxWorkspaceBytes (${maxWsBytes} bytes)`;
 					abortController.abort();
 				}
-				// Aggregate active workspace bytes across all currently running reviewers + already retained bytes.
+				// Aggregate owned footprint across all active and preserved reviewers (ws + depCache + scratch) + retained bytes.
 				let activeWsSum = currentTotalRetainedBytes;
+				let ownedFootprintSum = currentTotalRetainedBytes;
 				for (const dirs of activeWorkingDirs.values()) {
-					activeWsSum += directoryAllocatedBytes(dirs.ws, { ignoreGit: true });
+					const mWs = directoryAllocatedBytes(dirs.ws, { ignoreGit: true });
+					const mDep = directoryAllocatedBytes(dirs.depCache);
+					const mQ = path.join(dirs.scratch, ".context-lab-quota");
+					const mScr = Math.max(0, directoryAllocatedBytes(dirs.scratch) - directoryAllocatedBytes(mQ));
+					activeWsSum += mWs;
+					ownedFootprintSum += mWs + mDep + mScr;
 				}
 				if (activeWsSum > maxTotalBytes) {
 					activeWsViolation ??= `aggregate active workspaces (${activeWsSum} bytes) exceed maxTotalRetainedBytes (${maxTotalBytes} bytes)`;
+					abortController.abort();
+				}
+				if (ownedFootprintSum > maxTotalWorkBytes) {
+					activeDepViolation ??= `aggregate owned working footprint (${ownedFootprintSum} bytes) exceeds maxTotalWorkingBytes (${maxTotalWorkBytes} bytes)`;
 					abortController.abort();
 				}
 			};
@@ -1216,7 +1280,6 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 			try {
 				out = await adapter.invoke(inv);
 			} finally {
-				activeWorkingDirs.delete(member.id);
 				if (monitorTimer !== null) clearInterval(monitorTimer);
 				scanWorkingDirs();
 				if (fs.existsSync(depViolationFile)) {
@@ -1266,9 +1329,11 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 					});
 					if (archival.status === "verified") {
 						currentTotalRetainedBytes += archival.bytes;
-						// Once workspace evidence is verified, clean the per-attempt scratch and dep-cache directories immediately.
+						// Once workspace evidence is verified, clean the per-attempt scratch and dep-cache directories immediately,
+						// and remove this member from `activeWorkingDirs` (whereas failed/preserved members remain in `activeWorkingDirs`).
 						fs.rmSync(scratchDir, { recursive: true, force: true });
 						fs.rmSync(depCacheDir, { recursive: true, force: true });
+						activeWorkingDirs.delete(member.id);
 					} else {
 						preserveWorkOnFailure = true;
 					}

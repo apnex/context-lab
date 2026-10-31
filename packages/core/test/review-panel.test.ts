@@ -174,7 +174,7 @@ test("G7: ARCHITECTURE-TARGET.md absorbs 0025/0026/B18, and runReview refuses < 
 	assert.equal(toolsPacket.findings[0]?.severity, "blocking");
 });
 
-test("B31: runReview and publishRetainedWorkspace isolate dep-cache and scratch, exclude package-cache payloads, verify MANIFEST.json before atomic publication, preserve existing valid archives and original workspaces on fault, and cleanReviewWorkRoot honors active/preserved locks", async () => {
+test("B31: runReview and publishRetainedWorkspace isolate dep-cache and scratch, exclude package-cache payloads, verify MANIFEST.json before recoverable two-rename publication, preserve existing valid archives and original workspaces on fault, and cleanReviewWorkRoot honors active/preserved locks", async () => {
 	const {
 		cleanReviewWorkRoot,
 		directoryAllocatedBytes,
@@ -472,4 +472,18 @@ test("B31: runReview and publishRetainedWorkspace isolate dep-cache and scratch,
 	});
 	assert.equal(killedBySignal, "SIGKILL", "scanWorkingDirs must abort and SIGKILL an unhooked process that exceeds scratch/depCache cap");
 	assert.equal(pktNative.archivalSummary?.allVerified, false);
+
+	// 11. Pre-dispatch refusal when requireHardNativeQuota: true is requested on unprivileged bwrap bind mounts.
+	await assert.rejects(
+		() => runReview(dir, {
+			promptFile,
+			members: ["p1", "p2"],
+			tools: "on",
+			outDir: path.join(sDir, "out-hard-quota"),
+			work: path.join(sDir, "work-hard-quota"),
+			storageLimits: { requireHardNativeQuota: true },
+			adapters: { opencode: nativeKillAdapter("opencode"), codex: nativeKillAdapter("codex") },
+		}),
+		/requireHardNativeQuota is not supported on unprivileged bwrap bind mounts/,
+	);
 });
