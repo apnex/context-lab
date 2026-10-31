@@ -205,6 +205,8 @@ export async function previewRun(packDir: string, target: string, opts: PreviewO
 		...(opts.maxProbeReplyBytes !== undefined ? { maxProbeReplyBytes: opts.maxProbeReplyBytes } : {}),
 		...(opts.maxStdoutBytes !== undefined ? { maxStdoutBytes: opts.maxStdoutBytes } : {}),
 		...(opts.maxTotalInvocations !== undefined ? { maxTotalInvocations: opts.maxTotalInvocations } : {}),
+		...(opts.minFreeBytes !== undefined ? { minFreeBytes: opts.minFreeBytes } : {}),
+		...(opts.maxRunWorkBytes !== undefined ? { maxRunWorkBytes: opts.maxRunWorkBytes } : {}),
 	});
 	// Condition 2 (0042, B30): if the experiment has a registered record in register/<experiment>.json,
 	// any CLI/API execution-limit override that disagrees with the registered declaration is refused before rendering.

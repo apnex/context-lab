@@ -59,6 +59,8 @@ export function runFlags(argv: string[]): RunFlags {
 	const maxProbeReplyBytes = posInt("--max-probe-reply-bytes");
 	const maxStdoutBytes = posInt("--max-stdout-bytes");
 	const maxTotalInvocations = posInt("--max-total-invocations");
+	const minFreeBytes = posInt("--min-free-bytes");
+	const maxRunWorkBytes = posInt("--max-run-work-bytes");
 	return {
 		...(runs !== undefined ? { runsPerCell: Number(runs) } : {}),
 		...(m !== undefined ? { maxAttemptsPerCell: m } : {}),
@@ -82,5 +84,7 @@ export function runFlags(argv: string[]): RunFlags {
 		...(maxProbeReplyBytes !== undefined ? { maxProbeReplyBytes } : {}),
 		...(maxStdoutBytes !== undefined ? { maxStdoutBytes } : {}),
 		...(maxTotalInvocations !== undefined ? { maxTotalInvocations } : {}),
+		...(minFreeBytes !== undefined ? { minFreeBytes } : {}),
+		...(maxRunWorkBytes !== undefined ? { maxRunWorkBytes } : {}),
 	};
 }

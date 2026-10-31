@@ -11,7 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import {
-	CANARY_QUESTION, METHOD, STATES, checkPack, conductRun, recordExperiment, recordHistory, resumeRun, tallyRun, variantDir, variantManifestFile,
+	CANARY_QUESTION, METHOD, STATES, calibrateRun, checkPack, cleanRunWorkRoot, conductRun, previewRun, reconcileInterruptedInvocationWork, recordExperiment, recordHistory, resumeRun, runFlags, tallyRun, variantDir, variantManifestFile,
 	type Adapter, type CellRecord, type Invocation, type Outcome,
 } from "../src/index.js";
 import { commitAll, copyPack, editJson, isJudgePrompt, judgeReply, packageRoot, scratch } from "./helpers.js";
@@ -1023,5 +1023,125 @@ test("B30/B32: AGP 6-case parcel-policy calibration preview and synthetic calibr
 	assert.equal(calRunRec.invocationSummary?.dispatchedTotal, 24);
 	const votes = JSON.parse(fs.readFileSync(path.join(calRunOut, "judging", "votes.json"), "utf8")) as unknown[];
 	assert.equal(votes.length, 36);
+});
+
+test("B33 (0051): conductRun, calibrateRun, and resumeRun enforce minFreeBytes and maxRunWorkBytes, write LOCK.json/ACTIVE markers, and support reconcileInterruptedInvocationWork + cleanRunWorkRoot", async () => {
+	// 1. CLI flags parse --min-free-bytes and --max-run-work-bytes and reject invalid values.
+	assert.deepEqual(runFlags(["node", "cli", "--min-free-bytes", "1048576", "--max-run-work-bytes", "104857600"]), {
+		minFreeBytes: 1048576,
+		maxRunWorkBytes: 104857600,
+	});
+	assert.throws(() => runFlags(["node", "cli", "--min-free-bytes", "0"]), /--min-free-bytes must be a positive integer/);
+	assert.throws(() => runFlags(["node", "cli", "--max-run-work-bytes", "0"]), /--max-run-work-bytes must be a positive integer/);
+
+	// 2. Preflight minFreeBytes refuses before dispatching any invocation when requested headroom exceeds available disk bytes.
+	const { dir: dir1, work: workRoot1, records: recRoot1 } = await setup();
+	await assert.rejects(
+		() => conductRun(dir1, {
+			experiment: "orchard",
+			adapters: { opencode: scripted("opencode"), codex: scripted("codex") },
+			work: workRoot1,
+			records: recRoot1,
+			minFreeBytes: Number.MAX_SAFE_INTEGER,
+		}),
+		/available disk space .* is below minFreeBytes/,
+	);
+	assert.equal(fs.existsSync(recRoot1), false, "preflight refusal must not create a partial records directory");
+
+	// 3. maxRunWorkBytes stops further dispatch once work + records allocated bytes exceed the ceiling,
+	// marking the run end: "incomplete" with storageExhausted: true while preserving completed evidence.
+	const { dir: dir2, work: workRoot2, records: recRoot2 } = await setup();
+	const { dir: runDir2, record: rec2 } = await conductRun(dir2, {
+		experiment: "orchard",
+		adapters: { opencode: scripted("opencode"), codex: scripted("codex") },
+		work: workRoot2,
+		records: recRoot2,
+		maxRunWorkBytes: 1,
+		parallel: 1,
+	});
+	assert.equal(rec2.end, "incomplete");
+	assert.match(rec2.endReason ?? "", /exceeds maxRunWorkBytes \(1 bytes\)/);
+	assert.equal(rec2.invocationSummary?.storageExhausted, true);
+	assert.equal(rec2.storageSummary?.storageExhausted, true);
+	assert.equal(rec2.storageSummary?.maxRunWorkBytes, 1);
+	assert.ok((rec2.invocationSummary?.refusedPreDispatch ?? []).some((r) => r.reason === "storage-exhausted"));
+	// ACTIVE marker is removed when conductRun finishes, while LOCK.json remains with ownership provenance.
+	assert.equal(fs.existsSync(path.join(rec2.work!, "LOCK.json")), true);
+	assert.equal(fs.existsSync(path.join(rec2.work!, "ACTIVE")), false);
+
+	// 4. Complete run writes LOCK.json and storageSummary, and cleanRunWorkRoot reconciles transient files,
+	// skips unowned/active/incomplete folders, and retires completed work only when retireCompletedWork: true.
+	const { dir: dir3, work: workRoot3, records: recRoot3 } = await setup();
+	const { record: rec3 } = await conductRun(dir3, {
+		experiment: "orchard",
+		adapters: { opencode: scripted("opencode"), codex: scripted("codex") },
+		work: workRoot3,
+		records: recRoot3,
+		parallel: 1,
+	});
+	assert.equal(rec3.end, "completed");
+	assert.ok((rec3.storageSummary?.totalAllocatedBytes ?? 0) > 0);
+	assert.equal(rec3.storageSummary?.storageExhausted, false);
+
+	// Simulate an interrupted invocation folder inside rec2.work (incomplete run) holding transient cache/home/auth/sqlite + preserved session/events.
+	const interruptedInv = path.join(rec2.work!, "invocations", "i-interrupted");
+	fs.mkdirSync(path.join(interruptedInv, "cache", "opencode"), { recursive: true });
+	fs.writeFileSync(path.join(interruptedInv, "cache", "opencode", "seed.bin"), Buffer.alloc(1024, 7));
+	fs.mkdirSync(path.join(interruptedInv, "home"), { recursive: true });
+	fs.writeFileSync(path.join(interruptedInv, "home", ".npmrc"), "tmp");
+	fs.mkdirSync(path.join(interruptedInv, "config", "opencode"), { recursive: true });
+	fs.writeFileSync(path.join(interruptedInv, "config", "opencode", "opencode.json"), "{}");
+	fs.writeFileSync(path.join(interruptedInv, "config", "opencode", "node_modules.bin"), "transient");
+	fs.mkdirSync(path.join(interruptedInv, "data"), { recursive: true });
+	fs.writeFileSync(path.join(interruptedInv, "data", "session.json"), '{"id":"s1"}');
+	fs.writeFileSync(path.join(interruptedInv, "data", "auth.json"), '{"token":"secret"}');
+	fs.mkdirSync(path.join(interruptedInv, "codex-home", "sessions"), { recursive: true });
+	fs.writeFileSync(path.join(interruptedInv, "codex-home", "sessions", "s1.jsonl"), "{}");
+	fs.writeFileSync(path.join(interruptedInv, "codex-home", "auth.json"), '{"token":"secret"}');
+	fs.writeFileSync(path.join(interruptedInv, "codex-home", "state.sqlite"), "db");
+	fs.writeFileSync(path.join(interruptedInv, "events.jsonl"), '{"type":"step_start"}\n');
+
+	const recResult = reconcileInterruptedInvocationWork(rec2.work!);
+	assert.equal(recResult.skippedActive, false);
+	assert.ok(recResult.reclaimedBytes > 0);
+	assert.equal(fs.existsSync(path.join(interruptedInv, "cache")), false);
+	assert.equal(fs.existsSync(path.join(interruptedInv, "home")), false);
+	assert.equal(fs.existsSync(path.join(interruptedInv, "config", "opencode", "node_modules.bin")), false);
+	assert.equal(fs.existsSync(path.join(interruptedInv, "config", "opencode", "opencode.json")), true);
+	assert.equal(fs.existsSync(path.join(interruptedInv, "data", "auth.json")), false);
+	assert.equal(fs.existsSync(path.join(interruptedInv, "data", "session.json")), true);
+	assert.equal(fs.existsSync(path.join(interruptedInv, "codex-home", "auth.json")), false);
+	assert.equal(fs.existsSync(path.join(interruptedInv, "codex-home", "state.sqlite")), false);
+	assert.equal(fs.existsSync(path.join(interruptedInv, "codex-home", "sessions", "s1.jsonl")), true);
+	assert.equal(fs.existsSync(path.join(interruptedInv, "events.jsonl")), true);
+
+	// Copy the incomplete run's work directory into workRoot3 alongside an unowned run- directory and an active run- directory.
+	const incompleteCopy = path.join(workRoot3, "run-incomplete");
+	fs.cpSync(rec2.work!, incompleteCopy, { recursive: true });
+	const unownedDir = path.join(workRoot3, "run-unowned");
+	fs.mkdirSync(unownedDir, { recursive: true });
+	const activeDir = path.join(workRoot3, "run-active");
+	fs.mkdirSync(activeDir, { recursive: true });
+	fs.writeFileSync(path.join(activeDir, "LOCK.json"), JSON.stringify({ owner: "context-lab", kind: "run", runId: "r-act", pid: process.pid, startedAt: new Date().toISOString(), recordsDir: runDir2 }));
+	fs.writeFileSync(path.join(activeDir, "ACTIVE"), `${process.pid}\n`);
+
+	// Default cleanRunWorkRoot (retireCompletedWork: false) reconciles dead-PID owned runs without deleting completed or incomplete runs.
+	const pass1 = cleanRunWorkRoot(workRoot3);
+	assert.deepEqual(pass1.skippedUnowned, [unownedDir]);
+	assert.deepEqual(pass1.skippedActive, [activeDir]);
+	assert.equal(pass1.retiredCompleted.length, 0);
+	assert.equal(fs.existsSync(rec3.work!), true);
+	assert.equal(fs.existsSync(incompleteCopy), true);
+
+	// With retireCompletedWork: true, only the verified completed run's work folder is retired; incomplete, active, and unowned remain.
+	const pass2 = cleanRunWorkRoot(workRoot3, { retireCompletedWork: true });
+	assert.deepEqual(pass2.retiredCompleted, [rec3.work!]);
+	assert.deepEqual(pass2.skippedIncomplete, [incompleteCopy]);
+	assert.deepEqual(pass2.skippedActive, [activeDir]);
+	assert.deepEqual(pass2.skippedUnowned, [unownedDir]);
+	assert.equal(fs.existsSync(rec3.work!), false);
+	assert.equal(fs.existsSync(incompleteCopy), true);
+	assert.equal(fs.existsSync(activeDir), true);
+	assert.equal(fs.existsSync(unownedDir), true);
 });
 

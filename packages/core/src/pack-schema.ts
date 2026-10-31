@@ -279,6 +279,10 @@ export interface ExecutionLimits {
 	maxStdoutBytes?: number;
 	/** Maximum total spawned runtime invocations across the run (probes + judgeProbes + readers + judges). */
 	maxTotalInvocations?: number;
+	/** Minimum available bytes required on the working and records filesystems before and during the run (0051, B33). */
+	minFreeBytes?: number;
+	/** Maximum allocated regular-file bytes across the run's working folder (`run.json.work`) and records folder before further invocations are refused or aborted (0051, B33). */
+	maxRunWorkBytes?: number;
 }
 
 export type LimitOrigin = "experiment" | "override" | "default";
@@ -298,6 +302,8 @@ export interface EffectiveLimits {
 	maxProbeReplyBytes: number | null;
 	maxStdoutBytes: number | null;
 	maxTotalInvocations: number | null;
+	minFreeBytes: number | null;
+	maxRunWorkBytes: number | null;
 	origins: Record<keyof Omit<EffectiveLimits, "origins">, LimitOrigin>;
 }
 
@@ -402,6 +408,8 @@ export interface LimitOverrides {
 	maxProbeReplyBytes?: number;
 	maxStdoutBytes?: number;
 	maxTotalInvocations?: number;
+	minFreeBytes?: number;
+	maxRunWorkBytes?: number;
 }
 
 /** Resolves the complete effective execution limits for an experiment, recording each setting's origin ("override", "experiment", or "default"). */
@@ -427,6 +435,8 @@ export function resolveEffectiveLimits(experiment: Experiment, over: LimitOverri
 	const pRepB = pick<number | null>(over.maxProbeReplyBytes, lim.maxProbeReplyBytes, null);
 	const stdB = pick<number | null>(over.maxStdoutBytes, lim.maxStdoutBytes, null);
 	const totInv = pick<number | null>(over.maxTotalInvocations, lim.maxTotalInvocations, null);
+	const minFree = pick<number | null>(over.minFreeBytes, lim.minFreeBytes, null);
+	const maxWork = pick<number | null>(over.maxRunWorkBytes, lim.maxRunWorkBytes, null);
 	return {
 		readerTimeLimitSeconds: rTime.val,
 		judgeTimeLimitSeconds: jTime.val,
@@ -442,6 +452,8 @@ export function resolveEffectiveLimits(experiment: Experiment, over: LimitOverri
 		maxProbeReplyBytes: pRepB.val,
 		maxStdoutBytes: stdB.val,
 		maxTotalInvocations: totInv.val,
+		minFreeBytes: minFree.val,
+		maxRunWorkBytes: maxWork.val,
 		origins: {
 			readerTimeLimitSeconds: rTime.origin,
 			judgeTimeLimitSeconds: jTime.origin,
@@ -457,6 +469,8 @@ export function resolveEffectiveLimits(experiment: Experiment, over: LimitOverri
 			maxProbeReplyBytes: pRepB.origin,
 			maxStdoutBytes: stdB.origin,
 			maxTotalInvocations: totInv.origin,
+			minFreeBytes: minFree.origin,
+			maxRunWorkBytes: maxWork.origin,
 		},
 	};
 }

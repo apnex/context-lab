@@ -39,6 +39,7 @@ import { resultMarkdown, tally, type Result } from "./tally.js";
 import { chooseCalibrationPairs, choosePreferencePairs, type PreferenceItem } from "./pair-chooser.js";
 import { runHumanPanel, type PicksRecord } from "./human-panel.js";
 import { runJudgingChain, type ChainRecord } from "./judging-chain.js";
+import { availableBytesAt, directoryAllocatedBytes } from "./review-panel.js";
 
 const EMPTY_OUTCOME: Outcome = { final: "", exit: null, signal: null, stop: { reason: "error", inFlight: "none" }, cost: { seconds: 0, inputTokens: null, cachedInputTokens: null, outputTokens: null, toolCalls: 0 }, tools: [], filtered: false, error: null, session: null, trace: [], events: "" };
 
@@ -183,6 +184,18 @@ export interface RunRecord {
 	effectiveLimits?: EffectiveLimits;
 	/** Public runtime-invocation accounting summary by role and pre-dispatch refusals (0040, B30). */
 	invocationSummary?: InvocationSummary;
+	/** Public storage accounting summary across `work` and `recordsDir` (0051, B33). */
+	storageSummary?: {
+		workAllocatedBytes: number;
+		recordsAllocatedBytes: number;
+		totalAllocatedBytes: number;
+		maxRunWorkBytes: number | null;
+		minFreeBytes: number | null;
+		availableFreeBytesAtWork: number | null;
+		availableFreeBytesAtRecords: number | null;
+		storageExhausted: boolean;
+		storageExhaustedReason: string | null;
+	};
 	population: string[];
 	runtimes: Record<string, string | null>;
 	/** Per member, agent or judge: how its requests reached its model, as its adapter reports (Adapter.route). */
@@ -225,6 +238,245 @@ const write = (file: string, o: unknown): void => {
 	fs.mkdirSync(path.dirname(file), { recursive: true });
 	fs.writeFileSync(file, JSON.stringify(o, null, 2) + "\n");
 };
+
+export interface RunLockMarker {
+	owner: "context-lab";
+	kind: "run" | "calibrate";
+	runId: string;
+	pid: number;
+	startedAt: string;
+	recordsDir: string;
+}
+
+function isPidAlive(pid: number): boolean {
+	if (!Number.isInteger(pid) || pid <= 0) return false;
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (e) {
+		return (e as NodeJS.ErrnoException).code === "EPERM";
+	}
+}
+
+function writeRunLock(work: string, kind: "run" | "calibrate", runId: string, recordsDir: string, startedAt: string): void {
+	const marker: RunLockMarker = { owner: "context-lab", kind, runId, pid: process.pid, startedAt, recordsDir };
+	fs.writeFileSync(path.join(work, "LOCK.json"), JSON.stringify(marker, null, 2) + "\n");
+	fs.writeFileSync(path.join(work, "ACTIVE"), `${process.pid}\n`);
+}
+
+function clearRunActive(work: string): void {
+	try { fs.rmSync(path.join(work, "ACTIVE"), { force: true }); } catch { /* ignore */ }
+}
+
+function checkRunPreflightFreeBytes(minFreeBytes: number | null, workRoot: string, recordsTarget: string): void {
+	if (minFreeBytes === null || minFreeBytes <= 0) return;
+	for (const p of [workRoot, recordsTarget]) {
+		const avail = availableBytesAt(p);
+		if (avail.bytes === null) {
+			throw new Error(`available disk space could not be measured at ${p} (${avail.error ?? "unknown"}) under minFreeBytes (${minFreeBytes} bytes) before run dispatch`);
+		}
+		if (avail.bytes < minFreeBytes) {
+			throw new Error(`available disk space (${avail.bytes} bytes) at ${p} is below minFreeBytes (${minFreeBytes} bytes) before run dispatch`);
+		}
+	}
+}
+
+function makeRunStorageGuard(effectiveLimits: EffectiveLimits, work: string, recordsDir: string): () => string | null {
+	return (): string | null => {
+		if (effectiveLimits.minFreeBytes !== null && effectiveLimits.minFreeBytes > 0) {
+			for (const p of [work, recordsDir]) {
+				const avail = availableBytesAt(p);
+				if (avail.bytes === null) {
+					return `available disk space could not be measured at ${p} (${avail.error ?? "unknown"}) under minFreeBytes (${effectiveLimits.minFreeBytes} bytes)`;
+				}
+				if (avail.bytes < effectiveLimits.minFreeBytes) {
+					return `available disk space (${avail.bytes} bytes) at ${p} fell below minFreeBytes (${effectiveLimits.minFreeBytes} bytes)`;
+				}
+			}
+		}
+		if (effectiveLimits.maxRunWorkBytes !== null && effectiveLimits.maxRunWorkBytes > 0) {
+			const used = directoryAllocatedBytes(work) + directoryAllocatedBytes(recordsDir);
+			if (used > effectiveLimits.maxRunWorkBytes) {
+				return `run storage (${used} bytes across work and records) exceeds maxRunWorkBytes (${effectiveLimits.maxRunWorkBytes} bytes)`;
+			}
+		}
+		return null;
+	};
+}
+
+function computeRunStorageSummary(effectiveLimits: EffectiveLimits, work: string, recordsDir: string, budget: InvocationBudget): NonNullable<RunRecord["storageSummary"]> {
+	const workAllocatedBytes = fs.existsSync(work) ? directoryAllocatedBytes(work) : 0;
+	const recordsAllocatedBytes = fs.existsSync(recordsDir) ? directoryAllocatedBytes(recordsDir) : 0;
+	const workAvail = availableBytesAt(work);
+	const recAvail = availableBytesAt(recordsDir);
+	return {
+		workAllocatedBytes,
+		recordsAllocatedBytes,
+		totalAllocatedBytes: workAllocatedBytes + recordsAllocatedBytes,
+		maxRunWorkBytes: effectiveLimits.maxRunWorkBytes,
+		minFreeBytes: effectiveLimits.minFreeBytes,
+		availableFreeBytesAtWork: workAvail.bytes,
+		availableFreeBytesAtRecords: recAvail.bytes,
+		storageExhausted: budget.isStorageExhausted(),
+		storageExhaustedReason: budget.storageExhaustedReason(),
+	};
+}
+
+/**
+ * Reconciles transient runtime artifacts inside an interrupted invocation or `run-*` working directory
+ * while preserving all session stores (`data/`, `codex-home/sessions/`), `events.jsonl`, `workspaces/`,
+ * `snapshots/`, `ledgers/`, and `opencode.json` / `config.toml` (0051, B33).
+ * Refuses to modify a `run-*` directory whose `LOCK.json` / `ACTIVE` marker names a live PID.
+ */
+export function reconcileInterruptedInvocationWork(dir: string): { removedPaths: string[]; reclaimedBytes: number; skippedActive: boolean } {
+	const removedPaths: string[] = [];
+	let reclaimedBytes = 0;
+	if (!fs.existsSync(dir)) return { removedPaths, reclaimedBytes, skippedActive: false };
+
+	const lockFile = path.join(dir, "LOCK.json");
+	if (fs.existsSync(lockFile) && fs.existsSync(path.join(dir, "ACTIVE"))) {
+		try {
+			const lock = JSON.parse(fs.readFileSync(lockFile, "utf8")) as { pid?: number };
+			if (typeof lock?.pid === "number" && isPidAlive(lock.pid)) {
+				return { removedPaths, reclaimedBytes, skippedActive: true };
+			}
+		} catch { /* proceed */ }
+	}
+
+	const removeTransient = (target: string): void => {
+		if (!fs.existsSync(target)) return;
+		const st = fs.lstatSync(target);
+		reclaimedBytes += st.isDirectory() ? directoryAllocatedBytes(target) : (st.isFile() ? st.size : 0);
+		if (st.isDirectory()) makeWritable(target);
+		else if (!st.isSymbolicLink()) fs.chmodSync(target, 0o600);
+		fs.rmSync(target, { recursive: true, force: true });
+		removedPaths.push(target);
+	};
+
+	const cleanInvocationDir = (invDir: string): void => {
+		if (!fs.existsSync(invDir)) return;
+		removeTransient(path.join(invDir, "cache"));
+		removeTransient(path.join(invDir, "home"));
+		const xdgOc = path.join(invDir, "config", "opencode");
+		if (fs.existsSync(xdgOc)) {
+			for (const f of fs.readdirSync(xdgOc)) {
+				if (f !== "opencode.json") removeTransient(path.join(xdgOc, f));
+			}
+		}
+		const dataDir = path.join(invDir, "data");
+		if (fs.existsSync(dataDir)) {
+			for (const e of fs.readdirSync(dataDir, { recursive: true, withFileTypes: true })) {
+				if (e.isFile() && e.name === "auth.json") removeTransient(path.join(e.parentPath, e.name));
+			}
+		}
+		const codexHome = path.join(invDir, "codex-home");
+		if (fs.existsSync(codexHome)) {
+			removeTransient(path.join(codexHome, "auth.json"));
+			for (const f of fs.readdirSync(codexHome)) {
+				if (/\.sqlite(-shm|-wal)?$/.test(f)) removeTransient(path.join(codexHome, f));
+			}
+		}
+	};
+
+	// `dir` may be either a single invocation folder (`work` passed to `adapter.invoke`) or a whole `run-*` folder.
+	cleanInvocationDir(dir);
+	for (const sub of ["invocations", path.join("judging", "invocations")]) {
+		const p = path.join(dir, sub);
+		if (fs.existsSync(p)) {
+			for (const ent of fs.readdirSync(p, { withFileTypes: true })) {
+				if (ent.isDirectory()) cleanInvocationDir(path.join(p, ent.name));
+			}
+		}
+	}
+	const probesDir = path.join(dir, "probes");
+	if (fs.existsSync(probesDir)) {
+		for (const pEnt of fs.readdirSync(probesDir, { withFileTypes: true })) {
+			if (!pEnt.isDirectory()) continue;
+			const wSub = path.join(probesDir, pEnt.name, "work");
+			if (fs.existsSync(wSub)) {
+				for (const invEnt of fs.readdirSync(wSub, { withFileTypes: true })) {
+					if (invEnt.isDirectory()) cleanInvocationDir(path.join(wSub, invEnt.name));
+				}
+			}
+		}
+	}
+	return { removedPaths, reclaimedBytes, skippedActive: false };
+}
+
+/**
+ * Safely reconciles or retires `run-*` working directories under `workRoot` (0051, B33):
+ * - Skips any directory without a `context-lab` `LOCK.json` ownership marker (`skippedUnowned`).
+ * - Skips any directory with an `ACTIVE` lock for a live PID (`skippedActive`).
+ * - By default (`retireCompletedWork: false`), strips only transient cache/home/auth files from dead-PID
+ *   `run-*` folders via `reconcileInterruptedInvocationWork`, preserving all session, workspace, snapshot,
+ *   ledger, and event evidence (`reconciled`).
+ * - When `retireCompletedWork: true` is passed, removes `run-*` folders whose corresponding `recordsDir/run.json`
+ *   has `end === "completed"` and a verified `RESULT.json` on disk (`retiredCompleted`), while still preserving
+ *   incomplete or failed runs (`skippedIncomplete`).
+ */
+export function cleanRunWorkRoot(
+	workRoot: string,
+	opts: { retireCompletedWork?: boolean } = {},
+): { reconciled: string[]; retiredCompleted: string[]; skippedActive: string[]; skippedIncomplete: string[]; skippedUnowned: string[]; reclaimedBytes: number } {
+	const reconciled: string[] = [];
+	const retiredCompleted: string[] = [];
+	const skippedActive: string[] = [];
+	const skippedIncomplete: string[] = [];
+	const skippedUnowned: string[] = [];
+	let reclaimedBytes = 0;
+	if (!fs.existsSync(workRoot)) return { reconciled, retiredCompleted, skippedActive, skippedIncomplete, skippedUnowned, reclaimedBytes };
+
+	for (const ent of fs.readdirSync(workRoot, { withFileTypes: true })) {
+		if (!ent.isDirectory() || !ent.name.startsWith("run-")) continue;
+		const dir = path.join(workRoot, ent.name);
+		const lockFile = path.join(dir, "LOCK.json");
+		if (!fs.existsSync(lockFile)) {
+			skippedUnowned.push(dir);
+			continue;
+		}
+		let lock: RunLockMarker | null = null;
+		try {
+			lock = JSON.parse(fs.readFileSync(lockFile, "utf8")) as RunLockMarker;
+		} catch {
+			skippedUnowned.push(dir);
+			continue;
+		}
+		if (lock?.owner !== "context-lab" || (lock.kind !== "run" && lock.kind !== "calibrate")) {
+			skippedUnowned.push(dir);
+			continue;
+		}
+		if (fs.existsSync(path.join(dir, "ACTIVE")) && isPidAlive(lock.pid)) {
+			skippedActive.push(dir);
+			continue;
+		}
+		const rec = reconcileInterruptedInvocationWork(dir);
+		reclaimedBytes += rec.reclaimedBytes;
+		reconciled.push(dir);
+
+		if (opts.retireCompletedWork) {
+			const runJsonPath = path.join(lock.recordsDir, "run.json");
+			const resultJsonPath = path.join(lock.recordsDir, "RESULT.json");
+			let isCompleted = false;
+			if (fs.existsSync(runJsonPath) && fs.existsSync(resultJsonPath)) {
+				try {
+					const rj = JSON.parse(fs.readFileSync(runJsonPath, "utf8")) as { end?: string };
+					isCompleted = rj?.end === "completed";
+				} catch {
+					isCompleted = false;
+				}
+			}
+			if (isCompleted) {
+				reclaimedBytes += directoryAllocatedBytes(dir);
+				makeWritable(dir);
+				fs.rmSync(dir, { recursive: true, force: true });
+				retiredCompleted.push(dir);
+			} else {
+				skippedIncomplete.push(dir);
+			}
+		}
+	}
+	return { reconciled, retiredCompleted, skippedActive, skippedIncomplete, skippedUnowned, reclaimedBytes };
+}
 
 async function pool<T>(items: T[], n: number, fn: (t: T) => Promise<void>): Promise<void> {
 	const q = items.slice();
@@ -306,6 +558,8 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 		...(opts.maxProbeReplyBytes !== undefined ? { maxProbeReplyBytes: opts.maxProbeReplyBytes } : {}),
 		...(opts.maxStdoutBytes !== undefined ? { maxStdoutBytes: opts.maxStdoutBytes } : {}),
 		...(opts.maxTotalInvocations !== undefined ? { maxTotalInvocations: opts.maxTotalInvocations } : {}),
+		...(opts.minFreeBytes !== undefined ? { minFreeBytes: opts.minFreeBytes } : {}),
+		...(opts.maxRunWorkBytes !== undefined ? { maxRunWorkBytes: opts.maxRunWorkBytes } : {}),
 	});
 	const maxAttemptsPerCell: 1 | 2 = effectiveLimits.maxAttemptsPerCell;
 	let statusValue = status.status, statusReason = status.reason;
@@ -329,6 +583,7 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 	const recordsRoot = path.resolve(opts.records ?? path.resolve(loaded.dir, loaded.pack.records.path));
 	const recordsDir = path.join(recordsRoot, runId);
 	const workRoot = path.resolve(opts.work ?? path.join(os.homedir(), "context-lab-work"));
+	checkRunPreflightFreeBytes(effectiveLimits.minFreeBytes, workRoot, recordsRoot);
 	fs.mkdirSync(recordsRoot, { recursive: true });
 	fs.mkdirSync(workRoot, { recursive: true });
 	// Made without recursion, so a second run started in the same second is refused, not merged.
@@ -336,8 +591,9 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 	// The work folder holds every path an agent or judge is given, so its name carries no run id,
 	// which ends with the experiment's (B21); run.json records where it is.
 	const work = fs.mkdtempSync(path.join(workRoot, "run-"));
+	writeRunLock(work, "run", runId, recordsDir, startedAt);
 	const timeLimitSeconds = effectiveLimits.readerTimeLimitSeconds;
-	const budget = new InvocationBudget(effectiveLimits.maxTotalInvocations);
+	const budget = new InvocationBudget(effectiveLimits.maxTotalInvocations, undefined, makeRunStorageGuard(effectiveLimits, work, recordsDir));
 	const armIds0 = exp.experiment.factors.arms;
 	const record: RunRecord = {
 		run: runId, mode: "run", pack: loaded.pack.id, experiment: experimentId, suite: suiteId, scenarios: scenarioIds,
@@ -355,8 +611,9 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 	};
 	// The record is written at every state and as each cell ends, so a run that stops part way
 	// leaves everything it did.
-	const save = (): void => {
+	const save = (includeStorage = false): void => {
 		record.invocationSummary = budget.summary();
+		if (includeStorage) record.storageSummary = computeRunStorageSummary(effectiveLimits, work, recordsDir, budget);
 		write(path.join(recordsDir, "run.json"), record);
 	};
 	save();
@@ -621,7 +878,7 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 	enter("judged");
 	save();
 
-	const missingJudgeJobs = [...new Set(votes.filter((v) => v.value === null && /maxTotalInvocations|budget-exhausted/.test(v.reason)).map((v) => v.prompt))].sort();
+	const missingJudgeJobs = [...new Set(votes.filter((v) => v.value === null && /maxTotalInvocations|budget-exhausted|storage|minFreeBytes|maxRunWorkBytes/.test(v.reason)).map((v) => v.prompt))].sort();
 	if (missingCells.length > 0 || missingJudgeJobs.length > 0 || budget.summary().exhausted) {
 		record.missingWork = { cells: missingCells.sort(), judgeJobs: missingJudgeJobs };
 	}
@@ -629,18 +886,21 @@ export async function conductRun(packDir: string, opts: RunOptions): Promise<{ d
 	enter("tallied");
 	if (record.missingWork !== undefined) {
 		record.end = "incomplete";
-		record.endReason = `maxTotalInvocations (${effectiveLimits.maxTotalInvocations}) exhausted; missing ${record.missingWork.cells.length} cell(s) and ${record.missingWork.judgeJobs.length} judge job(s)`;
+		record.endReason = budget.isStorageExhausted()
+			? `${budget.storageExhaustedReason() ?? "run storage ceiling exhausted"}; missing ${record.missingWork.cells.length} cell(s) and ${record.missingWork.judgeJobs.length} judge job(s)`
+			: `maxTotalInvocations (${effectiveLimits.maxTotalInvocations}) exhausted; missing ${record.missingWork.cells.length} cell(s) and ${record.missingWork.judgeJobs.length} judge job(s)`;
 	} else {
 		record.end = "completed";
 	}
-	save();
+	save(true);
 	void result;
 	} catch (e) {
 		record.end = "failed";
 		record.endReason = String(e).slice(0, 1000);
-		save();
+		save(true);
 		throw e;
 	} finally {
+		clearRunActive(work);
 		for (const v of built.values()) if (v.ok && fs.existsSync(v.dir)) makeWritable(v.dir);
 	}
 	return { dir: recordsDir, record };
@@ -741,9 +1001,12 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 	checkNotOverridden("maxProbeReplyBytes", opts.maxProbeReplyBytes, baseEffective.maxProbeReplyBytes ?? undefined);
 	checkNotOverridden("maxStdoutBytes", opts.maxStdoutBytes, baseEffective.maxStdoutBytes ?? undefined);
 	checkNotOverridden("maxTotalInvocations", opts.maxTotalInvocations, baseEffective.maxTotalInvocations ?? undefined);
+	checkNotOverridden("minFreeBytes", opts.minFreeBytes, baseEffective.minFreeBytes ?? undefined);
+	checkNotOverridden("maxRunWorkBytes", opts.maxRunWorkBytes, baseEffective.maxRunWorkBytes ?? undefined);
 	const effectiveLimits = baseEffective;
 	record.effectiveLimits ??= effectiveLimits;
-	const budget = new InvocationBudget(effectiveLimits.maxTotalInvocations, record.invocationSummary);
+	checkRunPreflightFreeBytes(effectiveLimits.minFreeBytes, workRoot, resolvedRecords);
+	const budget = new InvocationBudget(effectiveLimits.maxTotalInvocations, record.invocationSummary, makeRunStorageGuard(effectiveLimits, work, resolvedRecords));
 	const maxAttemptsPerCell: 1 | 2 = effectiveLimits.maxAttemptsPerCell;
 	if (maxAttemptsPerCell === 1 && record.work !== undefined && path.resolve(record.work) !== path.resolve(work)) {
 		throw new Error(`run ${record.run} recorded working folder ${record.work}, not ${work}, under maxAttemptsPerCell: 1`);
@@ -752,9 +1015,11 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 		throw new Error(`working folder ${work} is missing under maxAttemptsPerCell: 1, so prior dispatch cannot be excluded`);
 	}
 	fs.mkdirSync(work, { recursive: true });
+	writeRunLock(work, record.mode === "calibrate" ? "calibrate" : "run", record.run, resolvedRecords, now().toISOString());
 	const built = new Map<string, BuiltVariant>();
-	const save = (): void => {
+	const save = (includeStorage = false): void => {
 		record.invocationSummary = budget.summary();
+		if (includeStorage) record.storageSummary = computeRunStorageSummary(effectiveLimits, work, resolvedRecords, budget);
 		write(recordFile, record);
 	};
 	const enter = (s: (typeof STATES)[number]): void => {
@@ -1004,7 +1269,7 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 		enter("judged");
 		save();
 
-		const missingJudgeJobs = [...new Set(votes.filter((v) => v.value === null && /maxTotalInvocations|budget-exhausted/.test(v.reason)).map((v) => v.prompt))].sort();
+		const missingJudgeJobs = [...new Set(votes.filter((v) => v.value === null && /maxTotalInvocations|budget-exhausted|storage|minFreeBytes|maxRunWorkBytes/.test(v.reason)).map((v) => v.prompt))].sort();
 		if (missingCells.length > 0 || missingJudgeJobs.length > 0 || budget.summary().exhausted) {
 			record.missingWork = { cells: missingCells.sort(), judgeJobs: missingJudgeJobs };
 		} else {
@@ -1014,18 +1279,21 @@ export async function resumeRun(packDir: string, recordsDir: string, opts: Resum
 		enter("tallied");
 		if (record.missingWork !== undefined) {
 			record.end = "incomplete";
-			record.endReason = `maxTotalInvocations (${effectiveLimits.maxTotalInvocations}) exhausted; missing ${record.missingWork.cells.length} cell(s) and ${record.missingWork.judgeJobs.length} judge job(s)`;
+			record.endReason = budget.isStorageExhausted()
+				? `${budget.storageExhaustedReason() ?? "run storage ceiling exhausted"}; missing ${record.missingWork.cells.length} cell(s) and ${record.missingWork.judgeJobs.length} judge job(s)`
+				: `maxTotalInvocations (${effectiveLimits.maxTotalInvocations}) exhausted; missing ${record.missingWork.cells.length} cell(s) and ${record.missingWork.judgeJobs.length} judge job(s)`;
 		} else {
 			record.end = "completed";
 		}
-		save();
+		save(true);
 		void result;
 	} catch (e) {
 		record.end = "failed";
 		record.endReason = String(e).slice(0, 1000);
-		save();
+		save(true);
 		throw e;
 	} finally {
+		clearRunActive(work);
 		for (const v of built.values()) if (v.ok && fs.existsSync(v.dir)) makeWritable(v.dir);
 	}
 	return { dir: resolvedRecords, record };
@@ -1106,6 +1374,8 @@ export async function calibrateRun(packDir: string, opts: CalibrateOptions): Pro
 		...(opts.maxProbeReplyBytes !== undefined ? { maxProbeReplyBytes: opts.maxProbeReplyBytes } : {}),
 		...(opts.maxStdoutBytes !== undefined ? { maxStdoutBytes: opts.maxStdoutBytes } : {}),
 		...(opts.maxTotalInvocations !== undefined ? { maxTotalInvocations: opts.maxTotalInvocations } : {}),
+		...(opts.minFreeBytes !== undefined ? { minFreeBytes: opts.minFreeBytes } : {}),
+		...(opts.maxRunWorkBytes !== undefined ? { maxRunWorkBytes: opts.maxRunWorkBytes } : {}),
 	});
 	// Condition 2 (0042, B30): if the experiment is registered in register/<experiment>.json,
 	// any CLI/API execution-limit override that disagrees with the registered declaration is refused before dispatch.
@@ -1133,11 +1403,13 @@ export async function calibrateRun(packDir: string, opts: CalibrateOptions): Pro
 	const recordsRoot = path.resolve(opts.records ?? path.resolve(loaded.dir, loaded.pack.records.path));
 	const recordsDir = opts.out !== undefined ? path.resolve(opts.out) : path.join(recordsRoot, runId);
 	const workRoot = path.resolve(opts.work ?? path.join(os.homedir(), "context-lab-work"));
+	checkRunPreflightFreeBytes(effectiveLimits.minFreeBytes, workRoot, path.dirname(recordsDir));
 	fs.mkdirSync(path.dirname(recordsDir), { recursive: true });
 	fs.mkdirSync(workRoot, { recursive: true });
 	fs.mkdirSync(recordsDir);
 	const work = fs.mkdtempSync(path.join(workRoot, "run-"));
-	const budget = new InvocationBudget(effectiveLimits.maxTotalInvocations);
+	writeRunLock(work, "calibrate", runId, recordsDir, startedAt);
+	const budget = new InvocationBudget(effectiveLimits.maxTotalInvocations, undefined, makeRunStorageGuard(effectiveLimits, work, recordsDir));
 	const fixedProvenance: FixedResponseProvenance = {
 		path: respPath,
 		sha256: responseSha256,
@@ -1186,8 +1458,9 @@ export async function calibrateRun(packDir: string, opts: CalibrateOptions): Pro
 		seed: runId,
 		end: null,
 	};
-	const save = (): void => {
+	const save = (includeStorage = false): void => {
 		record.invocationSummary = budget.summary();
+		if (includeStorage) record.storageSummary = computeRunStorageSummary(effectiveLimits, work, recordsDir, budget);
 		write(path.join(recordsDir, "run.json"), record);
 	};
 	save();
@@ -1388,7 +1661,7 @@ export async function calibrateRun(packDir: string, opts: CalibrateOptions): Pro
 		enter("judged");
 		save();
 
-		const missingJudgeJobs = [...new Set(votes.filter((v) => v.value === null && /maxTotalInvocations|budget-exhausted/.test(v.reason)).map((v) => v.prompt))].sort();
+		const missingJudgeJobs = [...new Set(votes.filter((v) => v.value === null && /maxTotalInvocations|budget-exhausted|storage|minFreeBytes|maxRunWorkBytes/.test(v.reason)).map((v) => v.prompt))].sort();
 		if (missingJudgeJobs.length > 0 || budget.summary().exhausted) {
 			record.missingWork = { cells: [], judgeJobs: missingJudgeJobs };
 		}
@@ -1396,18 +1669,21 @@ export async function calibrateRun(packDir: string, opts: CalibrateOptions): Pro
 		enter("tallied");
 		if (record.missingWork !== undefined) {
 			record.end = "incomplete";
-			record.endReason = `maxTotalInvocations (${effectiveLimits.maxTotalInvocations}) exhausted; missing ${record.missingWork.judgeJobs.length} judge job(s)`;
+			record.endReason = budget.isStorageExhausted()
+				? `${budget.storageExhaustedReason() ?? "run storage ceiling exhausted"}; missing ${record.missingWork.judgeJobs.length} judge job(s)`
+				: `maxTotalInvocations (${effectiveLimits.maxTotalInvocations}) exhausted; missing ${record.missingWork.judgeJobs.length} judge job(s)`;
 		} else {
 			record.end = "completed";
 		}
-		save();
+		save(true);
 		void result;
 	} catch (e) {
 		record.end = "failed";
 		record.endReason = String(e).slice(0, 1000);
-		save();
+		save(true);
 		throw e;
 	} finally {
+		clearRunActive(work);
 		for (const v of built.values()) if (v.ok && fs.existsSync(v.dir)) makeWritable(v.dir);
 	}
 	return { dir: recordsDir, record };

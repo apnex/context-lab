@@ -24,7 +24,7 @@ export type InvocationRole = "readerProbe" | "judgeProbe" | "reader" | "judge";
 export interface InvocationRefusalRecord {
 	role: InvocationRole;
 	work: string;
-	reason: "input-bytes" | "budget-exhausted" | "adapter-refused";
+	reason: "input-bytes" | "budget-exhausted" | "storage-exhausted" | "adapter-refused";
 	message: string;
 	controlledInputBytes?: number;
 	maxInputBytes?: number;
@@ -36,16 +36,22 @@ export interface InvocationSummary {
 	dispatchedByRole: Record<InvocationRole, number>;
 	refusedPreDispatch: InvocationRefusalRecord[];
 	exhausted: boolean;
+	storageExhausted?: boolean;
+	storageExhaustedReason?: string | null;
 }
 
-/** Shared pre-dispatch invocation counter and ceiling for a run (0040, B30). */
+/** Shared pre-dispatch invocation counter and ceiling for a run (0040, B30; 0051, B33). */
 export class InvocationBudget {
 	private nextId = 1;
 	private readonly byRole: Record<InvocationRole, number> = { readerProbe: 0, judgeProbe: 0, reader: 0, judge: 0 };
 	private readonly refusals: InvocationRefusalRecord[] = [];
 	private hitCeiling = false;
+	private hitStorageCeiling = false;
+	private storageReason: string | null = null;
+	private storageGuard: ((role: InvocationRole, work: string) => string | null) | undefined;
 
-	constructor(public readonly maxTotalInvocations: number | null = null, seed?: InvocationSummary) {
+	constructor(public readonly maxTotalInvocations: number | null = null, seed?: InvocationSummary, storageGuard?: (role: InvocationRole, work: string) => string | null) {
+		this.storageGuard = storageGuard;
 		if (seed) {
 			this.nextId = seed.dispatchedTotal + 1;
 			this.byRole.readerProbe = seed.dispatchedByRole.readerProbe ?? 0;
@@ -54,10 +60,58 @@ export class InvocationBudget {
 			this.byRole.judge = seed.dispatchedByRole.judge ?? 0;
 			this.refusals.push(...(seed.refusedPreDispatch ?? []));
 			this.hitCeiling = seed.exhausted ?? false;
+			this.hitStorageCeiling = seed.storageExhausted ?? false;
+			this.storageReason = seed.storageExhaustedReason ?? null;
+		}
+	}
+
+	setStorageGuard(guard: (role: InvocationRole, work: string) => string | null): void {
+		this.storageGuard = guard;
+	}
+
+	markStorageExhausted(role: InvocationRole, work: string, reason: string): void {
+		this.hitStorageCeiling = true;
+		this.storageReason ??= reason;
+		this.refusals.push({ role, work, reason: "storage-exhausted", message: reason });
+	}
+
+	async runMonitored<T>(role: InvocationRole, work: string, outerSignal: AbortSignal | undefined, fn: (signal: AbortSignal | undefined) => Promise<T>): Promise<T> {
+		if (!this.storageGuard) return fn(outerSignal);
+		const ac = new AbortController();
+		const onOuter = (): void => ac.abort(outerSignal?.reason);
+		if (outerSignal) {
+			if (outerSignal.aborted) ac.abort(outerSignal.reason);
+			else outerSignal.addEventListener("abort", onOuter, { once: true });
+		}
+		const timer = setInterval(() => {
+			if (ac.signal.aborted || !this.storageGuard) return;
+			const violation = this.storageGuard(role, work);
+			if (violation !== null) {
+				this.markStorageExhausted(role, work, violation);
+				ac.abort(new Error(violation));
+			}
+		}, 5);
+		try {
+			return await fn(ac.signal);
+		} finally {
+			clearInterval(timer);
+			if (outerSignal) outerSignal.removeEventListener("abort", onOuter);
 		}
 	}
 
 	reserve(role: InvocationRole, work: string): number {
+		if (this.hitStorageCeiling) {
+			const msg = this.storageReason ?? `run storage ceiling reached before dispatching ${role} at ${work}`;
+			this.refusals.push({ role, work, reason: "storage-exhausted", message: msg });
+			throw new BudgetExhausted(msg);
+		}
+		if (this.storageGuard) {
+			const storageViolation = this.storageGuard(role, work);
+			if (storageViolation !== null) {
+				this.markStorageExhausted(role, work, storageViolation);
+				throw new BudgetExhausted(storageViolation);
+			}
+		}
 		const total = this.dispatchedTotal();
 		if (this.maxTotalInvocations !== null && total >= this.maxTotalInvocations) {
 			this.hitCeiling = true;
@@ -72,6 +126,10 @@ export class InvocationBudget {
 	recordRefusal(rec: InvocationRefusalRecord): void {
 		this.refusals.push(rec);
 		if (rec.reason === "budget-exhausted") this.hitCeiling = true;
+		if (rec.reason === "storage-exhausted") {
+			this.hitStorageCeiling = true;
+			this.storageReason ??= rec.message;
+		}
 	}
 
 	dispatchedTotal(): number {
@@ -79,7 +137,15 @@ export class InvocationBudget {
 	}
 
 	isExhausted(): boolean {
-		return this.hitCeiling || (this.maxTotalInvocations !== null && this.dispatchedTotal() >= this.maxTotalInvocations);
+		return this.hitCeiling || this.hitStorageCeiling || (this.maxTotalInvocations !== null && this.dispatchedTotal() >= this.maxTotalInvocations);
+	}
+
+	isStorageExhausted(): boolean {
+		return this.hitStorageCeiling;
+	}
+
+	storageExhaustedReason(): string | null {
+		return this.storageReason;
 	}
 
 	summary(): InvocationSummary {
@@ -88,7 +154,8 @@ export class InvocationBudget {
 			dispatchedTotal: this.dispatchedTotal(),
 			dispatchedByRole: { ...this.byRole },
 			refusedPreDispatch: [...this.refusals],
-			exhausted: this.hitCeiling,
+			exhausted: this.hitCeiling || this.hitStorageCeiling,
+			...(this.hitStorageCeiling ? { storageExhausted: true, storageExhaustedReason: this.storageReason } : {}),
 		};
 	}
 }
@@ -409,7 +476,7 @@ export function opencodeAdapter(opts: OpencodeOptions = {}): Adapter {
 				fs.rmSync(b.home, { recursive: true, force: true });
 				throw err;
 			}
-			const r = await runSandboxed(b.spec);
+			const r = await (inv.budget ? inv.budget.runMonitored(inv.role ?? "reader", inv.work, inv.signal, (sig) => runSandboxed({ ...b.spec, ...(sig !== undefined ? { signal: sig } : {}) })) : runSandboxed(b.spec));
 			// opencode installs packages into its configuration folder and the home's npm cache on every
 			// invocation, and the cache copy is about 150 MB: none is part of any record, so all go as
 			// soon as the runtime ends, leaving the configuration file.
@@ -451,48 +518,54 @@ export function opencodeAdapter(opts: OpencodeOptions = {}): Adapter {
 	/** Everything invoke does before the runtime runs; live, it also copies the cache and a continued session, and reads credential values. */
 	function build(inv: Invocation, live: boolean) {
 		const { home, instr } = prepare(inv, adapter);
-		const p = provider();
-		const xdg = path.join(inv.work, "config");
-		for (const d of ["config/opencode", "data", "state", "cache"]) fs.mkdirSync(path.join(inv.work, d), { recursive: true });
-		if (live && inv.continueFrom) fs.cpSync(path.join(inv.continueFrom.work, "data"), path.join(inv.work, "data"), { recursive: true });
-		if (live && fs.existsSync(operatorCache)) fs.cpSync(operatorCache, path.join(inv.work, "cache", "opencode"), { recursive: true });
-		const onRequest = inv.tools === "off" ? [] : inv.arm.onRequest.map((o) => o.path);
-		const permission = inv.tools === "off"
-			? Object.fromEntries(["edit", "bash", "read", "webfetch", "websearch", "task", "glob", "grep", "list", "external_directory"].map((k) => [k, "deny"]))
-			: { edit: "allow", bash: "allow", read: "allow", webfetch: "deny", websearch: "deny", task: "deny", external_directory: onRequest.length ? Object.fromEntries([["*", "deny"], ...onRequest.map((o) => [`${o}/**`, "allow"])]) : "deny" };
-		const instructions = copyInstructions(inv.arm, instr);
-		const config: Record<string, unknown> = { provider: live ? p.block : redactProvider(p.block), plugin: [], permission, instructions: instructions.map((f) => f.path) };
-		if (inv.tools === "off") config["tools"] = Object.fromEntries(OPENCODE_TOOLS.map((t) => [t, false]));
-		if (inv.member.settings?.["reasoningEffort"] !== undefined) config["variant"] = inv.member.settings["reasoningEffort"];
-		fs.writeFileSync(path.join(xdg, "opencode", "opencode.json"), JSON.stringify(config, null, 2));
-		const binary = opts.binary ?? which("opencode", env);
-		const args = ["run", "--format", "json", "-m", inv.member.model, ...(inv.continueFrom ? ["-s", inv.continueFrom.session] : [])];
-		if (inv.mode === "attachment") {
-			const f = path.join(inv.work, "prompt.md");
-			fs.writeFileSync(f, inv.prompt);
-			args.push("--file", f, "--", ATTACHMENT_WRAPPER);
-		} else args.push("--", inv.prompt);
-		const secrets = live ? p.credentialVars.map((v) => env[v] ?? "").filter(Boolean) : [];
-		const runEnv: Record<string, string> = {
-			PATH: sandboxPath(), PWD: inv.workspace, HOME: home,
-			XDG_CONFIG_HOME: xdg, XDG_DATA_HOME: path.join(inv.work, "data"), XDG_STATE_HOME: path.join(inv.work, "state"), XDG_CACHE_HOME: path.join(inv.work, "cache"),
-			OPENCODE_DISABLE_CLAUDE_CODE: "1",
-			...(inv.extraEnv ?? {}),
-		};
-		const shownEnv: Record<string, string> = { ...runEnv };
-		for (const v of p.credentialVars) {
-			if (live && env[v] !== undefined) runEnv[v] = env[v]!;
-			if (env[v] !== undefined) shownEnv[v] = `<credential: ${v}>`;
+		try {
+			const binary = opts.binary ?? which("opencode", env);
+			const p = provider();
+			const xdg = path.join(inv.work, "config");
+			for (const d of ["config/opencode", "data", "state", "cache"]) fs.mkdirSync(path.join(inv.work, d), { recursive: true });
+			if (live && inv.continueFrom) fs.cpSync(path.join(inv.continueFrom.work, "data"), path.join(inv.work, "data"), { recursive: true });
+			if (live && fs.existsSync(operatorCache)) fs.cpSync(operatorCache, path.join(inv.work, "cache", "opencode"), { recursive: true });
+			const onRequest = inv.tools === "off" ? [] : inv.arm.onRequest.map((o) => o.path);
+			const permission = inv.tools === "off"
+				? Object.fromEntries(["edit", "bash", "read", "webfetch", "websearch", "task", "glob", "grep", "list", "external_directory"].map((k) => [k, "deny"]))
+				: { edit: "allow", bash: "allow", read: "allow", webfetch: "deny", websearch: "deny", task: "deny", external_directory: onRequest.length ? Object.fromEntries([["*", "deny"], ...onRequest.map((o) => [`${o}/**`, "allow"])]) : "deny" };
+			const instructions = copyInstructions(inv.arm, instr);
+			const config: Record<string, unknown> = { provider: live ? p.block : redactProvider(p.block), plugin: [], permission, instructions: instructions.map((f) => f.path) };
+			if (inv.tools === "off") config["tools"] = Object.fromEntries(OPENCODE_TOOLS.map((t) => [t, false]));
+			if (inv.member.settings?.["reasoningEffort"] !== undefined) config["variant"] = inv.member.settings["reasoningEffort"];
+			fs.writeFileSync(path.join(xdg, "opencode", "opencode.json"), JSON.stringify(config, null, 2));
+			const args = ["run", "--format", "json", "-m", inv.member.model, ...(inv.continueFrom ? ["-s", inv.continueFrom.session] : [])];
+			if (inv.mode === "attachment") {
+				const f = path.join(inv.work, "prompt.md");
+				fs.writeFileSync(f, inv.prompt);
+				args.push("--file", f, "--", ATTACHMENT_WRAPPER);
+			} else args.push("--", inv.prompt);
+			const secrets = live ? p.credentialVars.map((v) => env[v] ?? "").filter(Boolean) : [];
+			const runEnv: Record<string, string> = {
+				PATH: sandboxPath(), PWD: inv.workspace, HOME: home,
+				XDG_CONFIG_HOME: xdg, XDG_DATA_HOME: path.join(inv.work, "data"), XDG_STATE_HOME: path.join(inv.work, "state"), XDG_CACHE_HOME: path.join(inv.work, "cache"),
+				OPENCODE_DISABLE_CLAUDE_CODE: "1",
+				...(inv.extraEnv ?? {}),
+			};
+			const shownEnv: Record<string, string> = { ...runEnv };
+			for (const v of p.credentialVars) {
+				if (live && env[v] !== undefined) runEnv[v] = env[v]!;
+				if (env[v] !== undefined) shownEnv[v] = `<credential: ${v}>`;
+			}
+			// opencode caps every reply at 32,000 tokens, or at this, whichever is lower than the model's own
+			// limit.output; the cap is declared by the member in the pack, never read from the operator's shell.
+			if (inv.member.settings?.["outputTokenMax"] !== undefined) runEnv["OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX"] = shownEnv["OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX"] = String(inv.member.settings["outputTokenMax"]);
+			const instructionBytes = instructions.reduce((sum, f) => sum + fs.statSync(f.path).size, 0);
+			const controlledInputBytes = measureControlledInputBytes(inv, instructionBytes, inv.mode === "attachment" ? ATTACHMENT_WRAPPER : null);
+			const writable = [inv.work, inv.workspace, ...(inv.tools === "on" ? (inv.extraWritable ?? []) : [])];
+			const binds = inv.tools === "on" ? (inv.privateDirs ?? []) : [];
+			const spec: SandboxSpec = { install: binary, writable, readOnly: onRequest, ...(binds.length > 0 ? { binds } : {}), home, cwd: inv.workspace, command: [binary, ...args], env: runEnv, stdin: null, timeLimitSeconds: inv.timeLimitSeconds, ...(inv.maxStdoutBytes !== undefined ? { maxStdoutBytes: inv.maxStdoutBytes } : {}), ...(inv.signal !== undefined ? { signal: inv.signal } : {}) };
+			return { spec, home, xdg, secrets, shownEnv, instructions, controlledInputBytes, credentialVars: p.credentialVars, redacted: JSON.stringify(redactProvider(p.block)) !== JSON.stringify(p.block) };
+		} catch (err) {
+			fs.rmSync(path.join(inv.work, "cache"), { recursive: true, force: true });
+			fs.rmSync(home, { recursive: true, force: true });
+			throw err;
 		}
-		// opencode caps every reply at 32,000 tokens, or at this, whichever is lower than the model's own
-		// limit.output; the cap is declared by the member in the pack, never read from the operator's shell.
-		if (inv.member.settings?.["outputTokenMax"] !== undefined) runEnv["OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX"] = shownEnv["OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX"] = String(inv.member.settings["outputTokenMax"]);
-		const instructionBytes = instructions.reduce((sum, f) => sum + fs.statSync(f.path).size, 0);
-		const controlledInputBytes = measureControlledInputBytes(inv, instructionBytes, inv.mode === "attachment" ? ATTACHMENT_WRAPPER : null);
-		const writable = [inv.work, inv.workspace, ...(inv.tools === "on" ? (inv.extraWritable ?? []) : [])];
-		const binds = inv.tools === "on" ? (inv.privateDirs ?? []) : [];
-		const spec: SandboxSpec = { install: binary, writable, readOnly: onRequest, ...(binds.length > 0 ? { binds } : {}), home, cwd: inv.workspace, command: [binary, ...args], env: runEnv, stdin: null, timeLimitSeconds: inv.timeLimitSeconds, ...(inv.maxStdoutBytes !== undefined ? { maxStdoutBytes: inv.maxStdoutBytes } : {}), ...(inv.signal !== undefined ? { signal: inv.signal } : {}) };
-		return { spec, home, xdg, secrets, shownEnv, instructions, controlledInputBytes, credentialVars: p.credentialVars, redacted: JSON.stringify(redactProvider(p.block)) !== JSON.stringify(p.block) };
 	}
 	return adapter;
 }
@@ -578,7 +651,7 @@ export function codexAdapter(opts: CodexOptions = {}): Adapter {
 				fs.rmSync(b.home, { recursive: true, force: true });
 				throw err;
 			}
-			const r = await runSandboxed(b.spec);
+			const r = await (inv.budget ? inv.budget.runMonitored(inv.role ?? "reader", inv.work, inv.signal, (sig) => runSandboxed({ ...b.spec, ...(sig !== undefined ? { signal: sig } : {}) })) : runSandboxed(b.spec));
 			// The login copy and Codex's own databases are removed, so no run record carries them.
 			fs.rmSync(path.join(b.codexHome, "auth.json"), { force: true });
 			fs.rmSync(b.home, { recursive: true, force: true });
@@ -616,53 +689,60 @@ export function codexAdapter(opts: CodexOptions = {}): Adapter {
 	function build(inv: Invocation, live: boolean) {
 		const { home, instr } = prepare(inv, adapter);
 		const codexHome = path.join(inv.work, "codex-home");
-		fs.mkdirSync(codexHome);
-		if (live) {
-			fs.copyFileSync(auth, path.join(codexHome, "auth.json"));
-			fs.chmodSync(path.join(codexHome, "auth.json"), 0o600);
+		try {
+			const vendor = opts.vendor ?? codexVendor(env);
+			const binary = opts.binary ?? path.join(vendor, "bin", "codex");
+			fs.mkdirSync(codexHome);
+			if (live) {
+				fs.copyFileSync(auth, path.join(codexHome, "auth.json"));
+				fs.chmodSync(path.join(codexHome, "auth.json"), 0o600);
+			}
+			// The instructions go only into config.toml, which Codex itself must read; no second copy is made.
+			fs.rmdirSync(instr);
+			const nonCanary = inv.arm.instructions.filter((f) => path.basename(f.file) !== "context-lab-canary.md");
+			const canaryLines = [...new Set(inv.arm.instructions.filter((f) => path.basename(f.file) === "context-lab-canary.md").flatMap((f) => fs.readFileSync(f.path, "utf8").split("\n")).filter(Boolean))];
+			const devParts = nonCanary.map((f) => `<file name="${path.basename(f.file)}">\n${fs.readFileSync(f.path, "utf8")}</file>`);
+			if (canaryLines.length > 0) devParts.push(`<file name="context-lab-canary.md">\n${canaryLines.map((c) => `${c}\n`).join("")}</file>`);
+			const dev = devParts.join("\n\n");
+			if (live && inv.continueFrom) fs.cpSync(path.join(inv.continueFrom.work, "codex-home", "sessions"), path.join(codexHome, "sessions"), { recursive: true });
+			// No --ephemeral, so a session can be resumed; and the sandbox mode in configuration, since
+			// exec resume takes no --sandbox.
+			const lines = ['approval_policy = "never"', 'web_search = "disabled"', "project_doc_fallback_filenames = []", `sandbox_mode = ${toml(inv.tools === "off" ? "read-only" : "workspace-write")}`];
+			if (dev) lines.push(`developer_instructions = ${toml(dev)}`);
+			const effort = inv.member.settings?.["reasoningEffort"];
+			if (effort !== undefined) lines.push(`model_reasoning_effort = ${toml(String(effort))}`);
+			// Hosted tools reach the web outside the sandbox: a live check found Codex opening a page
+			// through its apps connector with web search disabled. Each is switched off by name.
+			lines.push("", "[features]", ...CODEX_FEATURES_OFF.map((f) => `${f} = false`));
+			// A private directory is mounted by the outer sandbox, and Codex's own workspace sandbox must also let it be written.
+			const privateTargets = inv.tools === "on" ? (inv.privateDirs ?? []).map((d) => d.target) : [];
+			if ((inv.sockets && inv.tools === "on") || privateTargets.length > 0) {
+				lines.push("", "[sandbox_workspace_write]");
+				if (inv.sockets && inv.tools === "on") lines.push("network_access = true");
+				if (privateTargets.length > 0) lines.push(`writable_roots = [${privateTargets.map((t) => toml(t)).join(", ")}]`);
+			}
+			fs.writeFileSync(path.join(codexHome, "config.toml"), lines.join("\n") + "\n");
+			const common = ["--json", "--skip-git-repo-check", "--strict-config", "--ignore-rules", "-m", inv.member.model];
+			// With tools off the agent's shell remains, so its workspace is an empty folder of its own.
+			const workspace = inv.tools === "off" ? fs.mkdtempSync(path.join(inv.work, "empty-")) : inv.workspace;
+			const args = inv.continueFrom
+				? ["exec", "resume", ...common, inv.continueFrom.session, inv.prompt]
+				: ["exec", ...common, "-C", workspace, inv.mode === "stdin" ? "-" : inv.prompt];
+			const secrets = live ? authSecrets(auth) : [];
+			const controlledInputBytes = measureControlledInputBytes(inv, Buffer.byteLength(dev, "utf8"), null);
+			const writable = inv.tools === "off" ? [inv.work] : [inv.work, inv.workspace, ...(inv.extraWritable ?? [])];
+			const binds = inv.tools === "on" ? (inv.privateDirs ?? []) : [];
+			const spec: SandboxSpec = {
+				install: vendor, writable, readOnly: inv.tools === "off" ? [] : inv.arm.onRequest.map((o) => o.path), ...(binds.length > 0 ? { binds } : {}), home, cwd: workspace,
+				command: [binary, ...args], env: { PATH: sandboxPath(), PWD: workspace, HOME: home, CODEX_HOME: codexHome, ...(inv.extraEnv ?? {}) }, stdin: inv.mode === "stdin" ? inv.prompt : null, timeLimitSeconds: inv.timeLimitSeconds, ...(inv.maxStdoutBytes !== undefined ? { maxStdoutBytes: inv.maxStdoutBytes } : {}), ...(inv.signal !== undefined ? { signal: inv.signal } : {}),
+			};
+			return { spec, home, codexHome, workspace, secrets, controlledInputBytes };
+		} catch (err) {
+			fs.rmSync(path.join(codexHome, "auth.json"), { force: true });
+			fs.rmSync(home, { recursive: true, force: true });
+			fs.rmSync(instr, { recursive: true, force: true });
+			throw err;
 		}
-		// The instructions go only into config.toml, which Codex itself must read; no second copy is made.
-		fs.rmdirSync(instr);
-		const nonCanary = inv.arm.instructions.filter((f) => path.basename(f.file) !== "context-lab-canary.md");
-		const canaryLines = [...new Set(inv.arm.instructions.filter((f) => path.basename(f.file) === "context-lab-canary.md").flatMap((f) => fs.readFileSync(f.path, "utf8").split("\n")).filter(Boolean))];
-		const devParts = nonCanary.map((f) => `<file name="${path.basename(f.file)}">\n${fs.readFileSync(f.path, "utf8")}</file>`);
-		if (canaryLines.length > 0) devParts.push(`<file name="context-lab-canary.md">\n${canaryLines.map((c) => `${c}\n`).join("")}</file>`);
-		const dev = devParts.join("\n\n");
-		if (live && inv.continueFrom) fs.cpSync(path.join(inv.continueFrom.work, "codex-home", "sessions"), path.join(codexHome, "sessions"), { recursive: true });
-		// No --ephemeral, so a session can be resumed; and the sandbox mode in configuration, since
-		// exec resume takes no --sandbox.
-		const lines = ['approval_policy = "never"', 'web_search = "disabled"', "project_doc_fallback_filenames = []", `sandbox_mode = ${toml(inv.tools === "off" ? "read-only" : "workspace-write")}`];
-		if (dev) lines.push(`developer_instructions = ${toml(dev)}`);
-		const effort = inv.member.settings?.["reasoningEffort"];
-		if (effort !== undefined) lines.push(`model_reasoning_effort = ${toml(String(effort))}`);
-		// Hosted tools reach the web outside the sandbox: a live check found Codex opening a page
-		// through its apps connector with web search disabled. Each is switched off by name.
-		lines.push("", "[features]", ...CODEX_FEATURES_OFF.map((f) => `${f} = false`));
-		// A private directory is mounted by the outer sandbox, and Codex's own workspace sandbox must also let it be written.
-		const privateTargets = inv.tools === "on" ? (inv.privateDirs ?? []).map((d) => d.target) : [];
-		if ((inv.sockets && inv.tools === "on") || privateTargets.length > 0) {
-			lines.push("", "[sandbox_workspace_write]");
-			if (inv.sockets && inv.tools === "on") lines.push("network_access = true");
-			if (privateTargets.length > 0) lines.push(`writable_roots = [${privateTargets.map((t) => toml(t)).join(", ")}]`);
-		}
-		fs.writeFileSync(path.join(codexHome, "config.toml"), lines.join("\n") + "\n");
-		const vendor = opts.vendor ?? codexVendor(env);
-		const binary = opts.binary ?? path.join(vendor, "bin", "codex");
-		const common = ["--json", "--skip-git-repo-check", "--strict-config", "--ignore-rules", "-m", inv.member.model];
-		// With tools off the agent's shell remains, so its workspace is an empty folder of its own.
-		const workspace = inv.tools === "off" ? fs.mkdtempSync(path.join(inv.work, "empty-")) : inv.workspace;
-		const args = inv.continueFrom
-			? ["exec", "resume", ...common, inv.continueFrom.session, inv.prompt]
-			: ["exec", ...common, "-C", workspace, inv.mode === "stdin" ? "-" : inv.prompt];
-		const secrets = live ? authSecrets(auth) : [];
-		const controlledInputBytes = measureControlledInputBytes(inv, Buffer.byteLength(dev, "utf8"), null);
-		const writable = inv.tools === "off" ? [inv.work] : [inv.work, inv.workspace, ...(inv.extraWritable ?? [])];
-		const binds = inv.tools === "on" ? (inv.privateDirs ?? []) : [];
-		const spec: SandboxSpec = {
-			install: vendor, writable, readOnly: inv.tools === "off" ? [] : inv.arm.onRequest.map((o) => o.path), ...(binds.length > 0 ? { binds } : {}), home, cwd: workspace,
-			command: [binary, ...args], env: { PATH: sandboxPath(), PWD: workspace, HOME: home, CODEX_HOME: codexHome, ...(inv.extraEnv ?? {}) }, stdin: inv.mode === "stdin" ? inv.prompt : null, timeLimitSeconds: inv.timeLimitSeconds, ...(inv.maxStdoutBytes !== undefined ? { maxStdoutBytes: inv.maxStdoutBytes } : {}), ...(inv.signal !== undefined ? { signal: inv.signal } : {}),
-		};
-		return { spec, home, codexHome, workspace, secrets, controlledInputBytes };
 	}
 	return adapter;
 }

@@ -47,7 +47,7 @@ export interface JudgeReplyRecord {
 	local: Record<string, string>;
 	work?: string;
 	dispatched?: boolean;
-	refusalReason?: "input-bytes" | "budget-exhausted" | "adapter-refused" | null;
+	refusalReason?: "input-bytes" | "budget-exhausted" | "storage-exhausted" | "adapter-refused" | null;
 	eligible: boolean;
 	ineligibleReason: string | null;
 	final: string;
@@ -322,8 +322,9 @@ export async function judgeAll(o: PanelOptions): Promise<Vote[]> {
 					out = await adapter.invoke(invocation);
 				} catch (err) {
 					const isBudget = err instanceof BudgetExhausted;
+					const isStorage = isBudget && Boolean(o.budget?.isStorageExhausted());
 					const isInput = err instanceof Refused && /exceeds maxInputBytes/.test(err.message);
-					entry.refusalReason = isBudget ? "budget-exhausted" : isInput ? "input-bytes" : "adapter-refused";
+					entry.refusalReason = isStorage ? "storage-exhausted" : isBudget ? "budget-exhausted" : isInput ? "input-bytes" : "adapter-refused";
 					const msg = err instanceof Error ? err.message : String(err);
 					entry.ineligibleReason = `refused before dispatch (${entry.refusalReason}): ${msg}`;
 					entry.error = msg;

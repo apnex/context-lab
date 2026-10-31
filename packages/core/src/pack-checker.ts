@@ -139,6 +139,8 @@ function experimentShape(raw: unknown, where: string, out: Defect[]): raw is Exp
 			maxProbeReplyBytes: positiveInt,
 			maxStdoutBytes: positiveInt,
 			maxTotalInvocations: positiveInt,
+			minFreeBytes: positiveInt,
+			maxRunWorkBytes: positiveInt,
 		}, out);
 	}
 	if (isObj(raw["variation"])) shape(raw["variation"], `${where}.variation`, { difference: (v: unknown) => typeof v === "number" && v > 0 && v <= 1, scope: oneOf(["pooled", "property"]) }, {}, out);

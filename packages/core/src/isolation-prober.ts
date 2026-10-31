@@ -47,7 +47,7 @@ export interface ProbeAttemptRecord {
 	work: string;
 	events: string | null;
 	dispatched: boolean;
-	refusalReason: "input-bytes" | "budget-exhausted" | "adapter-refused" | null;
+	refusalReason: "input-bytes" | "budget-exhausted" | "storage-exhausted" | "adapter-refused" | null;
 	refusalMessage: string | null;
 	answered: boolean;
 	eligible: boolean;
@@ -190,8 +190,9 @@ export async function probeArm(loaded: LoadedPack, arm: ComposedArm, member: Mem
 				o = await adapter.invoke(inv);
 			} catch (err) {
 				const isBudget = err instanceof BudgetExhausted;
+				const isStorage = isBudget && Boolean(opts.budget?.isStorageExhausted());
 				const isInput = err instanceof Refused && /exceeds maxInputBytes/.test(err.message);
-				const refusalReason = isBudget ? "budget-exhausted" : isInput ? "input-bytes" : "adapter-refused";
+				const refusalReason = isStorage ? "storage-exhausted" : isBudget ? "budget-exhausted" : isInput ? "input-bytes" : "adapter-refused";
 				const refusalMessage = err instanceof Error ? err.message : String(err);
 				history.push({
 					attempt,

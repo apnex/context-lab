@@ -17,7 +17,7 @@ export { CANARY_QUESTION, probeArm, probeRetryPrompt, type ProbeAnswer, type Pro
 export { boundUtf8, extractAnswer, splitAnswers, stripSelfExplanation, type AnswerExtraction, type ExtractionFinding, type ResponseBoundRecord } from "./answer-parser.js";
 export { promptFor, runPhase, type PhaseRun } from "./phase-driver.js";
 export { measure, type CodeScore, type MeasuredOutcome } from "./code-measurer.js";
-export { CALIBRATION_SYNTHETIC_MEMBER, METHOD, STATES, calibrateRun, conductRun, pickRun, resumeRun, tallyRun, type Attempt, type CalibrateOptions, type CellRecord, type FixedResponseProvenance, type PickRunOptions, type ResumeOptions, type RunOptions, type RunRecord, type State } from "./run-conductor.js";
+export { CALIBRATION_SYNTHETIC_MEMBER, METHOD, STATES, calibrateRun, cleanRunWorkRoot, conductRun, pickRun, reconcileInterruptedInvocationWork, resumeRun, tallyRun, type Attempt, type CalibrateOptions, type CellRecord, type FixedResponseProvenance, type PickRunOptions, type ResumeOptions, type RunLockMarker, type RunOptions, type RunRecord, type State } from "./run-conductor.js";
 export { blind, mask, shuffle, type Absent, type Blinded, type Unit } from "./blinder.js";
 export { EMPTY_ARM, assignJudges, judgeAll, judgeEligible, judgeInvocation, judgeMode, judgePrompt, planJudgeJobs, validate, type JudgeJob, type JudgeReplyRecord, type PanelOptions, type Vote } from "./judge-panel.js";
 export { resultMarkdown, tally, type GuessBucket, type PropertyGuessBucket, type PropertyResult, type Rate, type Result, type TallyInput } from "./tally.js";

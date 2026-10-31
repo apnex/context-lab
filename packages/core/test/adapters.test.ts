@@ -558,3 +558,56 @@ test("B30: opencode and codex adapters enforce pre-dispatch maxInputBytes refusa
 	assert.equal(budget.dispatchedTotal(), 3);
 	assert.equal(budget.summary().exhausted, true);
 });
+
+test("B33 (0051): opencode and codex adapters resolve binaries before copying caches/credentials and remove transient cache/home/auth on preparation failure", async () => {
+	const eOc = setup(), eCx = setup();
+	const opOc = operatorFiles(eOc.dir), opCx = operatorFiles(eCx.dir);
+	const budget = new (await import("../src/index.js")).InvocationBudget(5);
+
+	// 1. Missing opencode binary on PATH: fails before cache copy, leaves zero cache/home files and 0 dispatched invocations.
+	const badOc = opencodeAdapter({ operatorConfig: opOc.config, operatorCache: opOc.cache, env: { PATH: "" } });
+	const wOcMissing = path.join(eOc.dir, "w-oc-missing-bin");
+	await assert.rejects(
+		() => badOc.invoke(invocation(eOc, "opencode", { work: wOcMissing, budget, role: "reader" })),
+		/opencode is not on PATH/,
+	);
+	assert.equal(budget.dispatchedTotal(), 0);
+	assert.equal(fs.existsSync(path.join(wOcMissing, "cache")), false);
+	assert.equal(fs.existsSync(path.join(wOcMissing, "home")), false);
+	assert.equal(fs.existsSync(path.join(wOcMissing, "events.jsonl")), false);
+
+	// 2. Malformed opencode operatorConfig: fails in build(), catch block cleans up home and cache.
+	const brokenCfg = path.join(eOc.dir, "broken-operator.json");
+	fs.writeFileSync(brokenCfg, "{not valid json");
+	const brokenOc = opencodeAdapter({ binary: opencodeStub(path.join(eOc.dir, "stub"), {}), operatorConfig: brokenCfg, operatorCache: opOc.cache, env: { PATH: "/usr/bin:/bin" } });
+	const wOcBroken = path.join(eOc.dir, "w-oc-broken-cfg");
+	await assert.rejects(
+		() => brokenOc.invoke(invocation(eOc, "opencode", { work: wOcBroken, budget, role: "reader" })),
+	);
+	assert.equal(budget.dispatchedTotal(), 0);
+	assert.equal(fs.existsSync(path.join(wOcBroken, "cache")), false);
+	assert.equal(fs.existsSync(path.join(wOcBroken, "home")), false);
+
+	// 3. Missing codex binary on PATH: fails before auth copy, leaves zero auth.json/home files and 0 dispatched invocations.
+	const badCx = codexAdapter({ auth: opCx.auth, models: opCx.models, env: { PATH: "" } });
+	const wCxMissing = path.join(eCx.dir, "w-cx-missing-bin");
+	await assert.rejects(
+		() => badCx.invoke(invocation(eCx, "codex", { work: wCxMissing, budget, role: "reader" })),
+		/codex is not on PATH/,
+	);
+	assert.equal(budget.dispatchedTotal(), 0);
+	assert.equal(fs.existsSync(path.join(wCxMissing, "codex-home", "auth.json")), false);
+	assert.equal(fs.existsSync(path.join(wCxMissing, "home")), false);
+
+	// 4. Missing instruction file during codex build() after auth copy: catch block removes auth.json and home.
+	const cxOk = codexAdapter({ vendor: codexStub(path.join(eCx.dir, "stub"), {}), auth: opCx.auth, models: opCx.models, env: { ...process.env, CL_TEST_KEY: KEY } });
+	const wCxMissingInstr = path.join(eCx.dir, "w-cx-missing-instr");
+	const brokenArm = { ...eCx.arm, instructions: [{ variant: "v", file: "missing.md", path: path.join(eCx.dir, "no-such-file.md") }] };
+	await assert.rejects(
+		() => cxOk.invoke(invocation(eCx, "codex", { work: wCxMissingInstr, arm: brokenArm, budget, role: "reader" })),
+		/ENOENT/,
+	);
+	assert.equal(budget.dispatchedTotal(), 0);
+	assert.equal(fs.existsSync(path.join(wCxMissingInstr, "codex-home", "auth.json")), false);
+	assert.equal(fs.existsSync(path.join(wCxMissingInstr, "home")), false);
+});
