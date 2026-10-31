@@ -1111,7 +1111,7 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 	const replies: ReviewerReply[] = [];
 	let preserveWorkOnFailure = false;
 	let currentTotalRetainedBytes = 0;
-	const activeWorkingDirs = new Map<string, { ws: string; scratch: string; depCache: string }>();
+	const activeWorkingDirs = new Map<string, { ws: string; scratch: string; depCache: string; privateRoot: string }>();
 	try {
 		await pool(members, opts.parallel ?? 4, async (member) => {
 			const adapter = opts.adapters[member.runtime];
@@ -1131,6 +1131,7 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 				fs.chmodSync(source, 0o700);
 				return { source, target };
 			}) : [];
+			const privateRoot = path.join(workDir, "private", member.id);
 			fs.mkdirSync(path.join(workDir, "invocations"), { recursive: true });
 			const invDir = fs.mkdtempSync(path.join(workDir, "invocations", "r-"));
 			fs.rmdirSync(invDir);
@@ -1150,7 +1151,7 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 				timeLimitSeconds: opts.timeLimitSeconds ?? 900, work: invDir,
 			};
 			if (toolsMode === "on") {
-				activeWorkingDirs.set(member.id, { ws: ws.dir, scratch: scratchDir, depCache: depCacheDir });
+				activeWorkingDirs.set(member.id, { ws: ws.dir, scratch: scratchDir, depCache: depCacheDir, privateRoot });
 			}
 
 			// Invocation-local working-storage enforcement (0045, 0046, B31):
@@ -1183,6 +1184,7 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 					`const scratchDir = ${JSON.stringify(scratchDir)};`,
 					`const quotaDir = ${JSON.stringify(quotaDir)};`,
 					`const wsDir = ${JSON.stringify(ws.dir)};`,
+					`const privTargets = ${JSON.stringify(privateTargets)};`,
 					`const maxDep = ${maxDepBytes};`,
 					`const maxWs = ${maxWsBytes};`,
 					`const maxTotal = ${maxTotalBytes};`,
@@ -1258,15 +1260,16 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 					"    }",
 					"    estWs = nextTotal;",
 					"  }",
-					"  if (isInside(p, scratchDir)) {",
-					"    if (estScratch === null) estScratch = dirBytes(scratchDir, false);",
+					"  if (isInside(p, scratchDir) || privTargets.some((t) => isInside(p, t))) {",
+					"    const privSum = () => privTargets.reduce((s, t) => s + dirBytes(t, false), 0);",
+					"    if (estScratch === null) estScratch = dirBytes(scratchDir, false) + privSum();",
 					"    let nextTotal = Math.max(0, estScratch - ex) + addBytes;",
 					"    if (nextTotal > maxDep) {",
-					"      estScratch = dirBytes(scratchDir, false);",
+					"      estScratch = dirBytes(scratchDir, false) + privSum();",
 					"      nextTotal = Math.max(0, estScratch - ex) + addBytes;",
 					"    }",
 					"    if (nextTotal > maxDep) {",
-					"      const msg = `scratch directory (${nextTotal} bytes) exceeded maxDepCacheBytes (${maxDep} bytes)`;",
+					"      const msg = `scratch/private directory (${nextTotal} bytes) exceeded maxDepCacheBytes (${maxDep} bytes)`;",
 					"      try { origWriteSync(depViol, msg); } catch {}",
 					"      throw enospc(msg, syscall, p);",
 					"    }",
@@ -1341,9 +1344,9 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 						activeDepViolation ??= `dependency cache for ${member.id} (${dBytes} bytes) exceeded maxDepCacheBytes (${maxDepBytes} bytes) during execution`;
 						abortController.abort();
 					}
-					const sBytes = Math.max(0, directoryAllocatedBytes(scratchDir) - directoryAllocatedBytes(quotaDir));
+					const sBytes = Math.max(0, directoryAllocatedBytes(scratchDir) - directoryAllocatedBytes(quotaDir)) + directoryAllocatedBytes(privateRoot);
 					if (sBytes > maxDepBytes) {
-						activeDepViolation ??= `scratch directory for ${member.id} (${sBytes} bytes) exceeded maxDepCacheBytes (${maxDepBytes} bytes) during execution`;
+						activeDepViolation ??= `scratch/private directory for ${member.id} (${sBytes} bytes) exceeded maxDepCacheBytes (${maxDepBytes} bytes) during execution`;
 						abortController.abort();
 					}
 					const wBytes = directoryAllocatedBytes(ws.dir, { ignoreGit: true });
@@ -1351,7 +1354,7 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 						activeWsViolation ??= `retained workspace for ${member.id} (${wBytes} bytes) exceeds maxWorkspaceBytes (${maxWsBytes} bytes)`;
 						abortController.abort();
 					}
-					// Aggregate owned footprint across all active and preserved reviewers (ws + depCache + scratch) + retained bytes.
+					// Aggregate owned footprint across all active and preserved reviewers (ws + depCache + scratch + private) + retained bytes.
 					let activeWsSum = currentTotalRetainedBytes;
 					let ownedFootprintSum = currentTotalRetainedBytes;
 					for (const dirs of activeWorkingDirs.values()) {
@@ -1359,8 +1362,9 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 						const mDep = directoryAllocatedBytes(dirs.depCache);
 						const mQ = path.join(dirs.scratch, ".context-lab-quota");
 						const mScr = Math.max(0, directoryAllocatedBytes(dirs.scratch) - directoryAllocatedBytes(mQ));
+						const mPriv = directoryAllocatedBytes(dirs.privateRoot);
 						activeWsSum += mWs;
-						ownedFootprintSum += mWs + mDep + mScr;
+						ownedFootprintSum += mWs + mDep + mScr + mPriv;
 					}
 					if (activeWsSum > maxTotalBytes) {
 						activeWsViolation ??= `aggregate active workspaces (${activeWsSum} bytes) exceed maxTotalRetainedBytes (${maxTotalBytes} bytes)`;
@@ -1449,6 +1453,7 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 						// `currentTotalRetainedBytes` until `workDir` is physically retired; 0048, B31).
 						fs.rmSync(scratchDir, { recursive: true, force: true });
 						fs.rmSync(depCacheDir, { recursive: true, force: true });
+						fs.rmSync(privateRoot, { recursive: true, force: true });
 					} else {
 						preserveWorkOnFailure = true;
 					}

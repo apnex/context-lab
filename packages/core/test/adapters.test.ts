@@ -447,6 +447,8 @@ test("runtime-sandbox: a private directory is mounted read-write at its target i
 	const mounts = sandboxMounts({ install: bin, writable: [e.work], readOnly: [e.onRequest], binds: [{ source, target }], home: path.join(e.work, "home"), cwd: e.workspace, command: [bin], env: {}, stdin: null, timeLimitSeconds: 1 });
 	const at = mounts.indexOf("--bind", mounts.lastIndexOf("--ro-bind"));
 	assert.deepEqual(mounts.slice(at, at + 3), ["--bind", source, target]);
+	if (fs.existsSync("/etc/passwd")) assert.ok(mounts.includes("/etc/passwd"), "sandboxMounts binds /etc/passwd read-only by default");
+	if (fs.existsSync("/etc/group")) assert.ok(mounts.includes("/etc/group"), "sandboxMounts binds /etc/group read-only by default");
 	assert.match(a.refuse(invocation(e, "opencode", { tools: "off", privateDirs: [{ source, target }] })) ?? "", /private directories cannot be mounted when tools are off/);
 
 	// Codex's own workspace sandbox names the target a writable root, beside network access when sockets are on.

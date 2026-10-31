@@ -11,7 +11,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import type { Line } from "./outcome.js";
 
-const ETC = ["/etc/resolv.conf", "/etc/hosts", "/etc/nsswitch.conf", "/etc/pki", "/etc/ssl", "/etc/ca-certificates"];
+const ETC = ["/etc/resolv.conf", "/etc/hosts", "/etc/nsswitch.conf", "/etc/passwd", "/etc/group", "/etc/pki", "/etc/ssl", "/etc/ca-certificates"];
 const nodeBinary = (): string => fs.realpathSync(process.execPath);
 
 export interface SandboxSpec {

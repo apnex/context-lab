@@ -793,3 +793,17 @@ Three additions close `B33` across `packages/core/src/adapters.ts`, `pack-schema
 
 **Source.**\
 `[V, director selection 2026-10-31 ("Continue if you have next steps"); docs/BACKLOG.md B33; incoming/agp-admission-experiment-storage-request.md]`
+
+### 0052
+
+**Ruling.**\
+Three changes ratify and complete zorg's two local review-panel commits (`f54900e` and `ab7e67b`) and close `B34` (`packages/core/src/review-panel.ts`, `packages/core/src/runtime-sandbox.ts`, `packages/core/src/adapters.ts`, `packages/core/src/cli.ts`, `docs/OPERATIONS.md`):
+- **Mid-walk `ENOENT` tolerance and incremental preload quota estimates (`f54900e`):** `directoryAllocatedBytes` and the preload's `dirBytes` skip entries removed between `readdirSync` and `lstatSync`; `scanWorkingDirs` guards against overlapping timer scans; and `checkQuota` caches running byte estimates per directory and re-walks on disk only when a write would cross its cap.
+- **Per-reviewer owner-only private directories at fixed sandbox paths (`ab7e67b` + quota/cleanup wiring):** `runReview` (`--private-dir <path,...>`, `privateDirs`, requiring `--tools on` and distinct absolute normalized non-root paths) creates `<work>/private/<member>/<n>` with mode `0700` for each target, mounts it read-write after all other mounts via `SandboxSpec.binds`, lists the targets in Codex's `[sandbox_workspace_write] writable_roots`, includes `privateRoot` in `activeWorkingDirs` and preload `checkQuota` so writes inside private directories are bounded by `maxDepCacheBytes` and `maxTotalWorkingBytes`, and deletes `privateRoot` alongside `scratchDir` and `depCacheDir` after verified archival.
+- **Default read-only `/etc/passwd` and `/etc/group` mounts in `sandboxMounts` (`packages/core/src/runtime-sandbox.ts`):** Adds `/etc/passwd` and `/etc/group` to `ETC` so `os.userInfo()` and tools resolving user/group database entries succeed inside the sandbox without requiring `--ro /etc/passwd,/etc/group`.
+
+**Evidence.**\
+`packages/core/test/adapters.test.ts` verifies `0700` mode, write landing in `source`, mount ordering, default `/etc/passwd` and `/etc/group` mounts, tools-off refusal, and Codex `writable_roots`; `packages/core/test/review-panel.test.ts` verifies per-member isolated private directories and validation errors.
+
+**Source.**\
+`[V, director selection 2026-10-31 ("continue"); docs/BACKLOG.md B34; incoming/zorg-review-route-changes-request.md]`
