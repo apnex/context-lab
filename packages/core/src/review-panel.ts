@@ -202,10 +202,21 @@ export function directoryAllocatedBytes(dir: string, opts: { ignoreGit?: boolean
 	if (!fs.existsSync(dir)) return 0;
 	let total = 0;
 	const walk = (cur: string): void => {
-		for (const ent of fs.readdirSync(cur, { withFileTypes: true })) {
+		let entries: fs.Dirent[];
+		try {
+			entries = fs.readdirSync(cur, { withFileTypes: true });
+		} catch {
+			return;
+		}
+		for (const ent of entries) {
 			if (opts.ignoreGit && ent.name === ".git") continue;
 			const p = path.join(cur, ent.name);
-			const st = fs.lstatSync(p);
+			let st: fs.Stats;
+			try {
+				st = fs.lstatSync(p);
+			} catch {
+				continue;
+			}
 			if (st.isSymbolicLink()) continue;
 			if (st.isDirectory()) walk(p);
 			else if (st.isFile()) total += st.size;
@@ -1174,9 +1185,10 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 					"const dirBytes = (d, skipGit) => {",
 					"  if (!fs.existsSync(d)) return 0;",
 					"  let t = 0;",
-					"  const w = (c) => { for (const e of fs.readdirSync(c, { withFileTypes: true })) { if (skipGit && e.name === '.git') continue; if (e.name === '.context-lab-quota') continue; const p = path.join(c, e.name); let st; try { st = fs.lstatSync(p); } catch { continue; } if (st.isSymbolicLink()) continue; if (st.isDirectory()) w(p); else if (st.isFile()) t += st.size; } };",
+					"  const w = (c) => { let entries; try { entries = fs.readdirSync(c, { withFileTypes: true }); } catch { return; } for (const e of entries) { if (skipGit && e.name === '.git') continue; if (e.name === '.context-lab-quota') continue; const p = path.join(c, e.name); let st; try { st = fs.lstatSync(p); } catch { continue; } if (st.isSymbolicLink()) continue; if (st.isDirectory()) w(p); else if (st.isFile()) t += st.size; } };",
 					"  w(d); return t;",
 					"};",
+					"let estDep = null, estWs = null, estScratch = null;",
 					"const toBuf = (d, o) => typeof d === 'string' ? Buffer.from(d, typeof o === 'string' ? o : o?.encoding ?? 'utf8') : Buffer.isBuffer(d) ? d : ArrayBuffer.isView(d) ? Buffer.from(d.buffer, d.byteOffset, d.byteLength) : Buffer.from(String(d));",
 					"const enospc = (msg, syscall, dest) => Object.assign(new Error(`ENOSPC: no space left on device (${msg}), ${syscall} '${dest}'`), { code: 'ENOSPC', errno: -28, syscall, path: dest });",
 					"const checkQuota = (file, addBytes, isOverwrite, syscall) => {",
@@ -1184,17 +1196,30 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 					"  if (!raw) return;",
 					"  const p = path.resolve(raw);",
 					"  if (isInside(p, quotaDir)) return;",
-					"  const ex = isOverwrite && fs.existsSync(p) && fs.lstatSync(p).isFile() ? fs.lstatSync(p).size : 0;",
+					"  let ex = 0;",
+					"  if (isOverwrite) { try { const st = fs.lstatSync(p); if (st.isFile()) ex = st.size; } catch {} }",
 					"  if (isInside(p, depDir)) {",
-					"    const nextTotal = Math.max(0, dirBytes(depDir, false) - ex) + addBytes;",
+					"    if (estDep === null) estDep = dirBytes(depDir, false);",
+					"    let nextTotal = Math.max(0, estDep - ex) + addBytes;",
+					"    if (nextTotal > maxDep) {",
+					"      estDep = dirBytes(depDir, false);",
+					"      nextTotal = Math.max(0, estDep - ex) + addBytes;",
+					"    }",
 					"    if (nextTotal > maxDep) {",
 					"      const msg = `dependency cache (${nextTotal} bytes) exceeded maxDepCacheBytes (${maxDep} bytes)`;",
 					"      try { origWriteSync(depViol, msg); } catch {}",
 					"      throw enospc(msg, syscall, p);",
 					"    }",
+					"    estDep = nextTotal;",
 					"  }",
 					"  if (isInside(p, wsDir) && !isInside(p, path.join(wsDir, '.git'))) {",
-					"    const nextTotal = Math.max(0, dirBytes(wsDir, true) - ex) + addBytes;",
+					"    if (estWs === null) estWs = dirBytes(wsDir, true);",
+					"    let nextTotal = Math.max(0, estWs - ex) + addBytes;",
+					"    const cap = Math.min(maxWs, maxTotal);",
+					"    if (nextTotal > cap) {",
+					"      estWs = dirBytes(wsDir, true);",
+					"      nextTotal = Math.max(0, estWs - ex) + addBytes;",
+					"    }",
 					"    if (nextTotal > maxWs) {",
 					"      const msg = `retained workspace (${nextTotal} bytes) exceeds maxWorkspaceBytes (${maxWs} bytes)`;",
 					"      try { origWriteSync(wsViol, msg); } catch {}",
@@ -1205,14 +1230,21 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 					"      try { origWriteSync(wsViol, msg); } catch {}",
 					"      throw enospc(msg, syscall, p);",
 					"    }",
+					"    estWs = nextTotal;",
 					"  }",
 					"  if (isInside(p, scratchDir)) {",
-					"    const nextTotal = Math.max(0, dirBytes(scratchDir, false) - ex) + addBytes;",
+					"    if (estScratch === null) estScratch = dirBytes(scratchDir, false);",
+					"    let nextTotal = Math.max(0, estScratch - ex) + addBytes;",
+					"    if (nextTotal > maxDep) {",
+					"      estScratch = dirBytes(scratchDir, false);",
+					"      nextTotal = Math.max(0, estScratch - ex) + addBytes;",
+					"    }",
 					"    if (nextTotal > maxDep) {",
 					"      const msg = `scratch directory (${nextTotal} bytes) exceeded maxDepCacheBytes (${maxDep} bytes)`;",
 					"      try { origWriteSync(depViol, msg); } catch {}",
 					"      throw enospc(msg, syscall, p);",
 					"    }",
+					"    estScratch = nextTotal;",
 					"  }",
 					"};",
 					"const fdWriteGrowth = (fd, writeLen, explicitPos) => {",
@@ -1273,51 +1305,59 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 			// `activeWorkingDirs` retains every member's directories until verified archival retires them, so failed/preserved
 			// originals, caches, and scratch continue to count toward the owned footprint (0047, B31).
 			let monitorTimer: ReturnType<typeof setInterval> | null = null;
+			let scanning = false;
 			const scanWorkingDirs = (): void => {
-				if (toolsMode !== "on") return;
-				const dBytes = directoryAllocatedBytes(depCacheDir);
-				if (dBytes > maxDepBytes) {
-					activeDepViolation ??= `dependency cache for ${member.id} (${dBytes} bytes) exceeded maxDepCacheBytes (${maxDepBytes} bytes) during execution`;
-					abortController.abort();
-				}
-				const sBytes = Math.max(0, directoryAllocatedBytes(scratchDir) - directoryAllocatedBytes(quotaDir));
-				if (sBytes > maxDepBytes) {
-					activeDepViolation ??= `scratch directory for ${member.id} (${sBytes} bytes) exceeded maxDepCacheBytes (${maxDepBytes} bytes) during execution`;
-					abortController.abort();
-				}
-				const wBytes = directoryAllocatedBytes(ws.dir, { ignoreGit: true });
-				if (wBytes > maxWsBytes) {
-					activeWsViolation ??= `retained workspace for ${member.id} (${wBytes} bytes) exceeds maxWorkspaceBytes (${maxWsBytes} bytes)`;
-					abortController.abort();
-				}
-				// Aggregate owned footprint across all active and preserved reviewers (ws + depCache + scratch) + retained bytes.
-				let activeWsSum = currentTotalRetainedBytes;
-				let ownedFootprintSum = currentTotalRetainedBytes;
-				for (const dirs of activeWorkingDirs.values()) {
-					const mWs = directoryAllocatedBytes(dirs.ws, { ignoreGit: true });
-					const mDep = directoryAllocatedBytes(dirs.depCache);
-					const mQ = path.join(dirs.scratch, ".context-lab-quota");
-					const mScr = Math.max(0, directoryAllocatedBytes(dirs.scratch) - directoryAllocatedBytes(mQ));
-					activeWsSum += mWs;
-					ownedFootprintSum += mWs + mDep + mScr;
-				}
-				if (activeWsSum > maxTotalBytes) {
-					activeWsViolation ??= `aggregate active workspaces (${activeWsSum} bytes) exceed maxTotalRetainedBytes (${maxTotalBytes} bytes)`;
-					abortController.abort();
-				}
-				if (ownedFootprintSum > maxTotalWorkBytes) {
-					activeDepViolation ??= `aggregate owned working footprint (${ownedFootprintSum} bytes) exceeds maxTotalWorkingBytes (${maxTotalWorkBytes} bytes)`;
-					abortController.abort();
-				}
-				if (validatedLimits.minFreeBytes > 0) {
-					const avail = availableBytesAt(workDir);
-					if (avail.bytes === null) {
-						activeDepViolation ??= `available disk space could not be measured (${avail.error ?? "unknown"}) under minFreeBytes (${validatedLimits.minFreeBytes} bytes) during execution`;
-						abortController.abort();
-					} else if (avail.bytes < validatedLimits.minFreeBytes) {
-						activeDepViolation ??= `available disk space (${avail.bytes} bytes) fell below minFreeBytes (${validatedLimits.minFreeBytes} bytes) during execution`;
+				if (toolsMode !== "on" || scanning) return;
+				scanning = true;
+				try {
+					const dBytes = directoryAllocatedBytes(depCacheDir);
+					if (dBytes > maxDepBytes) {
+						activeDepViolation ??= `dependency cache for ${member.id} (${dBytes} bytes) exceeded maxDepCacheBytes (${maxDepBytes} bytes) during execution`;
 						abortController.abort();
 					}
+					const sBytes = Math.max(0, directoryAllocatedBytes(scratchDir) - directoryAllocatedBytes(quotaDir));
+					if (sBytes > maxDepBytes) {
+						activeDepViolation ??= `scratch directory for ${member.id} (${sBytes} bytes) exceeded maxDepCacheBytes (${maxDepBytes} bytes) during execution`;
+						abortController.abort();
+					}
+					const wBytes = directoryAllocatedBytes(ws.dir, { ignoreGit: true });
+					if (wBytes > maxWsBytes) {
+						activeWsViolation ??= `retained workspace for ${member.id} (${wBytes} bytes) exceeds maxWorkspaceBytes (${maxWsBytes} bytes)`;
+						abortController.abort();
+					}
+					// Aggregate owned footprint across all active and preserved reviewers (ws + depCache + scratch) + retained bytes.
+					let activeWsSum = currentTotalRetainedBytes;
+					let ownedFootprintSum = currentTotalRetainedBytes;
+					for (const dirs of activeWorkingDirs.values()) {
+						const mWs = directoryAllocatedBytes(dirs.ws, { ignoreGit: true });
+						const mDep = directoryAllocatedBytes(dirs.depCache);
+						const mQ = path.join(dirs.scratch, ".context-lab-quota");
+						const mScr = Math.max(0, directoryAllocatedBytes(dirs.scratch) - directoryAllocatedBytes(mQ));
+						activeWsSum += mWs;
+						ownedFootprintSum += mWs + mDep + mScr;
+					}
+					if (activeWsSum > maxTotalBytes) {
+						activeWsViolation ??= `aggregate active workspaces (${activeWsSum} bytes) exceed maxTotalRetainedBytes (${maxTotalBytes} bytes)`;
+						abortController.abort();
+					}
+					if (ownedFootprintSum > maxTotalWorkBytes) {
+						activeDepViolation ??= `aggregate owned working footprint (${ownedFootprintSum} bytes) exceeds maxTotalWorkingBytes (${maxTotalWorkBytes} bytes)`;
+						abortController.abort();
+					}
+					if (validatedLimits.minFreeBytes > 0) {
+						const avail = availableBytesAt(workDir);
+						if (avail.bytes === null) {
+							activeDepViolation ??= `available disk space could not be measured (${avail.error ?? "unknown"}) under minFreeBytes (${validatedLimits.minFreeBytes} bytes) during execution`;
+							abortController.abort();
+						} else if (avail.bytes < validatedLimits.minFreeBytes) {
+							activeDepViolation ??= `available disk space (${avail.bytes} bytes) fell below minFreeBytes (${validatedLimits.minFreeBytes} bytes) during execution`;
+							abortController.abort();
+						}
+					}
+				} catch {
+					// Ignore transient TOCTOU error during concurrent child file deletion.
+				} finally {
+					scanning = false;
 				}
 			};
 			if (toolsMode === "on") {
