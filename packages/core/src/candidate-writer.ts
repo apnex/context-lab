@@ -27,12 +27,22 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { isEntryFile, type ArmDelivery } from "./measures.js";
 import { checkPack } from "./pack-checker.js";
 import { propertiesOf, type FindingRules, type LoadedPack, type Property, type Scenario } from "./pack-schema.js";
 import type { RunRecord } from "./run-conductor.js";
 import type { Result } from "./tally.js";
 
-export type CandidateRuleId = "all-guided-fail" | "wrong-firing" | "knows-not-acts" | "chain-threshold" | "routing-miss" | "hydrated-not-acted" | "judge-outlier";
+export type CandidateRuleId =
+	| "all-guided-fail"
+	| "wrong-firing"
+	| "knows-not-acts"
+	| "chain-threshold"
+	| "routing-miss"
+	| "hydrated-not-acted"
+	| "judge-outlier"
+	| "unmoved-scenario"
+	| "instruction-member-unmoved";
 
 export interface CandidateFinding {
 	rule: CandidateRuleId;
@@ -55,6 +65,7 @@ export interface EvaluateCandidatesOptions {
 	result: Result;
 	scenarios: Map<string, Scenario>;
 	guidedArms: string[];
+	deliveries?: Record<string, ArmDelivery[]>;
 	rules?: FindingRules;
 	now?: () => Date;
 }
@@ -67,6 +78,7 @@ export function evaluateCandidates(o: EvaluateCandidatesOptions): CandidatesPack
 		routingMissThreshold: o.rules?.routingMissThreshold ?? 0.5,
 		hydratedNotActedThreshold: o.rules?.hydratedNotActedThreshold ?? 0.5,
 		judgeOutlierThreshold: o.rules?.judgeOutlierThreshold ?? 0.5,
+		unmovedScenarioThreshold: o.rules?.unmovedScenarioThreshold ?? 0.1,
 	};
 	const guidedArms = o.guidedArms.filter((a) => o.result.arms.includes(a));
 	const propMap = new Map<string, Property>();
@@ -223,6 +235,99 @@ export function evaluateCandidates(o: EvaluateCandidatesOptions): CandidatesPack
 		});
 	}
 
+	// Rule 8 (unmoved-scenario, 0050, B25): a scenario with at least one adherence property, at least one
+	// unguided arm and at least one guided arm, where every adherence property has >= 2 counted cells per arm
+	// and the scenario's best guided arm mean (normalised across its adherence properties) exceeds its best
+	// unguided arm mean by less than unmovedScenarioThreshold (0.1 by default), while the unguided mean is > 0
+	// (so all-guided-fail at 0 does not double-fire).
+	const unguidedArms = o.result.arms.filter((a) => !guidedArms.includes(a));
+	if (guidedArms.length > 0 && unguidedArms.length > 0) {
+		const scenariosSeen = [...new Set(o.result.properties.map((p) => p.scenario))];
+		for (const sid of scenariosSeen) {
+			const adhProps = o.result.properties.filter((pr) => {
+				if (pr.scenario !== sid) return false;
+				const def = propMap.get(`${sid}/${pr.property}`);
+				return def?.type === "adherence";
+			});
+			if (adhProps.length === 0) continue;
+			const armMean = (arm: string): { mean: number; minOf: number } | null => {
+				const norms: number[] = [];
+				let minOf = Number.POSITIVE_INFINITY;
+				for (const pr of adhProps) {
+					const def = propMap.get(`${sid}/${pr.property}`)!;
+					const r = pr.byArm[arm];
+					if (!r || r.of < 2 || r.mean === null) return null;
+					norms.push((r.mean - def.scale[0]) / (def.scale[1] - def.scale[0]));
+					if (r.of < minOf) minOf = r.of;
+				}
+				return { mean: norms.reduce((a, b) => a + b, 0) / norms.length, minOf };
+			};
+			const unguidedStats = unguidedArms.map((a) => ({ arm: a, stat: armMean(a) })).filter((x): x is { arm: string; stat: { mean: number; minOf: number } } => x.stat !== null);
+			const guidedStats = guidedArms.map((a) => ({ arm: a, stat: armMean(a) })).filter((x): x is { arm: string; stat: { mean: number; minOf: number } } => x.stat !== null);
+			if (unguidedStats.length === 0 || guidedStats.length === 0) continue;
+			const bestUnguided = unguidedStats.reduce((best, cur) => (cur.stat.mean > best.stat.mean ? cur : best));
+			const bestGuided = guidedStats.reduce((best, cur) => (cur.stat.mean > best.stat.mean ? cur : best));
+			if (bestGuided.stat.mean === 0 && bestUnguided.stat.mean === 0) continue;
+			const lift = bestGuided.stat.mean - bestUnguided.stat.mean;
+			if (lift < rules.unmovedScenarioThreshold) {
+				const ex = exercised(sid);
+				const gList = ex ? [...ex] : [...new Set(adhProps.flatMap((pr) => propMap.get(`${sid}/${pr.property}`)?.guidance ?? []))];
+				const trigger = `scenario ${sid} or guidance ${gList.join(", ") || sid} is revised so the task discriminates guided from unguided`;
+				candidates.push({
+					rule: "unmoved-scenario",
+					target: sid,
+					summary: `Scenario ${sid} scored ${bestGuided.stat.mean.toFixed(2)} in its best guided arm (${bestGuided.arm}) against ${bestUnguided.stat.mean.toFixed(2)} unguided (${bestUnguided.arm}), lift ${lift.toFixed(2)} < ${rules.unmovedScenarioThreshold}.`,
+					evidence: {
+						scenario: sid,
+						unguided: Object.fromEntries(unguidedStats.map((x) => [x.arm, Number(x.stat.mean.toFixed(4))])),
+						guided: Object.fromEntries(guidedStats.map((x) => [x.arm, Number(x.stat.mean.toFixed(4))])),
+						lift: Number(lift.toFixed(4)),
+					},
+					revivalTrigger: trigger,
+					draftBacklogRow: `| **B-TBD** | S3 | A8 signal | **Scenario \`${sid}\` is not moved by guidance (best guided \`${bestGuided.arm}\` ${bestGuided.stat.mean.toFixed(2)} vs unguided \`${bestUnguided.arm}\` ${bestUnguided.stat.mean.toFixed(2)}, lift ${lift.toFixed(2)}).** | \`[M, run ${o.result.run} RESULT.json]\` | open - TRIGGER: ${trigger} |`,
+				});
+			}
+		}
+	}
+
+	// Rule 9 (instruction-member-unmoved, 0050, B28): in a guided arm whose deliveries include an adherence
+	// property's guidance entry as an instruction or folder-file, a member with >= 2 counted cells on that
+	// property scores 0 (normalised pass rate === 0), while at least one other member in that arm scores > 0.
+	if (o.deliveries !== undefined && guidedArms.length > 0) {
+		for (const pr of o.result.properties) {
+			const def = propMap.get(`${pr.scenario}/${pr.property}`);
+			if (!def || def.type !== "adherence") continue;
+			const ex = exercised(pr.scenario);
+			const gIds = (def.guidance ?? []).filter((g) => ex === null || ex.has(g));
+			if (gIds.length === 0) continue;
+			const [low, high] = def.scale;
+			const span = high - low;
+			for (const arm of guidedArms) {
+				const armDeliv = o.deliveries[arm] ?? [];
+				const deliveredIds = gIds.filter((gid) => armDeliv.some((d) => (d.as === "instruction" || d.as === "folder-file") && isEntryFile(d.file, gid)));
+				if (deliveredIds.length === 0) continue;
+				const byMember = pr.byArmMember?.[arm] ?? {};
+				const memberRates = Object.entries(byMember)
+					.filter(([, r]) => r.of >= 2 && r.mean !== null)
+					.map(([m, r]) => ({ member: m, norm: (r.mean! - low) / span, of: r.of, mean: r.mean! }));
+				if (!memberRates.some((m) => m.norm > 0)) continue;
+				for (const mr of memberRates) {
+					if (mr.norm > 0) continue;
+					const target = `${pr.scenario}/${pr.property}@${arm}:${mr.member}`;
+					const trigger = `${deliveredIds.join(", ")} is revised for member ${mr.member}`;
+					candidates.push({
+						rule: "instruction-member-unmoved",
+						target,
+						summary: `Member ${mr.member} scored 0 across ${mr.of} cells on ${pr.scenario}/${pr.property} in arm ${arm}, despite receiving ${deliveredIds.join(", ")} as an instruction/folder-file.`,
+						evidence: { scenario: pr.scenario, property: pr.property, arm, member: mr.member, guidance: deliveredIds, of: mr.of, mean: mr.mean },
+						revivalTrigger: trigger,
+						draftBacklogRow: `| **B-TBD** | S4 | A14 signal | **Member \`${mr.member}\` met \`${pr.scenario}/${pr.property}\` in 0 of ${mr.of} cells in \`${arm}\`, despite receiving \`${deliveredIds.join(", ")}\` as an instruction.** | \`[M, run ${o.result.run} RESULT.json]\` | open - TRIGGER: ${trigger} |`,
+					});
+				}
+			}
+		}
+	}
+
 	return {
 		run: o.result.run,
 		createdAt: now().toISOString(),
@@ -263,12 +368,15 @@ export function writeCandidates(
 	scenarios: Map<string, Scenario>,
 	recordsDir: string,
 	now?: () => Date,
+	deliveries?: Record<string, ArmDelivery[]>,
 ): CandidatesPacket {
 	const guidedArms = loaded.pack.arms.filter((a) => a.deliver.length > 0 && result.arms.includes(a.id)).map((a) => a.id);
+	const resolvedDeliveries = deliveries ?? Object.fromEntries(loaded.pack.arms.map((a) => [a.id, a.deliver.map((d) => ({ file: d.file, as: d.as }))]));
 	const packet = evaluateCandidates({
 		result,
 		scenarios,
 		guidedArms,
+		deliveries: resolvedDeliveries,
 		...(loaded.pack.findingRules !== undefined ? { rules: loaded.pack.findingRules } : {}),
 		...(now !== undefined ? { now } : {}),
 	});
@@ -289,7 +397,7 @@ export async function writeRunCandidates(packDir: string, recordsDir: string, no
 	const record = JSON.parse(fs.readFileSync(path.join(resolved, "run.json"), "utf8")) as RunRecord;
 	const result = JSON.parse(fs.readFileSync(path.join(resolved, "RESULT.json"), "utf8")) as Result;
 	const scenarios = new Map(record.snapshot.scenarios.map((s) => [s.id, s]));
-	const packet = writeCandidates(checked.loaded, result, scenarios, resolved, now);
+	const packet = writeCandidates(checked.loaded, result, scenarios, resolved, now, record.snapshot.deliveries);
 	if (!record.states.some((s) => s.state === "candidates-written")) {
 		record.states.push({ state: "candidates-written", at: now().toISOString() });
 		fs.writeFileSync(path.join(resolved, "run.json"), JSON.stringify(record, null, 2) + "\n");

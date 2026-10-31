@@ -342,7 +342,10 @@ export function hydrationProfile(
 		if (!c.valid) continue;
 		const s = scenarios.get(c.scenario);
 		if (!s) continue;
-		const ids = [...new Set(propertiesOf(s).flatMap((p) => p.guidance ?? []))].sort();
+		const propIds = [...new Set(propertiesOf(s).flatMap((p) => p.guidance ?? []))].sort();
+		const ids = propIds.length > 0
+			? propIds
+			: [...new Set((s.tags ?? []).filter((t) => t.startsWith("exercises:")).map((t) => t.slice("exercises:".length)).filter(Boolean))].sort();
 		if (ids.length === 0) continue;
 		const last = c.attempts[c.attempts.length - 1];
 		const tools = [

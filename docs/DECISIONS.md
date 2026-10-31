@@ -765,3 +765,17 @@ All 3 tests in AGP's `docs/reviews/npm-cache-storage-headroom.test.mjs` (`3/3` p
 
 **Source.**\
 `[V, director selection 2026-10-31 ("resume"); docs/BACKLOG.md B31; incoming/agp-workspace-retention-defect-2026-10-30.md lines 304-338]`
+
+### 0050
+
+**Ruling.**\
+Three diagnostic additions close `B25`, `B28`, and `B29` (`packages/core/src/measures.ts`, `packages/core/src/candidate-writer.ts`, `packages/core/src/pack-schema.ts`, `packages/core/src/pack-checker.ts`):
+- **Scenario `exercises:<id>` fallback in `hydrationProfile` (`B29`):** When a scenario's properties declare no `guidance` entries, `hydrationProfile` reads the scenario's `exercises:<id>` tags so comprehension scenarios that declare their target entries on the scenario emit hydration rows in `RESULT.json` and `RESULT.md`.
+- **Candidate rule 8 (`unmoved-scenario`, `B25`):** `evaluateCandidates` flags any scenario whose best guided arm's normalised adherence mean exceeds its best unguided arm's normalised mean by less than `unmovedScenarioThreshold` (`0.1` by default, where each adherence property has at least 2 counted outcomes per arm and the scenario is not all-zero).
+- **Candidate rule 9 (`instruction-member-unmoved`, `B28`):** `evaluateCandidates` (given `deliveries`, which `writeRunCandidates` passes from `run.json.snapshot.deliveries`) flags any member with at least 2 counted outcomes that scores `0` on an adherence property in a guided arm delivering that property's exercised guidance entry as an `instruction` or `folder-file` while at least one other member in that arm scores above `0`.
+
+**Evidence.**\
+`packages/core/test/measures.test.ts` (`B29`) verifies that re-running `hydrationProfile` on `mission-kit`'s `2026-10-26-005243-absorb16` produces all 6 hydration rows (`E4`, `E8`, `M12` across `m7-base` and `m7-head`, with `23/24` hydrating cells each); `packages/core/test/chain-candidates.test.ts` (`G6`) verifies that `unmoved-scenario` flags `adherence-a4` on `2026-10-18-093310-adherence-pass2` (`0.60` vs `0.58`) and `instruction-member-unmoved` flags `c` and `f` on `adherence-a4-record/a4r-1@always-on` in `2026-10-20-083243-adherence-a4-validate`.
+
+**Source.**\
+`[V, director selection 2026-10-31 ("continue"); docs/BACKLOG.md B25, B28, B29]`

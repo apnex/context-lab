@@ -529,3 +529,65 @@ test("judgeDissent counts, per judge, the splits of three or more values it was 
 		{ judge: "x", votes: 4, splits: 3, lone: 1, rate: 1 / 3 },
 	]);
 });
+
+test("B29: hydrationProfile emits rows for scenario exercises:<id> tags even when properties name no guidance, reproducing mission-kit 2026-10-26-005243-absorb16", () => {
+	// 1. Unit check: comprehension scenario with exercises:E4, exercises:M12, exercises:E8 and no property.guidance.
+	const s: Scenario = {
+		id: "absorb16",
+		tags: ["comprehension", "exercises:E4", "exercises:M12", "exercises:E8"],
+		fixture: null,
+		task: "t",
+		properties: [prop("Q1", "comprehension", [])],
+	};
+	const cells = [
+		{
+			cell: "absorb16.m7-base.c.1",
+			scenario: "absorb16",
+			arm: "m7-base",
+			member: "c",
+			valid: true,
+			attempts: [{
+				attempt: 1,
+				validity: { valid: true as const },
+				outcome: outcome("ok", {
+					tools: [
+						readTool("E4-charter.md"),
+						readTool("M12-investigate-a-set.md"),
+						readTool("E8-evidence.md"),
+					],
+				}),
+				diff: null,
+			}],
+		},
+	];
+	const deliveries = {
+		"m7-base": [{ file: "INDEX.md", as: "instruction" as const }, { file: ".", as: "on-request" as const }],
+		bare: [],
+	};
+	const rows = hydrationProfile(cells, new Map([["absorb16", s]]), propertiesOf, deliveries);
+	assert.deepEqual(rows.map((r) => [r.guidance, r.hydrated, r.cells, r.rate, r.onRequestOnly]), [
+		["E4", 1, 1, 1, true],
+		["E8", 1, 1, 1, true],
+		["M12", 1, 1, 1, true],
+	]);
+
+	// 2. Recorded run check on mission-kit's 2026-10-26-005243-absorb16 when present on disk:
+	// 23 of 24 corpus cells (m7-base and m7-head, 12 cells each) hydrated E4, E8, and M12.
+	const absorbDir = "/home/apnex/taceng/mission-kit/docs/evals/runs/context-lab/2026-10-26-005243-absorb16";
+	if (fs.existsSync(absorbDir)) {
+		const rec = JSON.parse(fs.readFileSync(path.join(absorbDir, "run.json"), "utf8")) as {
+			cells: string[];
+			snapshot: { scenarios: Scenario[]; deliveries?: Record<string, { file: string; as: "instruction" | "folder-file" | "on-request" }[]> };
+		};
+		const absorbCells = rec.cells.map((c) => JSON.parse(fs.readFileSync(path.join(absorbDir, "cells", `${c}.json`), "utf8")));
+		const scMap = new Map(rec.snapshot.scenarios.map((x) => [x.id, x]));
+		const hRows = hydrationProfile(absorbCells, scMap, propertiesOf, rec.snapshot.deliveries);
+		assert.equal(hRows.length, 6, "m7-base and m7-head x (E4, E8, M12) = 6 hydration rows");
+		for (const gid of ["E4", "E8", "M12"]) {
+			const totalHydrated = hRows.filter((r) => r.guidance === gid).reduce((sum, r) => sum + r.hydrated, 0);
+			const totalCells = hRows.filter((r) => r.guidance === gid).reduce((sum, r) => sum + r.cells, 0);
+			assert.equal(totalCells, 24);
+			assert.equal(totalHydrated, 23);
+		}
+	}
+});

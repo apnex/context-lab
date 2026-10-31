@@ -138,6 +138,8 @@ export interface FindingRules {
 	hydratedNotActedThreshold?: number;
 	/** Share of a judge's splits in which it alone differed above which it emits a judge-outlier candidate; 0.5 by default. */
 	judgeOutlierThreshold?: number;
+	/** Minimum scale-normalised lift of a scenario's best guided arm over its unguided arm below which it emits an unmoved-scenario candidate (0050, B25); 0.1 by default. */
+	unmovedScenarioThreshold?: number;
 }
 
 export interface Property {

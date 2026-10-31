@@ -258,7 +258,7 @@ test("G6: evaluateCandidates and writeRunCandidates emit candidates for all four
 	];
 	const p2 = evaluateCandidates({ result: { ...result, properties: [], link: [], chain: null, hydration }, scenarios, guidedArms: ["almanac", "always"] });
 	assert.deepEqual(p2.candidates.map((c) => [c.rule, c.target]), [["routing-miss", "sc/R-low@almanac"], ["hydrated-not-acted", "sc/adh-h@almanac"]]);
-	assert.deepEqual(p2.rules, { wrongFiringThreshold: 0.25, knowsNotActsThreshold: 0.5, routingMissThreshold: 0.5, hydratedNotActedThreshold: 0.5, judgeOutlierThreshold: 0.5 });
+	assert.deepEqual(p2.rules, { wrongFiringThreshold: 0.25, knowsNotActsThreshold: 0.5, routingMissThreshold: 0.5, hydratedNotActedThreshold: 0.5, judgeOutlierThreshold: 0.5, unmovedScenarioThreshold: 0.1 });
 	// A scenario declaring what it exercises: rows for other guidance it names emit nothing, and a
 	// property flagged from two exercised entries' rows is written once.
 	const tagged = new Map([["sc", { ...s, tags: ["exercises:R-half", "exercises:R-dup"] }]]);
@@ -301,6 +301,37 @@ test("G6: evaluateCandidates and writeRunCandidates emit candidates for all four
 	const updatedRun = JSON.parse(fs.readFileSync(path.join(rd, "run.json"), "utf8"));
 	assert.ok(updatedRun.states.some((st: { state: string }) => st.state === "candidates-written"));
 	assert.deepEqual(fs.readdirSync(dir).sort(), packBefore, "writeRunCandidates must not add files to the pack directory");
+
+	// Rules 8 (unmoved-scenario, B25) and 9 (instruction-member-unmoved, B28) verified on recorded mission-kit runs:
+	// - On 2026-10-18-093310-adherence-pass2, adherence-a4 scored 0.58 unguided vs 0.60 guided (lift 0.02 < 0.10) -> unmoved-scenario flags adherence-a4.
+	// - On 2026-10-20-083243-adherence-a4-validate, c and f had A4 as an instruction in always-on and scored 0/3 on a4r-1 while a and o scored 1.0 -> instruction-member-unmoved flags c and f.
+	const pass2Dir = "/home/apnex/taceng/mission-kit/docs/evals/runs/context-lab/2026-10-18-093310-adherence-pass2";
+	if (fs.existsSync(pass2Dir)) {
+		const pass2Run = JSON.parse(fs.readFileSync(path.join(pass2Dir, "run.json"), "utf8")) as { snapshot: { scenarios: Scenario[]; deliveries?: Record<string, { file: string; as: "instruction" | "folder-file" | "on-request" }[]> } };
+		const pass2Res = JSON.parse(fs.readFileSync(path.join(pass2Dir, "RESULT.json"), "utf8")) as Result;
+		const pass2Pkt = evaluateCandidates({
+			result: pass2Res,
+			scenarios: new Map(pass2Run.snapshot.scenarios.map((x) => [x.id, x])),
+			guidedArms: ["on-trigger-pass1", "on-trigger", "always-on"],
+			...(pass2Run.snapshot.deliveries !== undefined ? { deliveries: pass2Run.snapshot.deliveries } : {}),
+		});
+		const unmoved = pass2Pkt.candidates.filter((c) => c.rule === "unmoved-scenario");
+		assert.deepEqual(unmoved.map((c) => c.target), ["adherence-a4"]);
+	}
+	const valDir = "/home/apnex/taceng/mission-kit/docs/evals/runs/context-lab/2026-10-20-083243-adherence-a4-validate";
+	if (fs.existsSync(valDir)) {
+		const valRun = JSON.parse(fs.readFileSync(path.join(valDir, "run.json"), "utf8")) as { snapshot: { scenarios: Scenario[]; deliveries?: Record<string, { file: string; as: "instruction" | "folder-file" | "on-request" }[]> } };
+		const valRes = JSON.parse(fs.readFileSync(path.join(valDir, "RESULT.json"), "utf8")) as Result;
+		const valPkt = evaluateCandidates({
+			result: valRes,
+			scenarios: new Map(valRun.snapshot.scenarios.map((x) => [x.id, x])),
+			guidedArms: ["on-trigger", "always-on"],
+			...(valRun.snapshot.deliveries !== undefined ? { deliveries: valRun.snapshot.deliveries } : {}),
+		});
+		const instrUnmoved = valPkt.candidates.filter((c) => c.rule === "instruction-member-unmoved");
+		assert.ok(instrUnmoved.some((c) => c.target === "adherence-a4-record/a4r-1@always-on:c"));
+		assert.ok(instrUnmoved.some((c) => c.target === "adherence-a4-record/a4r-1@always-on:f"));
+	}
 });
 
 test("G9: readZorgLegacyRun converts a legacy zorg census folder and countChain reproduces exact counts; when l-02 is present on disk, all 26 findings match FINDINGS-COUNT.json", async () => {
