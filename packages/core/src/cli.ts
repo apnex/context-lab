@@ -20,7 +20,7 @@
 //   context-lab pick   <pack> <run-dir> [--mode calibration|preference] [--count N] [--with ARM] [--without ARM]
 //                                                  run the human panel on a judged run and re-tally
 //   context-lab candidates <pack> <run-dir>        write CANDIDATES.json and CANDIDATES.md for a run
-//   context-lab review <pack> --prompt <file> [--files <path,...>] --out <dir> [--members <id,...>] [--verify] [--parallel N] [--tools on|off] [--sockets] [--mount-sources] [--ro <path,...>] [--timeout N]
+//   context-lab review <pack> --prompt <file> [--files <path,...>] --out <dir> [--members <id,...>] [--verify] [--parallel N] [--tools on|off] [--sockets] [--mount-sources] [--ro <path,...>] [--private-dir <path,...>] [--timeout N]
 //                                                  run a review prompt across model families and optionally cross-verify
 
 import fs from "node:fs";
@@ -156,7 +156,7 @@ switch (cmd) {
 		const promptFile = need(flag("--prompt")), outDir = need(flag("--out"));
 		const filesArg = flag("--files"), membersArg = flag("--members"), parallelArg = flag("--parallel"), workArg = flag("--work");
 		const toolsArg = flag("--tools") as "on" | "off" | undefined;
-		const roArg = flag("--ro"), timeoutArg = flag("--timeout"), npmCacheSource = flag("--npm-cache-source"), retainPathsArg = flag("--retain-paths"), excludeNamesArg = flag("--exclude-names");
+		const roArg = flag("--ro"), privateDirArg = flag("--private-dir"), timeoutArg = flag("--timeout"), npmCacheSource = flag("--npm-cache-source"), retainPathsArg = flag("--retain-paths"), excludeNamesArg = flag("--exclude-names");
 		const maxWorkspaceBytesArg = flag("--max-workspace-bytes"), maxTotalRetainedBytesArg = flag("--max-retained-bytes"), minFreeBytesArg = flag("--min-free-bytes"), maxDepCacheBytesArg = flag("--max-dep-cache-bytes"), maxTotalWorkingBytesArg = flag("--max-working-bytes");
 		const requireHardNativeQuota = process.argv.includes("--require-hard-native-quota");
 		const verify = process.argv.includes("--verify");
@@ -203,6 +203,7 @@ switch (cmd) {
 			...(workArg !== undefined ? { work: workArg } : {}),
 			...(toolsArg === "on" || toolsArg === "off" ? { tools: toolsArg } : {}),
 			...(roArg !== undefined ? { ro: roArg.split(",").filter(Boolean) } : {}),
+			...(privateDirArg !== undefined ? { privateDirs: privateDirArg.split(",").filter(Boolean) } : {}),
 			...(npmCacheSource !== undefined ? { npmCacheSource } : {}),
 			...(retainPathsArg !== undefined ? { retainPaths: retainPathsArg.split(",").filter(Boolean) } : {}),
 			...(excludeNamesArg !== undefined ? { excludeNames: excludeNamesArg.split(",").filter(Boolean) } : {}),

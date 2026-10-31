@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
 import {
-	ATTACHMENT_WRAPPER, CODEX_FEATURES_OFF, EMPTY_ARM, Refused, codexAdapter, externalAdapter, opencodeAdapter,
+	ATTACHMENT_WRAPPER, CODEX_FEATURES_OFF, EMPTY_ARM, Refused, codexAdapter, externalAdapter, opencodeAdapter, sandboxMounts,
 	type Adapter, type ComposedArm, type DeliveryMode, type Invocation, type Member, type Outcome,
 } from "../src/index.js";
 import { packageRoot, scratch } from "./helpers.js";
@@ -418,6 +418,45 @@ test("runtime-sandbox: node is bound on PATH inside the sandbox without leaking 
 	await cx.invoke(invocation(e2, "codex", { tools: "on", sockets: true }));
 	const tomlSockets = fs.readFileSync(path.join(e2.work, "codex-home", "config.toml"), "utf8");
 	assert.match(tomlSockets, /\[sandbox_workspace_write\]\nnetwork_access = true/);
+});
+
+test("runtime-sandbox: a private directory is mounted read-write at its target inside the sandbox, owner-only, and named a Codex writable root", async () => {
+	const e = setup();
+	const source = path.join(e.dir, "private-1");
+	fs.mkdirSync(source, { mode: 0o700 });
+	fs.chmodSync(source, 0o700);
+	const target = "/home/context-lab-private-probe/.state";
+	// The stub runtime reports the target's mode as the sandbox shows it and writes a file there.
+	const bin = path.join(e.dir, "stub-private", "opencode");
+	fs.mkdirSync(path.dirname(bin), { recursive: true });
+	fs.writeFileSync(
+		bin,
+		'#!/bin/sh\n' +
+		`MODE=$(stat -c %a '${target}')\n` +
+		`echo written > '${target}/probe.txt'\n` +
+		'printf \'{"type":"step_start","part":{}}\\n{"type":"text","part":{"messageID":"m1","text":"%s"}}\\n{"type":"step_finish","part":{"reason":"stop"}}\\n\' "$MODE"\n',
+		{ mode: 0o755 },
+	);
+	const op = operatorFiles(e.dir);
+	const a = opencodeAdapter({ binary: bin, operatorConfig: op.config, operatorCache: op.cache, env: { ...process.env, CL_TEST_KEY: KEY } });
+	const o = await a.invoke(invocation(e, "opencode", { privateDirs: [{ source, target }] }));
+	assert.equal(o.final, "700", "the target is the owner-only source");
+	assert.equal(fs.readFileSync(path.join(source, "probe.txt"), "utf8"), "written\n", "a write at the target lands in the source");
+
+	// The bind comes after every other mount, and with tools off no private directory is mounted at all.
+	const mounts = sandboxMounts({ install: bin, writable: [e.work], readOnly: [e.onRequest], binds: [{ source, target }], home: path.join(e.work, "home"), cwd: e.workspace, command: [bin], env: {}, stdin: null, timeLimitSeconds: 1 });
+	const at = mounts.indexOf("--bind", mounts.lastIndexOf("--ro-bind"));
+	assert.deepEqual(mounts.slice(at, at + 3), ["--bind", source, target]);
+	assert.match(a.refuse(invocation(e, "opencode", { tools: "off", privateDirs: [{ source, target }] })) ?? "", /private directories cannot be mounted when tools are off/);
+
+	// Codex's own workspace sandbox names the target a writable root, beside network access when sockets are on.
+	const e2 = setup();
+	await adapterFor("codex", e2, {}).invoke(invocation(e2, "codex", { tools: "on", sockets: true, privateDirs: [{ source, target }] }));
+	const toml = fs.readFileSync(path.join(e2.work, "codex-home", "config.toml"), "utf8");
+	assert.match(toml, /\[sandbox_workspace_write\]\nnetwork_access = true\nwritable_roots = \["\/home\/context-lab-private-probe\/\.state"\]/);
+	const e3 = setup();
+	await adapterFor("codex", e3, {}).invoke(invocation(e3, "codex", { tools: "on" }));
+	assert.doesNotMatch(fs.readFileSync(path.join(e3.work, "codex-home", "config.toml"), "utf8"), /sandbox_workspace_write|writable_roots/, "no section without sockets or private directories");
 });
 
 // B20: prepare renders what invoke runs. A live invocation goes through the stub, which records the

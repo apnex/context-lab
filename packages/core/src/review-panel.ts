@@ -147,6 +147,12 @@ export interface ReviewOptions {
 	sockets?: boolean;
 	mountSources?: boolean;
 	ro?: string[];
+	/**
+	 * Optional absolute paths inside the sandbox (tools "on" only) at each of which every reviewer gets its own empty,
+	 * owner-only (0700) writable directory, made under the working folder, for a tool that keeps per-user state at a
+	 * fixed path, such as operation-proxy's `~/.operation-proxy` (`Invocation.privateDirs`).
+	 */
+	privateDirs?: string[];
 	/** Optional read-only host npm cache (e.g. ~/.npm) whose content-v2 store is linked into a separate per-attempt writable dep-cache outside the retained workspace (0041, B31). */
 	npmCacheSource?: string;
 	/** Optional relative paths inside {WORKSPACE} to retain explicitly (or to allow even if inside an excluded directory name). */
@@ -993,6 +999,18 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 	if (opts.sockets && toolsMode !== "on") {
 		throw new Error("--sockets requires --tools on");
 	}
+	const privateTargets = opts.privateDirs ?? [];
+	if (privateTargets.length > 0 && toolsMode !== "on") {
+		throw new Error("--private-dir requires --tools on");
+	}
+	for (const t of privateTargets) {
+		if (typeof t !== "string" || !path.isAbsolute(t) || path.resolve(t) !== t || t === path.parse(t).root) {
+			throw new Error(`private directory ${JSON.stringify(t)} must be an absolute, normalized path other than the root`);
+		}
+	}
+	if (new Set(privateTargets).size !== privateTargets.length) {
+		throw new Error("private directories must be distinct");
+	}
 	if (toolsMode === "on" && validatedLimits.requireHardNativeQuota) {
 		throw new Error("requireHardNativeQuota is not supported on unprivileged bwrap bind mounts (Linux user namespaces cannot mount size-bounded tmpfs over host paths or enforce kernel prjquota); omit requireHardNativeQuota to use synchronous Node ENOSPC + 5ms active SIGKILL monitoring");
 	}
@@ -1106,6 +1124,13 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 			const depCacheDir = path.join(workDir, "dep-cache", member.id);
 			fs.mkdirSync(scratchDir, { recursive: true });
 			const depCache = toolsMode === "on" ? prepareIsolatedDepCache(depCacheDir, roNpmSource) : null;
+			// Each reviewer's private directories start empty and owner-only, whatever the umask removed.
+			const privateDirs = toolsMode === "on" ? privateTargets.map((target, i) => {
+				const source = path.join(workDir, "private", member.id, String(i + 1));
+				fs.mkdirSync(source, { recursive: true, mode: 0o700 });
+				fs.chmodSync(source, 0o700);
+				return { source, target };
+			}) : [];
 			fs.mkdirSync(path.join(workDir, "invocations"), { recursive: true });
 			const invDir = fs.mkdtempSync(path.join(workDir, "invocations", "r-"));
 			fs.rmdirSync(invDir);
@@ -1115,6 +1140,7 @@ export async function runReview(packDir: string, opts: ReviewOptions): Promise<R
 				tools: toolsMode, ...(opts.sockets ? { sockets: true } : {}),
 				...(toolsMode === "on" ? {
 					extraWritable: [scratchDir, depCacheDir],
+					...(privateDirs.length > 0 ? { privateDirs } : {}),
 					extraEnv: {
 						TMPDIR: scratchDir,
 						...(depCache ? depCache.env : {}),

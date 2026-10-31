@@ -172,6 +172,51 @@ test("G7: ARCHITECTURE-TARGET.md absorbs 0025/0026/B18, and runReview refuses < 
 	assert.equal(fs.readFileSync(path.join(outTools, "workspaces", "p1", "cert.md"), "utf8").trim(), "certified by p1");
 	assert.equal(fs.readFileSync(path.join(outTools, "events", "p1.jsonl"), "utf8").trim(), '{"type":"turn"}');
 	assert.equal(toolsPacket.findings[0]?.severity, "blocking");
+
+	// --private-dir gives each reviewer its own empty owner-only directory under the working folder, at each target.
+	const privateSeen: { member: string; dirs: { source: string; target: string }[]; modes: number[]; empty: boolean }[] = [];
+	const privateAdapter = (runtime: string): Adapter => ({
+		...toolsAdapter(runtime),
+		async invoke(inv: Invocation) {
+			const dirs = inv.privateDirs ?? [];
+			privateSeen.push({ member: inv.member.id, dirs, modes: dirs.map((d) => fs.statSync(d.source).mode & 0o777), empty: dirs.every((d) => fs.readdirSync(d.source).length === 0) });
+			fs.writeFileSync(path.join(inv.workspace, "cert.md"), `certified by ${inv.member.id}\n`);
+			return outcome("```json\n[]\n```");
+		},
+	});
+	const privateWork = path.join(sDir, "work-private");
+	const privateTargets = ["/home/reviewer/.operation-proxy", "/srv/state"];
+	await runReview(dir, {
+		promptFile: toolsPrompt, members: ["p1", "p2"], tools: "on", privateDirs: privateTargets,
+		outDir: path.join(sDir, "out-private"), work: privateWork,
+		adapters: { opencode: privateAdapter("opencode"), codex: privateAdapter("codex") },
+	});
+	assert.equal(privateSeen.length, 2);
+	const sources = new Set<string>();
+	for (const seen of privateSeen) {
+		assert.deepEqual(seen.dirs.map((d) => d.target), privateTargets);
+		assert.deepEqual(seen.modes, [0o700, 0o700]);
+		assert.equal(seen.empty, true);
+		for (const d of seen.dirs) {
+			assert.ok(d.source.startsWith(path.join(privateWork) + path.sep) && d.source.includes(`${path.sep}private${path.sep}${seen.member}${path.sep}`), d.source);
+			sources.add(d.source);
+		}
+	}
+	assert.equal(sources.size, 4, "no two reviewers or targets share a private directory");
+	const badPrivate: [{ tools: "on" | "off"; privateDirs: string[] }, RegExp][] = [
+		[{ tools: "off", privateDirs: ["/srv/state"] }, /--private-dir requires --tools on/],
+		[{ tools: "on", privateDirs: ["relative/state"] }, /must be an absolute, normalized path/],
+		[{ tools: "on", privateDirs: ["/srv/../srv/state"] }, /must be an absolute, normalized path/],
+		[{ tools: "on", privateDirs: ["/"] }, /other than the root/],
+		[{ tools: "on", privateDirs: ["/srv/state", "/srv/state"] }, /must be distinct/],
+	];
+	for (const [over, message] of badPrivate) {
+		await assert.rejects(() => runReview(dir, {
+			promptFile: toolsPrompt, members: ["p1", "p2"], ...over,
+			outDir: path.join(sDir, "out-private-bad"), work: path.join(sDir, "work-private-bad"),
+			adapters: { opencode: privateAdapter("opencode"), codex: privateAdapter("codex") },
+		}), message);
+	}
 });
 
 test("B31: runReview and publishRetainedWorkspace isolate dep-cache and scratch, exclude package-cache payloads, verify MANIFEST.json before recoverable two-rename publication, preserve existing valid archives and original workspaces on fault, and cleanReviewWorkRoot honors active/preserved locks", async () => {

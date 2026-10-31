@@ -106,6 +106,13 @@ export interface Invocation {
 	sockets?: boolean;
 	/** Optional additional writable directories inside the sandbox (e.g. a per-attempt scratch/dependency-cache directory outside the retained workspace). */
 	extraWritable?: string[];
+	/**
+	 * Optional private directories (tools "on" only): each host `source`, which the caller makes empty with mode 0700, is
+	 * mounted read-write at `target` inside the sandbox and named a writable root of a runtime whose own workspace sandbox
+	 * restricts writes (Codex), so a tool keeping per-user state at a fixed path, such as operation-proxy's
+	 * `~/.operation-proxy`, gets a fresh owner-only directory there for this invocation alone.
+	 */
+	privateDirs?: { source: string; target: string }[];
 	/** Optional environment variables passed into the sandboxed runtime (e.g. npm_config_cache / TMPDIR). */
 	extraEnv?: Record<string, string>;
 	/** Optional AbortSignal passed to runSandboxed so an active storage monitor can kill the sandbox immediately (0046, B31). */
@@ -288,6 +295,7 @@ function scrubOutcome(o: Outcome, secrets: string[]): Outcome {
 function commonRefusals(inv: Invocation, adapter: Adapter, resumeModes: DeliveryMode[] = []): string | null {
 	if (!adapter.modes.includes(inv.mode)) return `delivery mode ${inv.mode} is not one ${adapter.runtime} supports (${adapter.modes.join(", ")})`;
 	if (inv.sockets && inv.tools === "off") return "sockets cannot be enabled when tools are off";
+	if ((inv.privateDirs?.length ?? 0) > 0 && inv.tools === "off") return "private directories cannot be mounted when tools are off";
 	const c = inv.continueFrom;
 	if (c === undefined) return null;
 	if (!adapter.continue) return `${adapter.runtime} does not continue sessions`;
@@ -482,7 +490,8 @@ export function opencodeAdapter(opts: OpencodeOptions = {}): Adapter {
 		const instructionBytes = instructions.reduce((sum, f) => sum + fs.statSync(f.path).size, 0);
 		const controlledInputBytes = measureControlledInputBytes(inv, instructionBytes, inv.mode === "attachment" ? ATTACHMENT_WRAPPER : null);
 		const writable = [inv.work, inv.workspace, ...(inv.tools === "on" ? (inv.extraWritable ?? []) : [])];
-		const spec: SandboxSpec = { install: binary, writable, readOnly: onRequest, home, cwd: inv.workspace, command: [binary, ...args], env: runEnv, stdin: null, timeLimitSeconds: inv.timeLimitSeconds, ...(inv.maxStdoutBytes !== undefined ? { maxStdoutBytes: inv.maxStdoutBytes } : {}), ...(inv.signal !== undefined ? { signal: inv.signal } : {}) };
+		const binds = inv.tools === "on" ? (inv.privateDirs ?? []) : [];
+		const spec: SandboxSpec = { install: binary, writable, readOnly: onRequest, ...(binds.length > 0 ? { binds } : {}), home, cwd: inv.workspace, command: [binary, ...args], env: runEnv, stdin: null, timeLimitSeconds: inv.timeLimitSeconds, ...(inv.maxStdoutBytes !== undefined ? { maxStdoutBytes: inv.maxStdoutBytes } : {}), ...(inv.signal !== undefined ? { signal: inv.signal } : {}) };
 		return { spec, home, xdg, secrets, shownEnv, instructions, controlledInputBytes, credentialVars: p.credentialVars, redacted: JSON.stringify(redactProvider(p.block)) !== JSON.stringify(p.block) };
 	}
 	return adapter;
@@ -629,8 +638,12 @@ export function codexAdapter(opts: CodexOptions = {}): Adapter {
 		// Hosted tools reach the web outside the sandbox: a live check found Codex opening a page
 		// through its apps connector with web search disabled. Each is switched off by name.
 		lines.push("", "[features]", ...CODEX_FEATURES_OFF.map((f) => `${f} = false`));
-		if (inv.sockets && inv.tools === "on") {
-			lines.push("", "[sandbox_workspace_write]", "network_access = true");
+		// A private directory is mounted by the outer sandbox, and Codex's own workspace sandbox must also let it be written.
+		const privateTargets = inv.tools === "on" ? (inv.privateDirs ?? []).map((d) => d.target) : [];
+		if ((inv.sockets && inv.tools === "on") || privateTargets.length > 0) {
+			lines.push("", "[sandbox_workspace_write]");
+			if (inv.sockets && inv.tools === "on") lines.push("network_access = true");
+			if (privateTargets.length > 0) lines.push(`writable_roots = [${privateTargets.map((t) => toml(t)).join(", ")}]`);
 		}
 		fs.writeFileSync(path.join(codexHome, "config.toml"), lines.join("\n") + "\n");
 		const vendor = opts.vendor ?? codexVendor(env);
@@ -644,8 +657,9 @@ export function codexAdapter(opts: CodexOptions = {}): Adapter {
 		const secrets = live ? authSecrets(auth) : [];
 		const controlledInputBytes = measureControlledInputBytes(inv, Buffer.byteLength(dev, "utf8"), null);
 		const writable = inv.tools === "off" ? [inv.work] : [inv.work, inv.workspace, ...(inv.extraWritable ?? [])];
+		const binds = inv.tools === "on" ? (inv.privateDirs ?? []) : [];
 		const spec: SandboxSpec = {
-			install: vendor, writable, readOnly: inv.tools === "off" ? [] : inv.arm.onRequest.map((o) => o.path), home, cwd: workspace,
+			install: vendor, writable, readOnly: inv.tools === "off" ? [] : inv.arm.onRequest.map((o) => o.path), ...(binds.length > 0 ? { binds } : {}), home, cwd: workspace,
 			command: [binary, ...args], env: { PATH: sandboxPath(), PWD: workspace, HOME: home, CODEX_HOME: codexHome, ...(inv.extraEnv ?? {}) }, stdin: inv.mode === "stdin" ? inv.prompt : null, timeLimitSeconds: inv.timeLimitSeconds, ...(inv.maxStdoutBytes !== undefined ? { maxStdoutBytes: inv.maxStdoutBytes } : {}), ...(inv.signal !== undefined ? { signal: inv.signal } : {}),
 		};
 		return { spec, home, codexHome, workspace, secrets, controlledInputBytes };

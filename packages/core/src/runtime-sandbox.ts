@@ -21,6 +21,8 @@ export interface SandboxSpec {
 	writable: string[];
 	/** Folders mounted read-only at their own paths: the arm's on-request folders. */
 	readOnly: string[];
+	/** Host folders mounted read-write at another path, after every other folder so none hides them: an invocation's private directories. */
+	binds?: { source: string; target: string }[];
 	/** The empty home the runtime sees. */
 	home: string;
 	cwd: string;
@@ -60,6 +62,7 @@ export function sandboxMounts(spec: SandboxSpec): string[] {
 	a.push("--ro-bind", spec.install, spec.install);
 	for (const w of spec.writable) a.push("--bind", w, w);
 	for (const r of spec.readOnly) a.push("--ro-bind", r, r);
+	for (const b of spec.binds ?? []) a.push("--bind", b.source, b.target);
 	a.push("--dir", spec.home, "--chdir", spec.cwd);
 	return a;
 }
